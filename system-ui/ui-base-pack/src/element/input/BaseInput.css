@@ -1,0 +1,6 @@
+.base-input{
+  outline: 0;
+}
+.base-input:focus-visible{
+  outline: 0;
+}
