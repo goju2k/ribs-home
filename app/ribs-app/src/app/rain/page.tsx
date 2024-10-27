@@ -2,8 +2,9 @@
 
 'use client';
 
-import { MapMarkerWrapper, MapType, MintMap, NaverMintMapController, PolygonMarker, Position, useMintMapController } from '@mint-ui/map';
+import { MapControlWrapper, MapMarkerWrapper, MapType, MintMap, NaverMintMapController, Position, useMintMapController } from '@mint-ui/map';
 import { useEffect, useRef, useState } from 'react';
+import { BaseFlex } from 'ui-base-pack';
 
 export default function TestPage() {
   return (
@@ -54,6 +55,7 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
 
 function Calc() {
   
+  // 기준 바운더리
   const pos = useRef([
     new Position(30.8101038494, 121.3322516155),
     new Position(40.1670385352, 120.609116658),
@@ -65,11 +67,7 @@ function Calc() {
 
   const [ imageSize, setImageSize ] = useState<number>(1453);
   const [ imageSize2, setImageSize2 ] = useState<number>(1380.9291408325953);
-  const [ imageScale, setImageScale ] = useState<number>();
-  const imageSizeRef = useRef(imageSize);
-  useEffect(() => {
-    imageSizeRef.current = imageSize;
-  }, [ imageSize ]);
+  const [ imageShow, setImageShow ] = useState(false);
   
   const getOffset = (position:Position) => {
     if (controller instanceof NaverMintMapController) {
@@ -79,7 +77,7 @@ function Calc() {
   };
 
   const handleZoomStart = () => {
-    setImageScale(undefined);
+    setImageShow(false);
   };
 
   const handleZoomChanged = () => {
@@ -93,22 +91,12 @@ function Calc() {
     const offset1_y = getOffset(pos.current[1]);
     const offset2_y = getOffset(pos.current[0]);
     const size_y = Math.floor(offset2_y.y - offset1_y.y);
-        
-    if (!imageSizeRef.current) {
+
+    setImageSize(size);
+    setImageSize2(size_y);
+    // console.log('imageSize =>> ', size, size_y);
   
-      setImageSize(size);
-      setImageScale(1);
-      console.log('imageSize =>> ', size, 'scale', 1);
-  
-    } else {
-  
-      const scale = Number(size) / Number(imageSizeRef.current);
-      setImageScale(scale);
-      setImageSize(size);
-      setImageSize2(size_y);
-      console.log('imageSize =>> ', size, size_y, 'scale', scale);
-  
-    }
+    setImageShow(true);
 
   };
 
@@ -125,28 +113,75 @@ function Calc() {
 
   }, []);
 
-  const [ tm, setTm ] = useState(getTime(10));
+  const [ tmBefore, setTmBefore ] = useState(5);
+  const [ tm, setTm ] = useState(getTime(tmBefore));
+  const [ tmText, setTmText ] = useState<string>('');
   const [ radarStartPosition ] = useState(new Position(40.1670385352, 120.609116658));
+  useEffect(() => {
+    setTmText(`${tm.substring(4, 6)}월 ${tm.substring(6, 8)}일 ${tm.substring(8, 10)}시 ${tm.substring(10, 12)}분`);
+  }, [ tm ]);
+
+  const [ opacity, setOpacity ] = useState(0.4);
 
   return (
     <>
 
-      {imageSize !== undefined && imageScale !== undefined && (
+      <MapControlWrapper positionHorizontal='right' positionVertical='top'>
+        <div style={{
+          background: 'white',
+          border: '1px solid gray',
+          borderRadius: '3px', 
+          padding: '10px', 
+          marginTop: '10px',
+          marginRight: '10px',
+          fontSize: '14px',
+        }}
+        >
+          <BaseFlex flexgap='4px'>
+            <div>기준시각 : {tmText}</div>
+            <BaseFlex flexrow flexalign='center' flexspacebetween>
+              <span style={{ width: '55px' }}>투명도</span>
+              <input
+                id='opacity'
+                type='range'
+                min={0.1}
+                max={1.0}
+                step={0.1}
+                value={opacity}
+                onChange={(e) => {
+                  setOpacity(Number(e.target.value));
+                }}
+              />
+            </BaseFlex>
+          </BaseFlex>
+        </div>
+      </MapControlWrapper>
+
+      {imageShow && (
         <MapMarkerWrapper position={radarStartPosition} disablePointerEvent>
-          <div style={{ width: `${imageSize}px`, height: `${imageSize2}px`, border: '1px solid coral' }}>
+          <div style={{ width: `${imageSize}px`, height: `${imageSize2}px`, border: '0px solid coral' }}>
             <img 
               src={`https://vapi.kma.go.kr/BUFD/rdr_sfc_pty_img_${tm}_1453.png`}
               alt={`radar-${tm}`}
-              style={{ width: '100%', height: '100%' }}
+              style={{ width: '100%', height: '100%', opacity }}
               onError={() => {
-                setTm(getTime(20));
+                if (tmBefore < 30) {
+
+                  const nextBefore = tmBefore + 5;
+                  setTmBefore(nextBefore);
+
+                  const time = getTime(nextBefore);
+                  setTm(time);
+                  
+                }
               }}
             />
           </div>
         </MapMarkerWrapper>
       )}
 
-      {pos.current.map((p, idx) => (
+      {/* 기준점 가이드라인 */}
+      {/* {pos.current.map((p, idx) => (
         <MapMarkerWrapper position={p} key={idx}>
           <div style={{
             width: '24px',
@@ -161,12 +196,12 @@ function Calc() {
             {`p${idx}`}
           </div>
         </MapMarkerWrapper>
-      ))}
+      ))} */}
 
-      <PolygonMarker
+      {/* <PolygonMarker
         position={pos.current} 
         mode='POLYLINE'
-      />
+      /> */}
         
     </>
   );

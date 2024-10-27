@@ -1,5 +1,5 @@
 /* eslint-disable @next/next/no-sync-scripts */
-import { GoogleAnalytics, GoogleTagManager } from '@next/third-parties/google';
+// import { GoogleAnalytics, GoogleTagManager } from '@next/third-parties/google';
 import { Metadata, Viewport } from 'next';
 
 import { StyledComponentsRegistry } from './registry';
@@ -13,11 +13,11 @@ export const viewport: Viewport = {
 
 export const metadata:Metadata = {
   metadataBase: new URL('http://www.ribs.kr'),
-  title: 'ribs home',
-  description: 'welcome to ribs home',
+  title: 'Ribs Home',
+  description: 'Welcome to Ribs Home',
   openGraph: {
     type: 'website',
-    title: 'ribs home',
+    title: 'Ribs Home',
     url: 'http://www.ribs.kr',
   },
 };
@@ -33,8 +33,8 @@ export default function RootLayout({ children }: {
       </head>
       <body>
         <StyledComponentsRegistry>{children}</StyledComponentsRegistry>
-        <GoogleTagManager gtmId={process.env.NEXT_PUBLIC_GA_ID} />
-        <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} />
+        {/* <GoogleTagManager gtmId={process.env.NEXT_PUBLIC_GA_ID} />
+        <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} /> */}
       </body>
     </html>
   );
