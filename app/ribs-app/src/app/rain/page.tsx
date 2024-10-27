@@ -28,7 +28,7 @@ function getTime(minuteBefore?:number) {
   const mm = String(now.getMonth() + 1).padStart(2, '0');
   const dd = String(now.getDate()).padStart(2, '0');
   const hh = String(now.getHours()).padStart(2, '0');
-  const mi = String(Math.floor(now.getMinutes() / 10)).padEnd(2, '0');
+  const mi = String(Math.floor(now.getMinutes() / 5) * 5).padStart(2, '0');
   return `${yyyy}${mm}${dd}${hh}${mi}`;
 }
 
@@ -113,7 +113,7 @@ function Calc() {
 
   }, []);
 
-  const [ tmBefore, setTmBefore ] = useState(5);
+  const [ tmBefore, setTmBefore ] = useState(4);
   const [ tm, setTm ] = useState(getTime(tmBefore));
   const [ tmText, setTmText ] = useState<string>('');
   const [ radarStartPosition ] = useState(new Position(40.1670385352, 120.609116658));
