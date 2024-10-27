@@ -1,2 +1,2 @@
-export * from './element/flex/BaseFlex';
+export * from './element/flex/Flex';
 export * from './element/typo/BaseText';

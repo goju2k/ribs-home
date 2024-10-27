@@ -3,7 +3,7 @@ import React, { forwardRef } from 'react';
 import { BaseElementProp } from '../../type/base-prop';
 
 export type FlexAlign = 'left-center' | 'left-top' | 'left-bottom' | 'center' | 'center-top' | 'center-bottom' | 'right-center' | 'right-top' | 'right-bottom';
-export interface BaseFlexProps extends BaseElementProp<React.HTMLAttributes<HTMLDivElement>, HTMLDivElement> {
+export interface FlexProps extends BaseElementProp<React.HTMLAttributes<HTMLDivElement>, HTMLDivElement> {
   tagName?:keyof Pick<JSX.IntrinsicElements, 'div'|'section'|'article'>;
   flexrow?:boolean;
   flexalign?:FlexAlign;
@@ -19,13 +19,13 @@ export interface BaseFlexProps extends BaseElementProp<React.HTMLAttributes<HTML
   flexfit?:boolean;
 }
 
-export const BaseFlex = forwardRef<HTMLDivElement, BaseFlexProps>(({
+export const Flex = forwardRef<HTMLDivElement, FlexProps>(({
   tagName: CustomTag = 'div',
   flexrow, flexalign, flexoutline, flexsize, flexoverflow, flexspacebetween, flexspaceevenly, flexgap, flexwidth, flexheight, flexpadding, flexfit,
   style,
   children,
   ...props 
-}:BaseFlexProps, ref) => (
+}:FlexProps, ref) => (
   <CustomTag
     ref={ref}
     className='base-flex'
@@ -49,7 +49,7 @@ export const BaseFlex = forwardRef<HTMLDivElement, BaseFlexProps>(({
   </CustomTag>
 ));
 
-BaseFlex.displayName = 'BaseFlex';
+Flex.displayName = 'Flex';
 
 function getFlexStyle(flexSize?:React.CSSProperties['width'], flexfit?:boolean):React.CSSProperties['flex'] {
   if (flexfit) {

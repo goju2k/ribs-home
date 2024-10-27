@@ -1,6 +1,6 @@
 import { MouseEventHandler } from 'react';
 import styled from 'styled-components';
-import { BaseFlex } from 'ui-base-pack';
+import { Flex } from 'ui-base-pack';
 
 export interface SpanBoxProps {
   cursorPointerOnHover?:boolean;
@@ -18,9 +18,9 @@ export function SpanBox({
 }:React.PropsWithChildren<SpanBoxProps>) {
   return (
     <BoxContainer cursorPointerOnHover={cursorPointerOnHover} onClick={boxOnClick}>
-      <BaseFlex flexrow flexalign='left-center' flexgap={spanGap} flexsize='fit-content' flexwidth='fit-content'>
+      <Flex flexrow flexalign='left-center' flexgap={spanGap} flexsize='fit-content' flexwidth='fit-content'>
         {children}
-      </BaseFlex>
+      </Flex>
     </BoxContainer>
   );
 }

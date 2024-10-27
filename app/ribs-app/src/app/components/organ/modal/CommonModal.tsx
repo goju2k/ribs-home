@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { forwardRef } from 'react';
 import styled, { CSSProperties } from 'styled-components';
-import { BaseFlex, BaseText } from 'ui-base-pack';
+import { Flex, BaseText } from 'ui-base-pack';
 
 import { Modal, ModalControl } from '../../layout/Modal';
 import { overrideFC } from '../../OverrideFc';
@@ -42,7 +42,7 @@ export const CommonModal = forwardRef<ModalControl|null, React.PropsWithChildren
   
       <OpacityContainer>
       
-        <BaseFlex
+        <Flex
           flexfit
           flexwidth='330px'
           flexalign='center'
@@ -57,13 +57,13 @@ export const CommonModal = forwardRef<ModalControl|null, React.PropsWithChildren
           }}
         >
 
-          <BaseFlex>
+          <Flex>
           
-            <BaseFlex flexrow>
-              <BaseFlex flexgap='4px'>
+            <Flex flexrow>
+              <Flex flexgap='4px'>
                 {title.map((t, idx) => <TitleText style={titleStyle} key={`title-${idx}`}>{t}</TitleText>)}
-              </BaseFlex>
-              <BaseFlex
+              </Flex>
+              <Flex
                 flexfit
                 onClick={() => {
                   onHide && onHide();
@@ -72,22 +72,22 @@ export const CommonModal = forwardRef<ModalControl|null, React.PropsWithChildren
                 }}
               >
                 <CloseIcon />
-              </BaseFlex>
-            </BaseFlex>
+              </Flex>
+            </Flex>
 
             {subTitle && <SubInfoText>{subTitle}</SubInfoText>}
         
-          </BaseFlex>
+          </Flex>
 
           {children}
 
           {buttonProps && (
-            <BaseFlex flexalign='center'>
+            <Flex flexalign='center'>
               <ProcessButton {...buttonProps} />
-            </BaseFlex>
+            </Flex>
           )}
 
-        </BaseFlex>
+        </Flex>
       </OpacityContainer>
     
     </Modal>

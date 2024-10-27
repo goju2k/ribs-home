@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRecoilValue } from 'recoil';
-import { BaseFlex, BaseText } from 'ui-base-pack';
+import { Flex, BaseText } from 'ui-base-pack';
 
 import { GlobalToastMessage } from './toast';
 
@@ -50,11 +50,11 @@ export function GlobalToast() {
         },
       }}
     >
-      <BaseFlex flexfit>
+      <Flex flexfit>
         <BaseText textColor='#fff' textWhiteSpace='pre-line' style={{ overflow: 'hidden', width: '100%' }}>
           {messageState}
         </BaseText>
-      </BaseFlex>
+      </Flex>
     </CommonModal>
   );
 }
