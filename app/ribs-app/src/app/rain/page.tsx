@@ -4,7 +4,12 @@
 
 import { MapControlWrapper, MapMarkerWrapper, MapType, MintMap, NaverMintMapController, Position, useMintMapController } from '@mint-ui/map';
 import { useEffect, useRef, useState } from 'react';
+import styled from 'styled-components';
 import { BaseFlex } from 'ui-base-pack';
+
+import { useGeoLocationHook } from './hook/geo-location-hook';
+
+import { RequestButton } from '../components/base/Button';
 
 export default function TestPage() {
   return (
@@ -94,9 +99,10 @@ function Calc() {
 
     setImageSize(size);
     setImageSize2(size_y);
-    // console.log('imageSize =>> ', size, size_y);
-  
     setImageShow(true);
+
+    // 현재위치 대기상태
+    setAskPosition(false);
 
   };
 
@@ -123,6 +129,16 @@ function Calc() {
 
   const [ opacity, setOpacity ] = useState(0.4);
 
+  // GPS 요청
+  const [ askPosition, setAskPosition ] = useState(false);
+  const currPosition = useGeoLocationHook(askPosition);
+  useEffect(() => {
+    if (currPosition) {
+      controller.setCenter(currPosition);
+      controller.setZoomLevel(12);
+    }
+  }, [ currPosition ]);
+
   return (
     <>
 
@@ -138,9 +154,12 @@ function Calc() {
         }}
         >
           <BaseFlex flexgap='4px'>
-            <div>기준시각 : {tmText}</div>
             <BaseFlex flexrow flexalign='center' flexspacebetween>
-              <span style={{ width: '55px' }}>투명도</span>
+              <span style={{ width: '100px' }}>기준시각</span>
+              <BaseFlex flexalign='center'>{tmText}</BaseFlex>
+            </BaseFlex>
+            <BaseFlex flexrow flexalign='center' flexspacebetween>
+              <span style={{ width: '100px' }}>투명도</span>
               <input
                 id='opacity'
                 type='range'
@@ -152,6 +171,18 @@ function Calc() {
                   setOpacity(Number(e.target.value));
                 }}
               />
+            </BaseFlex>
+            <BaseFlex flexrow flexalign='center' flexspacebetween>
+              <span style={{ width: '100px' }}>현재위치</span>
+              <BaseFlex flexalign='center'>
+                <RequestButton
+                  disabled={askPosition}
+                  onClick={() => {
+                    setAskPosition(true);
+                  }}
+                >바로가기
+                </RequestButton>
+              </BaseFlex>
             </BaseFlex>
           </BaseFlex>
         </div>
@@ -177,6 +208,28 @@ function Calc() {
               }}
             />
           </div>
+        </MapMarkerWrapper>
+      )}
+
+      {currPosition && (
+        <MapMarkerWrapper position={currPosition}>
+          <>
+            <ArrowImgMarker
+              src='/images/rain/marker_arrow.png'
+              alt='The position of the marker'
+              style={{ position: 'absolute', transform: 'translate(-50%, -150%)', opacity: 0.8 }}
+            />
+            <div style={{
+              position: 'absolute', 
+              width: '12px',
+              height: '12px', 
+              background: '#ff6565',
+              border: '2px solid red',
+              borderRadius: '50%',
+              transform: 'translate(-50%, -50%)', 
+            }}
+            />
+          </>
         </MapMarkerWrapper>
       )}
 
@@ -206,3 +259,18 @@ function Calc() {
     </>
   );
 }
+
+const ArrowImgMarker = styled.img`
+  @keyframes arrow-bounce {
+    0% {
+      transform: translate(-50%, -150%);
+    }
+    50% {
+      transform: translate(-50%, -200%);
+    }
+    100% {
+      transform: translate(-50%, -150%);
+    }
+  }
+  animation: arrow-bounce 1s infinite;
+`;
