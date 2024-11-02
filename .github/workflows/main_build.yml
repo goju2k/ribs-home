@@ -9,4 +9,4 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
     - name: Trigger jenkins job
-      run: curl -X POST -u "goju2k:${{ secrets.RIBS_JENKINS_KEY }}" "http://www.ribs.kr:10000/job/build-ribs-home/build"
+      run: curl -X POST -u "goju2k:${{ secrets.RIBS_JENKINS_KEY }}" "http://home.ribs.kr:10000/job/build-ribs-home/build"

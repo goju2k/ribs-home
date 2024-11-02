@@ -12,13 +12,13 @@ export const viewport: Viewport = {
 };
 
 export const metadata:Metadata = {
-  metadataBase: new URL('http://www.ribs.kr'),
+  metadataBase: new URL('https://www.ribs.kr'),
   title: 'Ribs Home',
   description: 'Welcome to Ribs Home',
   openGraph: {
     type: 'website',
     title: 'Ribs Home',
-    url: 'http://www.ribs.kr',
+    url: 'https://www.ribs.kr',
   },
 };
 
