@@ -2,7 +2,9 @@
 
 import { MapType, MintMap, Position } from '@mint-ui/map';
 
+import { MapControlLayer } from './components/map-layer/MapControl';
 import { RainRadarLayer } from './components/map-layer/RainRadarLayer';
+import { TemperatureLayer } from './components/map-layer/TemperatureLayer';
 
 export default function TestPage() {
   return (
@@ -18,7 +20,7 @@ const MapKeys = {
 } as Record<MapType, string>;
 
 function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
-
+  
   return (
     <>
       <MintMap
@@ -30,6 +32,12 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
           zoomLevel: 7,
         }}
       >
+
+        {/* 맵 컨트롤 */}
+        <MapControlLayer />
+
+        {/* 레이어: 전국 기온 */}
+        <TemperatureLayer />
         
         {/* 레이어: 강수 레이더 */}
         <RainRadarLayer />
