@@ -1,11 +1,12 @@
 /* eslint-disable @next/next/no-img-element */
 
-import { MapMarkerWrapper, Position, useMintMapController } from '@mint-ui/map';
+import { MapControlWrapper, MapMarkerWrapper, Position, useMintMapController } from '@mint-ui/map';
 import { useEffect, useRef, useState } from 'react';
-import { useRecoilState } from 'recoil';
+import { useRecoilValue } from 'recoil';
 import styled from 'styled-components';
+import { Flex } from 'ui-base-pack';
 
-import { MapControlState } from '../../state/map-controls';
+import { MapControlState, useUpdateMapControl } from '../../state/map-controls';
 import { getOffset } from '../../util/map-util';
 
 export function RainRadarLayer() {
@@ -45,8 +46,8 @@ export function RainRadarLayer() {
     setImageShow(true);
 
     // 현재위치 대기상태
-    setControlState((prev) => ({ ...prev, askPosition: false }));
-
+    updateControl('askPosition', false);
+    
   };
 
   useEffect(() => {
@@ -67,13 +68,53 @@ export function RainRadarLayer() {
   const [ tmBefore, setTmBefore ] = useState(4);
   const [ tm, setTm ] = useState(getTime(tmBefore));
 
-  const [{ opacity, currPosition }, setControlState ] = useRecoilState(MapControlState);
+  const { opacity, currPosition, temperatureFlag } = useRecoilValue(MapControlState);
+  const updateControl = useUpdateMapControl();
   useEffect(() => {
-    setControlState((prev) => ({ ...prev, tmText: `${tm.substring(4, 6)}월 ${tm.substring(6, 8)}일 ${tm.substring(8, 10)}시 ${tm.substring(10, 12)}분` }));
+    updateControl('tmText', `${tm.substring(4, 6)}월 ${tm.substring(6, 8)}일 ${tm.substring(8, 10)}시 ${tm.substring(10, 12)}분`);
   }, [ tm ]);
   
   return (
     <>
+
+      {!temperatureFlag && (
+        <MapControlWrapper positionHorizontal='right' positionVertical='bottom'>
+          <MapLegendContainer>
+            <Flex flexrow flexgap='4px'>
+              <Flex>
+                <LegendItem style={{ width: '10px', background: 'rgb(51, 51, 51)' }} />
+                <LegendItem style={{ width: '10px', background: 'rgb(0, 3, 144)' }} />
+                <LegendItem style={{ width: '10px', background: 'rgb(76, 78, 177)' }} />
+                <LegendItem style={{ width: '10px', background: 'rgb(179, 180, 222)' }} />
+                <LegendItem style={{ width: '10px', background: 'rgb(147, 0, 228)' }} />
+                <LegendItem style={{ width: '10px', background: 'rgb(179, 41, 255)' }} />
+                <LegendItem style={{ width: '10px', background: 'rgb(201, 105, 255)' }} />
+                <LegendItem style={{ width: '10px', background: 'rgb(224, 169, 255)' }} />
+                <LegendItem style={{ width: '10px', background: 'rgb(180, 0, 0)' }} />
+                <LegendItem style={{ width: '10px', background: 'rgb(210, 0, 0)' }} />
+                <LegendItem style={{ width: '10px', background: 'rgb(255, 50, 0)' }} />
+                <LegendItem style={{ width: '10px', background: 'rgb(255, 102, 0)' }} />
+                <LegendItem style={{ width: '10px', background: 'rgb(204, 170, 0)' }} />
+                <LegendItem style={{ width: '10px', background: 'rgb(224, 185, 0)' }} />
+                <LegendItem style={{ width: '10px', background: 'rgb(249, 205, 0)' }} />
+                <LegendItem style={{ width: '10px', background: 'rgb(255, 220, 31)' }} />
+                <LegendItem style={{ width: '10px', background: 'rgb(255, 225, 0)' }} />
+                <LegendItem style={{ width: '10px', background: 'rgb(0, 90, 0)' }} />
+                <LegendItem style={{ width: '10px', background: 'rgb(0, 140, 0)' }} />
+                <LegendItem style={{ width: '10px', background: 'rgb(0, 190, 0)' }} />
+                <LegendItem style={{ width: '10px', background: 'rgb(0, 255, 0)' }} />
+                <LegendItem style={{ width: '10px', background: 'rgb(0, 51, 245)' }} />
+                <LegendItem style={{ width: '10px', background: 'rgb(0, 155, 245)' }} />
+                <LegendItem style={{ width: '10px', background: 'rgb(0, 200, 255)' }} />
+              </Flex>
+              <Flex flexfit>
+                <LegendItem>110</LegendItem><LegendItem>90</LegendItem><LegendItem>80</LegendItem><LegendItem>70</LegendItem><LegendItem>60</LegendItem><LegendItem>50</LegendItem><LegendItem>40</LegendItem><LegendItem>30</LegendItem><LegendItem>25</LegendItem><LegendItem>20</LegendItem><LegendItem>15</LegendItem><LegendItem>10</LegendItem><LegendItem>9</LegendItem><LegendItem>8</LegendItem><LegendItem>7</LegendItem><LegendItem>6</LegendItem><LegendItem>5</LegendItem><LegendItem>4</LegendItem><LegendItem>3</LegendItem><LegendItem>2</LegendItem><LegendItem>1</LegendItem><LegendItem>0.5</LegendItem><LegendItem>0.1</LegendItem><LegendItem>0</LegendItem>
+              </Flex>
+            </Flex>
+            <Flex flexfit style={{ fontSize: '12px' }}>mm/h</Flex>
+          </MapLegendContainer>
+        </MapControlWrapper>
+      )}
 
       {imageShow && (
         <MapMarkerWrapper position={radarStartPosition} disablePointerEvent>
@@ -174,3 +215,14 @@ function getTime(minuteBefore?:number) {
   const mi = String(Math.floor(now.getMinutes() / 5) * 5).padStart(2, '0');
   return `${yyyy}${mm}${dd}${hh}${mi}`;
 }
+
+const MapLegendContainer = styled.div({
+  background: 'white',
+  border: '1px solid gray',
+  borderRadius: '8px', 
+  padding: '5px', 
+  marginBottom: '10px',
+  marginRight: '10px',
+  fontSize: '14px',
+});
+const LegendItem = styled.div({ height: '14px', fontSize: '12px' });

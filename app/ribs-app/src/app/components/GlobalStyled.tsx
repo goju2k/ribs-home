@@ -42,7 +42,6 @@ a {
 input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
-  width: 100%;
   height: 17px;
   background: transparent;
   outline: none;
@@ -56,7 +55,6 @@ input[type="range"]:hover {
 }
 
 input[type="range"]::-webkit-slider-runnable-track {
-  width: 100%;
   height: 3px;
   cursor: pointer;
   background: #C6C6C6;

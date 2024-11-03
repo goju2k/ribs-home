@@ -1,5 +1,5 @@
 import { Position } from '@mint-ui/map';
-import { atom } from 'recoil';
+import { atom, useSetRecoilState } from 'recoil';
 
 interface MapControls {
   temperatureFlag:boolean;
@@ -18,3 +18,10 @@ export const MapControlState = atom<MapControls>({
     askPosition: false,
   },
 });
+
+export function useUpdateMapControl<T extends keyof MapControls>() {
+  const setState = useSetRecoilState(MapControlState);
+  return (property:T, value:MapControls[T]) => {
+    setState((prev) => ({ ...prev, [property]: value }));
+  };
+}

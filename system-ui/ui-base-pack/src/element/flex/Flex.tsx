@@ -39,7 +39,7 @@ export const Flex = forwardRef<HTMLDivElement, FlexProps>(({
       flexDirection: flexrow ? 'row' : 'column',
       gap: flexgap,
       padding: flexpadding,
-      overflow: flexoverflow || 'auto',
+      overflow: flexoverflow || 'hidden',
       border: `${flexoutline ? 1 : 0}px solid gray`,
       ...style, 
     }}
