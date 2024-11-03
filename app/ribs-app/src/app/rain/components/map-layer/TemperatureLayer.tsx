@@ -1,5 +1,5 @@
 /* eslint-disable @next/next/no-img-element */
-import { MapControlWrapper, MapMarkerWrapper, Offset, Position, useMintMapController } from '@mint-ui/map';
+import { MapControlWrapper, MapMarkerWrapper, Position, useMintMapController } from '@mint-ui/map';
 import axios from 'axios';
 import { useEffect, useRef, useState } from 'react';
 import { useRecoilValue } from 'recoil';
@@ -15,14 +15,14 @@ export function TemperatureLayer() {
 
   const width = useRef(776);
   const height = useRef(1333);
-
-  const off1 = getOffset(controller, new Position(43.2573752, 123.578397));
-  const off2 = new Offset(off1.x + width.current, off1.y + height.current);
-  const pos2 = controller.offsetToPosition(off2);
-  
-  controller.offsetToPosition(new Offset(width.current, height.current));
-
-  const [ startPosition ] = useState([ new Position(43.2573752, 123.578397), pos2 ]);
+  // const off1 = getOffset(controller, new Position(43.2573752, 123.578397));
+  // const off2 = new Offset(off1.x + width.current, off1.y + height.current);
+  // const pos2 = controller.offsetToPosition(off2);
+  const [ startPosition ] = useState([ 
+    new Position(43.2573752, 123.578397), 
+    // pos2,
+    new Position(31.754418719732577, 132.1037876401973),
+  ]);
 
   const imageSrc = useTemperatureImageSrc();
   const [ imageShow, setImageShow ] = useState(true);
