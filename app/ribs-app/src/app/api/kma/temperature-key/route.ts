@@ -1,6 +1,9 @@
 import axios from 'axios';
 import { NextResponse } from 'next/server';
 
+// 60초 캐싱
+export const revalidate = 60;
+
 export async function GET() {
 
   let keyResult = null;
