@@ -29,6 +29,7 @@ export default function RootLayout({ children }: {
     <html lang='en'>
       <head>
         <link rel='stylesheet' as='style' crossOrigin='' href='https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css' />
+        <link rel='shortcut icon' href='./favicon.ico' type='image/x-icon' />
         <meta name='robots' content='noindex, nofollow' />
       </head>
       <body>
