@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 // 60초 캐싱
 export const revalidate = 60;
 
-export async function GET() {
+export async function GET(_request: Request) {
 
   let keyResult = null;
   const { data } = await axios.get('https://www.weather.go.kr/wgis-nuri/dfs/list/TMP');
