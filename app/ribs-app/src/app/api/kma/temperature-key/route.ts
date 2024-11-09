@@ -6,13 +6,17 @@ export const revalidate = 60;
 
 export async function GET(_request: Request) {
 
-  let keyResult = null;
+  const keyResult = {
+    src: '',
+    time: '',
+  };
   const { data } = await axios.get('https://www.weather.go.kr/wgis-nuri/dfs/list/TMP');
   if (data && data.dfsList) {
     const [ item ] = data.dfsList;
     if (item.fctDate) {
       const key = item.fctDate as string;
-      keyResult = `https://www.weather.go.kr/wgis-nuri/dfs/VSRT/TMP/${key}/${item.panIndex}`;
+      keyResult.src = `https://www.weather.go.kr/wgis-nuri/dfs/VSRT/TMP/${key}/${item.panIndex}`;
+      keyResult.time = item.efcDate;
     }
   }
 

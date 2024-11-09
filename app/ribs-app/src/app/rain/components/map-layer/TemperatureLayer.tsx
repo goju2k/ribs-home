@@ -24,7 +24,7 @@ export function TemperatureLayer() {
     new Position(31.754418719732577, 132.1037876401973),
   ]);
 
-  const imageSrc = useTemperatureImageSrc();
+  const [ imageSrc, timeText ] = useTemperatureImageSrc();
   const [ imageShow, setImageShow ] = useState(true);
   
   // const scale = useRef(1);
@@ -84,6 +84,7 @@ export function TemperatureLayer() {
               </Flex>
             </Flex>
             <Flex flexfit flexalign='right-center' style={{ fontSize: '12px' }}>℃</Flex>
+            <div style={{ position: 'absolute', whiteSpace: 'nowrap', transform: 'translate(-85px, 3px)' }}>{timeText}</div>
           </MapLegendContainer>
         </MapControlWrapper>
       )}
@@ -113,21 +114,28 @@ export function TemperatureLayer() {
 function useTemperatureImageSrc() {
 
   const [ result, setResult ] = useState<string>();
+  const [ date, setDate ] = useState<string>();
   useEffect(() => {
 
     (async () => {
 
       const { data } = await axios.get('/api/kma/temperature-key');
       if (data) {
-        setResult(data);
+        setResult(data.src);
+        setDate(getTimeText(data.time));
       }
 
     })();
 
   }, []);
 
-  return result;
+  return [ result, date ];
 
+}
+
+function getTimeText(utcTimeString:string) {
+  const date = new Date(`${utcTimeString.replace('T', ' ')} GMT`);
+  return `${date.toLocaleString()}`;
 }
 
 const MapLegendContainer = styled.div({
@@ -135,7 +143,7 @@ const MapLegendContainer = styled.div({
   border: '1px solid gray',
   borderRadius: '8px', 
   padding: '5px', 
-  marginBottom: '10px',
+  marginBottom: '20px',
   marginRight: '10px',
   fontSize: '14px',
 });

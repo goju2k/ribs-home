@@ -221,7 +221,7 @@ const MapLegendContainer = styled.div({
   border: '1px solid gray',
   borderRadius: '8px', 
   padding: '5px', 
-  marginBottom: '10px',
+  marginBottom: '20px',
   marginRight: '10px',
   fontSize: '14px',
 });
