@@ -12,7 +12,7 @@ export async function GET(_request: Request) {
     const [ item ] = data.dfsList;
     if (item.fctDate) {
       const key = item.fctDate as string;
-      keyResult = `https://www.weather.go.kr/wgis-nuri/dfs/VSRT/TMP/${key}/0`;
+      keyResult = `https://www.weather.go.kr/wgis-nuri/dfs/VSRT/TMP/${key}/${item.panIndex}`;
     }
   }
 
