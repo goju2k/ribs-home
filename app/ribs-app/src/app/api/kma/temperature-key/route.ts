@@ -1,4 +1,3 @@
-import axios from 'axios';
 import { NextResponse } from 'next/server';
 
 // 60초 캐싱
@@ -10,7 +9,7 @@ export async function GET(_request: Request) {
     src: '',
     time: '',
   };
-  const { data } = await axios.get('https://www.weather.go.kr/wgis-nuri/dfs/list/TMP');
+  const data = await (await fetch('https://www.weather.go.kr/wgis-nuri/dfs/list/TMP', { next: { revalidate: 60 } })).json();
   if (data && data.dfsList) {
     const [ item ] = data.dfsList;
     if (item.fctDate) {
