@@ -119,7 +119,7 @@ function useTemperatureImageSrc() {
 
     (async () => {
 
-      const data = await (await fetch('/api/kma/temperature-key', {next:{revalidate: 60}}).json();
+      const data = await (await fetch('/api/kma/temperature-key', {next:{revalidate: 60}} )).json();
       if (data) {
         setResult(data.src);
         setDate(getTimeText(data.time));
