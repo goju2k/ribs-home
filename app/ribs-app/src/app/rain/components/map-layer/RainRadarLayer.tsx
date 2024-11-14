@@ -82,33 +82,10 @@ export function RainRadarLayer() {
           <MapLegendContainer>
             <Flex flexrow flexgap='4px'>
               <Flex>
-                <LegendItem style={{ width: '10px', background: 'rgb(51, 51, 51)' }} />
-                <LegendItem style={{ width: '10px', background: 'rgb(0, 3, 144)' }} />
-                <LegendItem style={{ width: '10px', background: 'rgb(76, 78, 177)' }} />
-                <LegendItem style={{ width: '10px', background: 'rgb(179, 180, 222)' }} />
-                <LegendItem style={{ width: '10px', background: 'rgb(147, 0, 228)' }} />
-                <LegendItem style={{ width: '10px', background: 'rgb(179, 41, 255)' }} />
-                <LegendItem style={{ width: '10px', background: 'rgb(201, 105, 255)' }} />
-                <LegendItem style={{ width: '10px', background: 'rgb(224, 169, 255)' }} />
-                <LegendItem style={{ width: '10px', background: 'rgb(180, 0, 0)' }} />
-                <LegendItem style={{ width: '10px', background: 'rgb(210, 0, 0)' }} />
-                <LegendItem style={{ width: '10px', background: 'rgb(255, 50, 0)' }} />
-                <LegendItem style={{ width: '10px', background: 'rgb(255, 102, 0)' }} />
-                <LegendItem style={{ width: '10px', background: 'rgb(204, 170, 0)' }} />
-                <LegendItem style={{ width: '10px', background: 'rgb(224, 185, 0)' }} />
-                <LegendItem style={{ width: '10px', background: 'rgb(249, 205, 0)' }} />
-                <LegendItem style={{ width: '10px', background: 'rgb(255, 220, 31)' }} />
-                <LegendItem style={{ width: '10px', background: 'rgb(255, 225, 0)' }} />
-                <LegendItem style={{ width: '10px', background: 'rgb(0, 90, 0)' }} />
-                <LegendItem style={{ width: '10px', background: 'rgb(0, 140, 0)' }} />
-                <LegendItem style={{ width: '10px', background: 'rgb(0, 190, 0)' }} />
-                <LegendItem style={{ width: '10px', background: 'rgb(0, 255, 0)' }} />
-                <LegendItem style={{ width: '10px', background: 'rgb(0, 51, 245)' }} />
-                <LegendItem style={{ width: '10px', background: 'rgb(0, 155, 245)' }} />
-                <LegendItem style={{ width: '10px', background: 'rgb(0, 200, 255)' }} />
+                {Legends.map(([ color ], idx) => <LegendItem key={`legend-item-${idx}`} style={{ width: '10px', background: color, opacity }} />)}
               </Flex>
               <Flex flexfit>
-                <LegendItem>110</LegendItem><LegendItem>90</LegendItem><LegendItem>80</LegendItem><LegendItem>70</LegendItem><LegendItem>60</LegendItem><LegendItem>50</LegendItem><LegendItem>40</LegendItem><LegendItem>30</LegendItem><LegendItem>25</LegendItem><LegendItem>20</LegendItem><LegendItem>15</LegendItem><LegendItem>10</LegendItem><LegendItem>9</LegendItem><LegendItem>8</LegendItem><LegendItem>7</LegendItem><LegendItem>6</LegendItem><LegendItem>5</LegendItem><LegendItem>4</LegendItem><LegendItem>3</LegendItem><LegendItem>2</LegendItem><LegendItem>1</LegendItem><LegendItem>0.5</LegendItem><LegendItem>0.1</LegendItem><LegendItem>0</LegendItem>
+                {Legends.map(([ , value ], idx) => <LegendItem key={`legend-item-value-${idx}`}>{value}</LegendItem>)}
               </Flex>
             </Flex>
             <Flex flexfit style={{ fontSize: '12px' }}>mm/h</Flex>
@@ -226,3 +203,30 @@ const MapLegendContainer = styled.div({
   fontSize: '14px',
 });
 const LegendItem = styled.div({ height: '14px', fontSize: '12px' });
+
+const Legends = [
+  [ 'rgb(51, 51, 51)', 110 ],
+  [ 'rgb(0, 3, 144)', 90 ],
+  [ 'rgb(76, 78, 177)', 80 ],
+  [ 'rgb(179, 180, 222)', 70 ],
+  [ 'rgb(147, 0, 228)', 60 ],
+  [ 'rgb(179, 41, 255)', 50 ],
+  [ 'rgb(201, 105, 255)', 40 ],
+  [ 'rgb(224, 169, 255)', 30 ],
+  [ 'rgb(180, 0, 0)', 25 ],
+  [ 'rgb(210, 0, 0)', 20 ],
+  [ 'rgb(255, 50, 0)', 15 ],
+  [ 'rgb(255, 102, 0)', 10 ],
+  [ 'rgb(204, 170, 0)', 9 ],
+  [ 'rgb(224, 185, 0)', 8 ],
+  [ 'rgb(249, 205, 0)', 7 ],
+  [ 'rgb(255, 220, 31)', 6 ],
+  [ 'rgb(255, 225, 0)', 5 ],
+  [ 'rgb(0, 90, 0)', 4 ],
+  [ 'rgb(0, 140, 0)', 3 ],
+  [ 'rgb(0, 190, 0)', 2 ],
+  [ 'rgb(0, 255, 0)', 1 ],
+  [ 'rgb(0, 51, 245)', 0.5 ],
+  [ 'rgb(0, 155, 245)', 0.1 ],
+  [ 'rgb(0, 200, 255)', 0 ],
+];
