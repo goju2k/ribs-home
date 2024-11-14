@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 
+export const revalidate = 0;
+
 export async function GET(_request: Request) {
 
   const keyResult = {
