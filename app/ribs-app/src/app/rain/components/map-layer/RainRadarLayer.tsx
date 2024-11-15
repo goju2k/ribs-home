@@ -7,7 +7,7 @@ import styled from 'styled-components';
 import { Flex } from 'ui-base-pack';
 
 import { MapControlState, useUpdateMapControl } from '../../state/map-controls';
-import { getOffset } from '../../util/map-util';
+import { getOffset, getScreenOffset } from '../../util/map-util';
 
 export function RainRadarLayer() {
   
@@ -73,9 +73,40 @@ export function RainRadarLayer() {
   useEffect(() => {
     updateControl('tmText', `${tm.substring(4, 6)}월 ${tm.substring(6, 8)}일 ${tm.substring(8, 10)}시 ${tm.substring(10, 12)}분`);
   }, [ tm ]);
+
+  const imageRef = useRef<HTMLImageElement>(null);
+  const [ imgLoaded, setImgLoaded ] = useState(false);
+  const { color } = useRainValue({
+    imgPin: pos.current[1],
+    imgElement: imageRef.current,
+    imgLoaded,
+  });
   
   return (
     <>
+
+      {!temperatureFlag && imgLoaded && (
+        <>
+          <MapControlWrapper positionHorizontal='left' positionVertical='bottom'>
+            {(!!LegendsMap.get(color) && (
+              <MapLegendContainer style={{ margin: '0 0 20px 10px' }}>
+                <Flex flexfit>
+                  <Flex flexfit>
+                    <LegendItem style={{ width: '10px', background: color, opacity }} />
+                    <LegendItem>{LegendsMap.get(color)} mm/h</LegendItem>
+                  </Flex>
+                </Flex>
+              </MapLegendContainer>
+            )
+            )}
+          </MapControlWrapper>
+          <MapControlWrapper width='100%' height='100%' disablePointerEvent>
+            <Flex flexalign='center'>
+              <Point style={{ borderWidth: '1px', width: '8px', height: '8px', background: '#65ff78', borderColor: '#109500' }} />
+            </Flex>
+          </MapControlWrapper>
+        </>
+      )}
 
       {!temperatureFlag && (
         <MapControlWrapper positionHorizontal='right' positionVertical='bottom'>
@@ -97,9 +128,15 @@ export function RainRadarLayer() {
         <MapMarkerWrapper position={radarStartPosition} disablePointerEvent>
           <div style={{ width: `${imageSize}px`, height: `${imageSize2}px`, border: '0px solid coral' }}>
             <img 
+              crossOrigin='anonymous'
+              ref={imageRef}
               src={`https://vapi.kma.go.kr/BUFD/rdr_sfc_pty_img_${tm}_1453.png`}
               alt={`radar-${tm}`}
               style={{ width: '100%', height: '100%', opacity }}
+              onLoad={() => {
+                console.log('setImgLoaded true');
+                setImgLoaded(true);
+              }}
               onError={() => {
                 if (tmBefore < 30) {
 
@@ -124,16 +161,7 @@ export function RainRadarLayer() {
               alt='The position of the marker'
               style={{ position: 'absolute', transform: 'translate(-50%, -150%)', opacity: 0.8 }}
             />
-            <div style={{
-              position: 'absolute', 
-              width: '12px',
-              height: '12px', 
-              background: '#ff6565',
-              border: '2px solid red',
-              borderRadius: '50%',
-              transform: 'translate(-50%, -50%)', 
-            }}
-            />
+            <Point />
           </>
         </MapMarkerWrapper>
       )}
@@ -164,6 +192,16 @@ export function RainRadarLayer() {
     </>
   );
 }
+
+const Point = styled.div({
+  position: 'absolute', 
+  width: '12px',
+  height: '12px', 
+  background: '#ff6565',
+  border: '2px solid red',
+  borderRadius: '50%',
+  transform: 'translate(-50%, -50%)', 
+});
 
 const ArrowImgMarker = styled.img`
   @keyframes arrow-bounce {
@@ -204,7 +242,7 @@ const MapLegendContainer = styled.div({
 });
 const LegendItem = styled.div({ height: '14px', fontSize: '12px' });
 
-const Legends = [
+const Legends:[string, number][] = [
   [ 'rgb(51, 51, 51)', 110 ],
   [ 'rgb(0, 3, 144)', 90 ],
   [ 'rgb(76, 78, 177)', 80 ],
@@ -230,3 +268,91 @@ const Legends = [
   [ 'rgb(0, 155, 245)', 0.1 ],
   [ 'rgb(0, 200, 255)', 0 ],
 ];
+
+const LegendsMap = new Map<string, number>(Legends);
+
+interface RainValueHookProps {
+  imgPin: Position;
+  imgElement: HTMLImageElement|null;
+  imgLoaded: boolean;
+}
+function useRainValue({ imgPin, imgElement, imgLoaded }:RainValueHookProps) {
+
+  const controller = useMintMapController();
+
+  const [ center, setCenter ] = useState(controller.getCenter());
+  const [ centerPx, setCenterPx ] = useState(getScreenOffset(controller, controller.getCenter()));
+  const [ color, setColor ] = useState('');
+
+  const canvas = useRef(document.createElement('canvas'));
+  const ctx = useRef(canvas.current.getContext('2d'));
+
+  if (imgElement && imgLoaded) {
+    canvas.current.width = imgElement.width;
+    canvas.current.height = imgElement.height;
+    ctx.current && (ctx.current.imageSmoothingEnabled = false);
+    ctx.current?.drawImage(imgElement, 0, 0, imgElement.width, imgElement.height);
+  }
+
+  function getPixelColor(x:number, y:number) {
+    
+    if (!ctx.current) {
+      return '';
+    }
+
+    // Get image data for the specified pixel
+    x = Math.floor(x);
+    y = Math.floor(y);
+
+    const pixelData = ctx.current.getImageData(x, y, 1, 1).data;
+
+    // Extract the RGBA values
+    const red = pixelData[0];
+    const green = pixelData[1];
+    const blue = pixelData[2];
+    // const alpha = pixelData[3]; // 0 (transparent) to 255 (opaque)
+
+    return `rgb(${red}, ${green}, ${blue})`;
+  }
+
+  const centerChanged:Parameters<typeof controller.addEventListener>[1] = ({ param }) => {
+
+    // 센터 계산
+    const c = param.center;
+    const offset = getScreenOffset(controller, c);
+    setCenter(c);
+    setCenterPx(offset);
+    
+    if (!imgElement || !imgLoaded) {
+      return;
+    }
+    
+    // 센터의 이미지내에서의 좌표 계산
+    const imgOffset = getScreenOffset(controller, imgPin);
+    const x = offset.x - imgOffset.x;
+    const y = offset.y - imgOffset.y;
+    // console.log('offset', offset.x, offset.y);
+    // console.log('imgPin', imgOffset.x, imgOffset.y);
+    // console.log('getPixelColor', x, y);
+
+    // 컬러 결정
+    const color = getPixelColor(x, y);
+    setColor(color);
+
+  };
+
+  useEffect(() => {
+    controller.addEventListener('IDLE', centerChanged);
+    return () => {
+      controller.removeEventListener('IDLE', centerChanged);
+    };
+
+  }, [ imgLoaded ]);
+
+  return {
+    center,
+    centerPx,
+    color,
+  };
+
+}

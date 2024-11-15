@@ -6,3 +6,5 @@ export const getOffset = (controller:MintMapController, position:Position) => {
   }
   return controller.positionToOffset(position);
 };
+
+export const getScreenOffset = (controller:MintMapController, position:Position) => controller.positionToOffset(position);
