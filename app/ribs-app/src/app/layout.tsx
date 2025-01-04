@@ -1,5 +1,5 @@
 /* eslint-disable @next/next/no-sync-scripts */
-// import { GoogleAnalytics, GoogleTagManager } from '@next/third-parties/google';
+import { GoogleTagManager } from '@next/third-parties/google';
 import { Metadata, Viewport } from 'next';
 
 import { StyledComponentsRegistry } from './registry';
@@ -34,8 +34,12 @@ export default function RootLayout({ children }: {
       </head>
       <body>
         <StyledComponentsRegistry>{children}</StyledComponentsRegistry>
-        {/* <GoogleTagManager gtmId={process.env.NEXT_PUBLIC_GA_ID} />
-        <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} /> */}
+        {
+          <GoogleTagManager
+            gtmId={process.env.NEXT_PUBLIC_GA_ID}
+          />
+        // <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} />
+        }
       </body>
     </html>
   );
