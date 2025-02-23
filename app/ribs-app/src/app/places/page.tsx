@@ -11,9 +11,12 @@ export default function PlacePage() {
 }
 
 function Place() {
+
+  const mode = new URLSearchParams(window.location.search).get('mode') as 'demo'|'naver';
+
   return (
     <>
-      <MapLibre />
+      <MapLibre type={mode || 'naver'} />
     </>
   );
 }
