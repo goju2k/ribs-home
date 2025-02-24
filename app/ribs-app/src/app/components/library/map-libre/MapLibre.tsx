@@ -25,6 +25,7 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
               container: container.current, // container id
               center: [ 127.028104, 37.496837 ], // starting position [lng, lat]
               zoom: 6, // starting zoom,
+              pixelRatio: window.devicePixelRatio,
             },
             { tiles: data.tiles },
           );
