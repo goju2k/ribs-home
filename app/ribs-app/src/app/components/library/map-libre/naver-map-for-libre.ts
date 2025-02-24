@@ -1,18 +1,19 @@
 import maplibregl from 'maplibre-gl';
 
 export interface NaverMapOptions {
-  mapKey: string;
+  tiles:string[];
 }
 
-const getNaverStyleTemplate = ():maplibregl.StyleSpecification => ({
+const getNaverStyleTemplate = (tiles:string[]):maplibregl.StyleSpecification => ({
   version: 8,
   sources: {
     'naver-tiles': {
       type: 'raster',
-      tiles: [
-        // 'https://simg.pstatic.net/onetile/get/195/0/0/{z}/{x}/{y}/bl_vc_bg/ol_vc_an',
-        '/api/naver/map/static/{x},{y}/{z}',
-      ],
+      // tiles: [
+      //   'https://simg.pstatic.net/onetile/get/195/0/0/{z}/{x}/{y}/bl_vc_bg/ol_vc_an',
+      //   '/api/naver/map/static/{x},{y}/{z}',
+      // ],
+      tiles,
       tileSize: 256,
     },
   },
@@ -36,7 +37,7 @@ export class NaverMapForLibre extends maplibregl.Map {
 
     // style assign
     if (options.style === undefined || typeof options.style === 'object') {
-      options.style = { ...getNaverStyleTemplate(), ...options.style };
+      options.style = { ...getNaverStyleTemplate(naverOption.tiles), ...options.style };
     } else {
       throw new Error('MapLibre style must be an object');
     }
