@@ -124,7 +124,8 @@
     "react/prop-types": "off",
     "react/react-in-jsx-scope": "off",
     "react/require-default-props": "off",
-    "require-jsdoc": "off"
+    "require-jsdoc": "off",
+    "no-mixed-operators": "off"
   },
   "settings": { "react": { "version": "detect" } }
 }
