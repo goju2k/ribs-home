@@ -83,7 +83,7 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
               source: 'buildings',
               type: 'fill-extrusion',
               paint: {
-                'fill-extrusion-color': '#f9ede1',
+                'fill-extrusion-color': '#a4b9cc',
                 'fill-extrusion-height': [ 'get', 'height' ],
                 'fill-extrusion-base': [ 'get', 'min_height' ],
                 'fill-extrusion-opacity': 1,
@@ -91,11 +91,26 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
               },
             });
 
-            const { sunAltitude, sunAzimuth } = SunPositionUtil.getSunPositionInfo({ lat: testdata.properties.center[1], lng: testdata.properties.center[0] });
+            const { sunAltitude, sunAzimuth } = SunPositionUtil.getSunPositionInfo({ lat: testdata.properties.center[1], lng: testdata.properties.center[0], option: { azimuthTo180: true } });
             mapInstance.setLight({
               position: [ 1.15, sunAzimuth, sunAltitude ], // Adjust sun altitude and azimuth
               intensity: 1,
             });
+
+            // mapInstance.on('rotate', () => {
+
+            //   const mapBearing = mapInstance.getBearing();
+            //   const { sunAltitude, sunAzimuth } = SunPositionUtil.getSunPositionInfo({ 
+            //     lat: testdata.properties.center[1], 
+            //     lng: testdata.properties.center[0],
+            //     option: { azimuthTo180: true, mapBearing }, 
+            //   });
+            //   console.log('mapBearing', mapBearing);
+            //   mapInstance.setLight({
+            //     position: [ 1.15, sunAzimuth + mapBearing, sunAltitude ], // Adjust sun altitude and azimuth
+            //     intensity: 1,
+            //   });
+            // });
 
             // Adjust camera for 3D view
             setTimeout(() => {
