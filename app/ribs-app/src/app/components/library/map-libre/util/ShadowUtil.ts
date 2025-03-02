@@ -5,18 +5,29 @@ import { testdata } from '../data';
 class ShadowClass {
 
   calculateShadowPolygon(building: typeof testdata, date?:Date) {
-    const [ longitude, latitude ] = building.properties.center;
-    const sunPos = SunCalc.getPosition(date || new Date(), latitude, longitude);
 
-    const shadowLength = building.properties.height / Math.tan(sunPos.altitude);
-    const azimuthRad = sunPos.azimuth; // Reverse azimuth direction
-  
-    return building.geometry.coordinates.map((polygon) => polygon.concat(polygon.map(([ lng, lat ]) => {
-      // Move point in the sun's direction
-      const newLng = lng + (shadowLength / 111320) * Math.cos(azimuthRad);
-      const newLat = lat + (shadowLength / 110540) * Math.sin(azimuthRad);
-      return [ newLng, newLat ];
-    })));
+    const [ longitude, latitude ] = building.properties.center;
+
+    // Get sun position
+    const sunPos = SunCalc.getPosition(date || new Date(), latitude, longitude);
+    
+    // Convert azimuth and altitude to degrees
+    const azimuth = (270 - sunPos.azimuth * 180 / Math.PI) % 360;
+    const altitude = sunPos.altitude * 180 / Math.PI;
+
+    if (altitude <= 0) return [[[]]]; // No shadow at night
+
+    // Calculate shadow length
+    function calculateShadowPoint([ lng, lat ]:number[], length:number, angle:number) {
+      const offsetLng = (length * Math.cos(angle * Math.PI / 180)) / 111320;
+      const offsetLat = (length * Math.sin(angle * Math.PI / 180)) / 110540;
+      return [ lng + offsetLng, lat + offsetLat ];
+    }
+
+    const shadowLength = building.properties.height / Math.tan(altitude * Math.PI / 180); // Calculate shadow length
+    const shadowDirection = (azimuth + 180) % 360; // Opposite of sun
+
+    return building.geometry.coordinates.map((polygon) => polygon.map((position) => calculateShadowPoint(position, shadowLength, shadowDirection)));
   }
 
   getSample() {
