@@ -4,7 +4,6 @@ class SunPositionClass {
 
   getSunPositionInfo({ lat: latitude, lng: longitude, option = {} }:{lat:number; lng:number; option?:{
     azimuthTo180?: boolean;
-    mapBearing?: number;
   };}) {
     
     const now = new Date();
@@ -12,10 +11,6 @@ class SunPositionClass {
     
     let sunAzimuth = (sunPos.azimuth * 180 / Math.PI); // Ensure 0-360°
     
-    if (option?.mapBearing) {
-      sunAzimuth += (option.mapBearing > 0 ? (180 - option.mapBearing) : (option.mapBearing + 180)) % 180;
-    }
-
     if (option?.azimuthTo180) {
       sunAzimuth = (sunAzimuth > 0 ? (180 - sunAzimuth) : (sunAzimuth + 180)) % 180;
     }

@@ -91,26 +91,13 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
               },
             });
 
-            const { sunAltitude, sunAzimuth } = SunPositionUtil.getSunPositionInfo({ lat: testdata.properties.center[1], lng: testdata.properties.center[0], option: { azimuthTo180: true } });
+            const { sunAltitude, sunAzimuth } = SunPositionUtil.getSunPositionInfo({ lat: testdata.properties.center[1], lng: testdata.properties.center[0] });
             mapInstance.setLight({
               position: [ 1.15, sunAzimuth, sunAltitude ], // Adjust sun altitude and azimuth
               intensity: 1,
+              anchor: 'map',
+              color: 'ivory',
             });
-
-            // mapInstance.on('rotate', () => {
-
-            //   const mapBearing = mapInstance.getBearing();
-            //   const { sunAltitude, sunAzimuth } = SunPositionUtil.getSunPositionInfo({ 
-            //     lat: testdata.properties.center[1], 
-            //     lng: testdata.properties.center[0],
-            //     option: { azimuthTo180: true, mapBearing }, 
-            //   });
-            //   console.log('mapBearing', mapBearing);
-            //   mapInstance.setLight({
-            //     position: [ 1.15, sunAzimuth + mapBearing, sunAltitude ], // Adjust sun altitude and azimuth
-            //     intensity: 1,
-            //   });
-            // });
 
             // Adjust camera for 3D view
             setTimeout(() => {
