@@ -10,7 +10,7 @@ class ShadowClass {
 
     // Get sun position
     const sunPos = SunCalc.getPosition(date || new Date(), latitude, longitude);
-    
+
     // Convert azimuth and altitude to degrees
     const azimuth = (270 - sunPos.azimuth * 180 / Math.PI) % 360;
     const altitude = sunPos.altitude * 180 / Math.PI;
@@ -27,7 +27,35 @@ class ShadowClass {
     const shadowLength = building.properties.height / Math.tan(altitude * Math.PI / 180); // Calculate shadow length
     const shadowDirection = (azimuth + 180) % 360; // Opposite of sun
 
-    return building.geometry.coordinates.map((polygon) => polygon.map((position) => calculateShadowPoint(position, shadowLength, shadowDirection)));
+    const codi = building.geometry.coordinates;
+    const result: number[][][][] = [];
+    codi.forEach((polygon) => {
+
+      result.push([ polygon ]);
+
+      const shadowBase = polygon.map((position) => calculateShadowPoint(position, shadowLength, shadowDirection));
+
+      // 다각형 여러개 생산
+      polygon.forEach((curr, idx) => {
+
+        const next = polygon[idx + 1];
+        if (!next) {
+          return;
+        }
+
+        const curr2 = shadowBase[idx];
+        const next2 = shadowBase[idx + 1];
+        result.push([[ curr, next, next2, curr2 ]]);
+        
+      });
+
+      result.push([ shadowBase ]);
+    });
+
+    console.log('result', result);
+
+    return result;
+
   }
 
   getSample() {

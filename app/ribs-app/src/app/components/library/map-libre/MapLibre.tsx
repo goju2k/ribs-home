@@ -47,7 +47,7 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
                 features: [ testdata ].map((building) => ({
                   type: 'Feature',
                   geometry: {
-                    type: 'Polygon',
+                    type: 'MultiPolygon',
                     coordinates: sunAltitude > 0 ? ShadowUtil.calculateShadowPolygon(building) : [[[]]],
                     // coordinates: ShadowUtil.getSample(),
                   },
@@ -108,7 +108,7 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
             });
 
             // 초기 시간 설정
-            // setTimeWithHours(8);
+            setTimeWithHours(8);
 
             // Adjust camera for 3D view
             setTimeout(() => {
@@ -191,7 +191,7 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
       features: [ testdata ].map((building) => ({
         type: 'Feature',
         geometry: {
-          type: 'Polygon',
+          type: 'MultiPolygon',
           coordinates: sunAltitude > 0 ? ShadowUtil.calculateShadowPolygon(building, newTime) : [[[]]],
           // coordinates: ShadowUtil.getSample(),
         },
