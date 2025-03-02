@@ -1,7 +1,7 @@
 import axios from 'axios';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { testdata } from './data';
 import { NaverMapForLibre } from './naver-map-for-libre';
@@ -96,7 +96,6 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
               position: [ 1.15, sunAzimuth, sunAltitude ], // Adjust sun altitude and azimuth
               intensity: 1,
               anchor: 'map',
-              color: 'ivory',
             });
 
             // Adjust camera for 3D view
@@ -126,6 +125,12 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
   
         mapInstance.on('idle', (e) => {
           console.log('idle', e);
+          setBear(mapInstance.getBearing());
+          setZoom(mapInstance.getZoom());
+          setMapCenter(mapInstance.getCenter());
+          const [ , azi, alti ] = mapInstance.getLight().position as number[];
+          setSunAzimuth(azi);
+          setSunAltitude(alti);
         });
   
         map.current = mapInstance;
@@ -139,6 +144,12 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
 
   }, []);
 
+  const [ bear, setBear ] = useState(0);
+  const [ zoom, setZoom ] = useState(0);
+  const [ mapCenter, setMapCenter ] = useState({ lng: 127.03131258991324, lat: 37.49558589225379 });
+  const [ sunAzimuth, setSunAzimuth ] = useState(0);
+  const [ sunAltitude, setSunAltitude ] = useState(0);
+
   return (
     <>
       <div
@@ -148,6 +159,35 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
           height: '100%',
         }}
       />
+      <div style={{
+        position: 'absolute',
+        left: 0,
+        top: 0,
+        width: '100%',
+        height: '100%',
+        pointerEvents: 'none',
+      }}
+      >
+        <div style={{
+          position: 'absolute',
+          width: '200px',
+          left: 'calc(100% - 20px)',
+          top: '20px',
+          transform: 'translate(-100%, 0%)',
+          background: 'white',
+          border: '1px solid lightgray',
+          padding: '15px',
+          pointerEvents: 'auto',
+        }}
+        >
+          <div>bear : {bear.toFixed(2)}</div>
+          <div>zoom : {zoom.toFixed(2)}</div>
+          <div>lng : {mapCenter.lng.toFixed(7)}</div>
+          <div>lat : {mapCenter.lat.toFixed(7)}</div>
+          <div>sunAzimuth : {sunAzimuth.toFixed(8)}</div>
+          <div>sunAltitude : {sunAltitude.toFixed(8)}</div>
+        </div>
+      </div>
     </>
   );
 

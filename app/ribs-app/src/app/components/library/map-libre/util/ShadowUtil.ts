@@ -9,7 +9,7 @@ class ShadowClass {
     const { sunAltitude, sunAzimuth } = SunPositionUtil.getSunPositionInfo({ lat: building.properties.center[1], lng: building.properties.center[0] });
 
     const shadowLength = building.properties.height / Math.tan(sunAltitude * Math.PI / 180);
-    const azimuthRad = (sunAzimuth + 180) * Math.PI / 180; // Reverse azimuth direction
+    const azimuthRad = (sunAzimuth) * Math.PI / 180; // Reverse azimuth direction
   
     return building.geometry.coordinates.map((polygon) => polygon.map(([ lng, lat ]) => {
       // Move point in the sun's direction
