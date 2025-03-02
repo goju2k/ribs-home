@@ -107,6 +107,9 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
               console.log('click', e.lngLat);
             });
 
+            // 초기 시간 설정
+            // setTimeWithHours(8);
+
             // Adjust camera for 3D view
             setTimeout(() => {
 
@@ -165,11 +168,15 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
   const [ mapCenter, setMapCenter ] = useState({ lng: 127.03131258991324, lat: 37.49558589225379 });
   const [ sunAzimuth, setSunAzimuth ] = useState(0);
   const [ sunAltitude, setSunAltitude ] = useState(0);
+  const [ currTime, setCurrTime ] = useState(new Date());
   const [ hour, setHour ] = useState(new Date().getHours());
   const setTimeWithHours = (hour:number) => {
+    
+    setHour(hour);
 
     const newTime = new Date();
     newTime.setHours(hour);
+    setCurrTime(newTime);
 
     // sun position
     const { sunAltitude, sunAzimuth } = SunPositionUtil.getSunPositionInfo({ 
@@ -224,22 +231,25 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
         <div style={{
           position: 'absolute',
           width: '200px',
-          left: 'calc(100% - 20px)',
-          top: '20px',
+          left: 'calc(100% - 5px)',
+          top: '5px',
           transform: 'translate(-100%, 0%)',
           background: 'white',
           border: '1px solid lightgray',
           padding: '15px',
           pointerEvents: 'auto',
+          fontSize: '12px',
         }}
         >
           <div>bear : {bear.toFixed(2)}</div>
           <div>zoom : {zoom.toFixed(2)}</div>
           <div>lng : {mapCenter.lng.toFixed(7)}</div>
           <div>lat : {mapCenter.lat.toFixed(7)}</div>
-          <div>sunAzimuth : {sunAzimuth.toFixed(8)}</div>
-          <div>sunAltitude : {sunAltitude.toFixed(8)}</div>
-          <div>time <input
+          <div>sunAzimuth : {`${sunAzimuth.toFixed(0)}º`}</div>
+          <div>sunAltitude : {`${sunAltitude.toFixed(0)}º`}</div>
+          <div>{currTime.toLocaleString()}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}><input
+            style={{ width: 'calc(100% - 58px)' }}
             type='range'
             min={0}
             max={23}
@@ -247,7 +257,6 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
             value={hour}
             onChange={(e) => {
               const hour = Number(e.target.value);
-              setHour(hour);
               setTimeWithHours(hour);
             }}
           /> {hour}시
