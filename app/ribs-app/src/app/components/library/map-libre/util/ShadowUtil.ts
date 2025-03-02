@@ -15,7 +15,7 @@ class ShadowClass {
     const azimuth = (270 - sunPos.azimuth * 180 / Math.PI) % 360;
     const altitude = sunPos.altitude * 180 / Math.PI;
 
-    if (altitude <= 0) return [[[]]]; // No shadow at night
+    if (Math.floor(altitude) <= 0) return [[[]]]; // No shadow at night
 
     // Calculate shadow length
     function calculateShadowPoint([ lng, lat ]:number[], length:number, angle:number) {
@@ -30,7 +30,7 @@ class ShadowClass {
     const codi = building.geometry.coordinates;
     const result: number[][][][] = [];
     codi.forEach((polygon) => {
-      
+
       const shadowBase = polygon.map((position) => calculateShadowPoint(position, shadowLength, shadowDirection));
 
       // 다각형 여러개 생산

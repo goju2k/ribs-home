@@ -1,8 +1,8 @@
 export const testdata = {
   type: 'Feature',
   properties: {
-    floor: 3,
-    height: 3 * 5,
+    floor: 15,
+    height: 15 * 5,
     min_height: 0,
     center: [
       127.03131258991324,

@@ -1,7 +1,7 @@
 import axios from 'axios';
 import maplibregl, { GeoJSONSource } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { useEffect, useRef, useState } from 'react';
+import { ChangeEvent, useEffect, useRef, useState } from 'react';
 
 import { testdata } from './data';
 import { NaverMapForLibre } from './naver-map-for-libre';
@@ -88,11 +88,12 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
               source: 'buildings',
               type: 'fill-extrusion',
               paint: {
-                'fill-extrusion-color': '#a4b9cc',
+                'fill-extrusion-color': '#8c8c8c',
                 'fill-extrusion-height': [ 'get', 'height' ],
                 'fill-extrusion-base': [ 'get', 'min_height' ],
                 'fill-extrusion-opacity': 1,
-                'fill-extrusion-vertical-gradient': false,
+                'fill-extrusion-translate-anchor': 'map',
+                'fill-extrusion-vertical-gradient': true,
               },
             });
 
@@ -170,12 +171,15 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
   const [ sunAltitude, setSunAltitude ] = useState(0);
   const [ currTime, setCurrTime ] = useState(new Date());
   const [ hour, setHour ] = useState(new Date().getHours());
-  const setTimeWithHours = (hour:number) => {
+  const [ minute, setMinute ] = useState(new Date().getMinutes());
+  const setTimeWithHours = (hour:number, minute:number) => {
     
     setHour(hour);
+    setMinute(minute);
 
     const newTime = new Date();
     newTime.setHours(hour);
+    newTime.setMinutes(minute);
     setCurrTime(newTime);
 
     // sun position
@@ -210,8 +214,17 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
 
   };
 
+  // Sunset effect 계산
+  let sunsetOpacity = 0;
+  if (sunAltitude <= 0) {
+    sunsetOpacity = 0.8;
+  } else if (sunAltitude < 10) {
+    sunsetOpacity = 1 - (sunAltitude * 0.1) - 0.2;
+  }
+
   return (
     <>
+      {/* Map */}
       <div
         ref={container}
         style={{
@@ -219,6 +232,22 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
           height: '100%',
         }}
       />
+
+      {/* Sunset Effect Layer */}
+      <div style={{
+        position: 'absolute',
+        left: 0,
+        top: 0,
+        width: '100%',
+        height: '100%',
+        pointerEvents: 'none',
+        background: 'black',
+        backdropFilter: 'blur(orange)',
+        opacity: sunsetOpacity,
+      }}
+      />
+
+      {/* Tool Layer */}
       <div style={{
         position: 'absolute',
         left: 0,
@@ -248,22 +277,59 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
           <div>sunAzimuth : {`${sunAzimuth.toFixed(0)}º`}</div>
           <div>sunAltitude : {`${sunAltitude.toFixed(0)}º`}</div>
           <div>{currTime.toLocaleString()}</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}><input
-            style={{ width: 'calc(100% - 58px)' }}
-            type='range'
+
+          <TimeInput
+            value={hour}
+            unitText='시'
             min={0}
             max={23}
-            step={1}
-            value={hour}
             onChange={(e) => {
               const hour = Number(e.target.value);
-              setTimeWithHours(hour);
+              setTimeWithHours(hour, minute);
             }}
-          /> {hour}시
-          </div>
+          />
+
+          <TimeInput
+            value={minute}
+            unitText='분'
+            min={0}
+            max={59}
+            onChange={(e) => {
+              const minute = Number(e.target.value);
+              setTimeWithHours(hour, minute);
+            }}
+          />
+
         </div>
       </div>
     </>
   );
 
 }
+
+interface TimeInputProps {
+  value:number;
+  unitText?:string;
+  min?:number;
+  max?:number;
+  onChange?:(e:ChangeEvent<HTMLInputElement>) => void;
+}
+const TimeInput = ({
+  value,
+  unitText = '',
+  max,
+  min,
+  onChange,
+}:TimeInputProps) => (
+  <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+    <input
+      style={{ width: 'calc(100% - 58px)' }}
+      type='range'
+      min={min}
+      max={max}
+      step={1}
+      value={value}
+      onChange={onChange}
+    /> {value}{unitText}
+  </div>
+);
