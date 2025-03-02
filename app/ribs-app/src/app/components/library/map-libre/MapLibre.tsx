@@ -35,31 +35,39 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
 
           mapInstance.on('load', () => {
 
+            // sun position
+            const { sunAltitude, sunAzimuth } = SunPositionUtil.getSunPositionInfo({ lat: testdata.properties.center[1], lng: testdata.properties.center[0] });
+
             // Add shadows to the map
-            mapInstance.addSource('shadows', {
-              type: 'geojson',
-              data: {
-                type: 'FeatureCollection',
-                features: [ testdata ].map((building) => ({
-                  type: 'Feature',
-                  geometry: {
-                    type: 'Polygon',
-                    coordinates: ShadowUtil.calculateShadowPolygon(building),
-                  },
-                  properties: building.properties,
-                })),
-              }, 
-            });
-  
-            mapInstance.addLayer({
-              id: 'building-shadows',
-              source: 'shadows',
-              type: 'fill',
-              paint: {
-                'fill-color': 'rgba(0, 0, 0, 0.5)',
-                'fill-opacity': 0.5,
-              },
-            });
+            if (sunAltitude > 0) { // 낮에만 그림자 처리
+
+              mapInstance.addSource('shadows', {
+                type: 'geojson',
+                data: {
+                  type: 'FeatureCollection',
+                  features: [ testdata ].map((building) => ({
+                    type: 'Feature',
+                    geometry: {
+                      type: 'Polygon',
+                      coordinates: ShadowUtil.calculateShadowPolygon(building, { sunAltitude, sunAzimuth }),
+                      // coordinates: ShadowUtil.getSample(),
+                    },
+                    properties: building.properties,
+                  })),
+                }, 
+              });
+    
+              mapInstance.addLayer({
+                id: 'building-shadows',
+                source: 'shadows',
+                type: 'fill',
+                paint: {
+                  'fill-color': 'rgba(0, 0, 0, 0.5)',
+                  'fill-opacity': 0.5,
+                },
+              });
+
+            }
 
             // Add GeoJSON source
             mapInstance.addSource('buildings', {
@@ -91,18 +99,22 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
               },
             });
 
-            const { sunAltitude, sunAzimuth } = SunPositionUtil.getSunPositionInfo({ lat: testdata.properties.center[1], lng: testdata.properties.center[0] });
+            // set light
             mapInstance.setLight({
               position: [ 1.15, sunAzimuth, sunAltitude ], // Adjust sun altitude and azimuth
               intensity: 1,
               anchor: 'map',
             });
 
+            mapInstance.on('click', (e) => {
+              console.log('click', e.lngLat);
+            });
+
             // Adjust camera for 3D view
             setTimeout(() => {
 
               mapInstance.easeTo({
-                pitch: 90,
+                pitch: 45,
                 // bearing: -30,
                 duration: 2000,
               });
