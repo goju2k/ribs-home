@@ -25,7 +25,7 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
           mapInstance = new NaverMapForLibre(
             {
               container: container.current, // container id
-              center: [ 127.03131258991324, 37.49558589225379 ], // starting position [lng, lat]
+              center: [ 127.15744426154328, 37.62122112865127 ], // starting position [lng, lat]
               zoom: 18, // starting zoom,
               pixelRatio: window.devicePixelRatio,
             },
@@ -104,8 +104,11 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
               anchor: 'map',
             });
 
+            window.mypath = [];
             mapInstance.on('click', (e) => {
-              console.log('click', e.lngLat);
+              const path = [ e.lngLat.lng, e.lngLat.lat ];
+              window.mypath.push(path);
+              console.log('click', path);
             });
 
             // 초기 시간 설정 for test
