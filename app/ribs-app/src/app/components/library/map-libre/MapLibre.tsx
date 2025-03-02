@@ -88,7 +88,7 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
               source: 'buildings',
               type: 'fill-extrusion',
               paint: {
-                'fill-extrusion-color': '#8c8c8c',
+                'fill-extrusion-color': 'lightgray',
                 'fill-extrusion-height': [ 'get', 'height' ],
                 'fill-extrusion-base': [ 'get', 'min_height' ],
                 'fill-extrusion-opacity': 1,
@@ -100,7 +100,7 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
             // set light
             mapInstance.setLight({
               position: [ 1.15, sunAzimuth, sunAltitude ], // Adjust sun altitude and azimuth
-              intensity: 1,
+              intensity: 0.2,
               anchor: 'map',
             });
 
@@ -209,7 +209,7 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
     // set light
     map.current?.setLight({
       position: [ 1.15, sunAzimuth, sunAltitude ], // Adjust sun altitude and azimuth
-      intensity: 1,
+      intensity: 0.2,
       anchor: 'map',
     });
 
