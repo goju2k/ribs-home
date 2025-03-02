@@ -1,5 +1,5 @@
 import axios from 'axios';
-import maplibregl from 'maplibre-gl';
+import maplibregl, { GeoJSONSource } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useEffect, useRef, useState } from 'react';
 
@@ -11,7 +11,6 @@ import { SunPositionUtil } from './util/SunPositionUtil';
 export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
   
   const container = useRef(null);
-
   const map = useRef<maplibregl.Map>();
   useEffect(() => {
 
@@ -22,7 +21,7 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
         if (type === 'naver') {
 
           const { data } = await axios.get('https://nrbe.pstatic.net/styles/basic.json?fmt=png');
-
+          
           mapInstance = new NaverMapForLibre(
             {
               container: container.current, // container id
@@ -33,41 +32,39 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
             { tiles: data.tiles },
           );
 
+          map.current = mapInstance;
+
           mapInstance.on('load', () => {
 
             // sun position
             const { sunAltitude, sunAzimuth } = SunPositionUtil.getSunPositionInfo({ lat: testdata.properties.center[1], lng: testdata.properties.center[0] });
 
             // Add shadows to the map
-            if (sunAltitude > 0) { // 낮에만 그림자 처리
-
-              mapInstance.addSource('shadows', {
-                type: 'geojson',
-                data: {
-                  type: 'FeatureCollection',
-                  features: [ testdata ].map((building) => ({
-                    type: 'Feature',
-                    geometry: {
-                      type: 'Polygon',
-                      coordinates: ShadowUtil.calculateShadowPolygon(building, { sunAltitude, sunAzimuth }),
-                      // coordinates: ShadowUtil.getSample(),
-                    },
-                    properties: building.properties,
-                  })),
-                }, 
-              });
+            mapInstance.addSource('shadows', {
+              type: 'geojson',
+              data: {
+                type: 'FeatureCollection',
+                features: [ testdata ].map((building) => ({
+                  type: 'Feature',
+                  geometry: {
+                    type: 'Polygon',
+                    coordinates: sunAltitude > 0 ? ShadowUtil.calculateShadowPolygon(building) : [[[]]],
+                    // coordinates: ShadowUtil.getSample(),
+                  },
+                  properties: building.properties,
+                })),
+              }, 
+            });
     
-              mapInstance.addLayer({
-                id: 'building-shadows',
-                source: 'shadows',
-                type: 'fill',
-                paint: {
-                  'fill-color': 'rgba(0, 0, 0, 0.5)',
-                  'fill-opacity': 0.5,
-                },
-              });
-
-            }
+            mapInstance.addLayer({
+              id: 'building-shadows',
+              source: 'shadows',
+              type: 'fill',
+              paint: {
+                'fill-color': 'rgba(0, 0, 0, 0.5)',
+                'fill-opacity': 0.5,
+              },
+            });
 
             // Add GeoJSON source
             mapInstance.addSource('buildings', {
@@ -137,12 +134,7 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
   
         mapInstance.on('idle', (e) => {
           console.log('idle', e);
-          setBear(mapInstance.getBearing());
-          setZoom(mapInstance.getZoom());
-          setMapCenter(mapInstance.getCenter());
-          const [ , azi, alti ] = mapInstance.getLight().position as number[];
-          setSunAzimuth(azi);
-          setSunAltitude(alti);
+          updateStat();
         });
   
         map.current = mapInstance;
@@ -156,11 +148,60 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
 
   }, []);
 
+  const updateStat = () => {
+    const { current } = map;
+    if (current) {
+      setBear(current.getBearing());
+      setZoom(current.getZoom());
+      setMapCenter(current.getCenter());
+      const [ , azi, alti ] = current.getLight().position as number[];
+      setSunAzimuth(azi);
+      setSunAltitude(alti);
+    }
+  };
+
   const [ bear, setBear ] = useState(0);
   const [ zoom, setZoom ] = useState(0);
   const [ mapCenter, setMapCenter ] = useState({ lng: 127.03131258991324, lat: 37.49558589225379 });
   const [ sunAzimuth, setSunAzimuth ] = useState(0);
   const [ sunAltitude, setSunAltitude ] = useState(0);
+  const [ hour, setHour ] = useState(new Date().getHours());
+  const setTimeWithHours = (hour:number) => {
+
+    const newTime = new Date();
+    newTime.setHours(hour);
+
+    // sun position
+    const { sunAltitude, sunAzimuth } = SunPositionUtil.getSunPositionInfo({ 
+      lat: testdata.properties.center[1],
+      lng: testdata.properties.center[0],
+      date: newTime,
+    });
+
+    // Add shadows to the map
+    map.current?.getSource<GeoJSONSource>('shadows')?.setData({
+      type: 'FeatureCollection',
+      features: [ testdata ].map((building) => ({
+        type: 'Feature',
+        geometry: {
+          type: 'Polygon',
+          coordinates: sunAltitude > 0 ? ShadowUtil.calculateShadowPolygon(building, newTime) : [[[]]],
+          // coordinates: ShadowUtil.getSample(),
+        },
+        properties: building.properties,
+      })),
+    });
+
+    // set light
+    map.current?.setLight({
+      position: [ 1.15, sunAzimuth, sunAltitude ], // Adjust sun altitude and azimuth
+      intensity: 1,
+      anchor: 'map',
+    });
+
+    updateStat();
+
+  };
 
   return (
     <>
@@ -198,6 +239,19 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
           <div>lat : {mapCenter.lat.toFixed(7)}</div>
           <div>sunAzimuth : {sunAzimuth.toFixed(8)}</div>
           <div>sunAltitude : {sunAltitude.toFixed(8)}</div>
+          <div>time <input
+            type='range'
+            min={0}
+            max={23}
+            step={1}
+            value={hour}
+            onChange={(e) => {
+              const hour = Number(e.target.value);
+              setHour(hour);
+              setTimeWithHours(hour);
+            }}
+          /> {hour}시
+          </div>
         </div>
       </div>
     </>

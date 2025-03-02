@@ -1,15 +1,15 @@
-import { SunPositionUtil } from './SunPositionUtil';
+import SunCalc from 'suncalc';
 
 import { testdata } from '../data';
 
 class ShadowClass {
 
-  calculateShadowPolygon(building: typeof testdata, sunPosition:{ sunAltitude:number; sunAzimuth:number; }) {
+  calculateShadowPolygon(building: typeof testdata, date?:Date) {
+    const [ longitude, latitude ] = building.properties.center;
+    const sunPos = SunCalc.getPosition(date || new Date(), latitude, longitude);
 
-    const { sunAltitude, sunAzimuth } = sunPosition || SunPositionUtil.getSunPositionInfo({ lat: building.properties.center[1], lng: building.properties.center[0] });
-
-    const shadowLength = building.properties.height / Math.tan(sunAltitude * Math.PI / 180);
-    const azimuthRad = (sunAzimuth) * Math.PI / 180; // Reverse azimuth direction
+    const shadowLength = building.properties.height / Math.tan(sunPos.altitude);
+    const azimuthRad = sunPos.azimuth; // Reverse azimuth direction
   
     return building.geometry.coordinates.map((polygon) => polygon.concat(polygon.map(([ lng, lat ]) => {
       // Move point in the sun's direction
