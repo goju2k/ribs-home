@@ -107,8 +107,8 @@ export function MapLibre({ type = 'demo' }:{type?:'demo'|'naver';}) {
               console.log('click', e.lngLat);
             });
 
-            // 초기 시간 설정
-            setTimeWithHours(8);
+            // 초기 시간 설정 for test
+            // setTimeWithHours(8);
 
             // Adjust camera for 3D view
             setTimeout(() => {
