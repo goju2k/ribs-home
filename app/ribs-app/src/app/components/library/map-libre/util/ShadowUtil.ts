@@ -18,7 +18,7 @@ class ShadowClass {
     const azimuth = (270 - sunPos.azimuth * 180 / Math.PI) % 360;
     const altitude = sunPos.altitude * 180 / Math.PI;
 
-    if (Math.floor(altitude) <= 0) return [[[]]]; // No shadow at night
+    if (Math.floor(altitude) <= 8) return [[[]]]; // No shadow at night or dawn / sunset
 
     // Calculate shadow length
     function calculateShadowPoint([ lng, lat ]:number[], length:number, angle:number) {

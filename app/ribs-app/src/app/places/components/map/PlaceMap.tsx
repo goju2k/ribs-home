@@ -146,15 +146,12 @@ export function PlaceMap() {
         window.mypath.push(path);
         console.log('click', path);
       });
-    
-      // 초기 시간 설정 for test
-      // setTimeWithHours(8);
-      
+
       // 스크롤 속도 2배
       mapInstance.scrollZoom.setWheelZoomRate(0.0015);
 
       mapInstance.on('idle', (e) => {
-        console.log('idle', e);
+        // console.log('idle', e);
         updateStat();
       });
     
@@ -188,9 +185,9 @@ export function PlaceMap() {
   // Sunset effect 계산
   let sunsetOpacity = 0;
   if (sunAltitude <= 0) {
-    sunsetOpacity = 0.8;
-  } else if (sunAltitude < 10) {
-    sunsetOpacity = 1 - (sunAltitude * 0.1) - 0.2;
+    sunsetOpacity = 0.7;
+  } else if (sunAltitude < 16) {
+    sunsetOpacity = Math.min(0.7, 1 - (sunAltitude * 0.05));
   }
 
   return (
