@@ -185,7 +185,7 @@ export function Building3dLayer() {
   if (sunAltitude <= 0) {
     sunsetOpacity = 0.7;
   } else if (sunAltitude < 16) {
-    sunsetOpacity = Math.min(0.7, 1 - (sunAltitude * 0.05));
+    sunsetOpacity = Math.min(0.7, 0.7 - (sunAltitude * 0.04));
   }
 
   return (
