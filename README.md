@@ -1,7 +1,7 @@
 # ribs-home
 
 ## rain info
-<iframe src="https://www.ribs.kr/rain"></iframe>
+<a href="https://www.ribs.kr/rain">https://www.ribs.kr/rain</a>
 
 ## places demo
-<iframe src="https://www.ribs.kr/places"></iframe>
+<a href="https://www.ribs.kr/places">https://www.ribs.kr/places</a>
