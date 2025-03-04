@@ -17,6 +17,11 @@ class PolygonClass {
     pairedLines.forEach((line) => {
       
       const [ point1, point2 ] = line;
+
+      if (this.isPointInPolygon(point2, polygon1) || this.isPointInPolygon(point1, polygon2)) {
+        // console.log('is includes return', point1, '~', point2);
+        return;
+      }
       
       const intersected = checkLines.some((line2) => {
         const [ point3, point4 ] = line2;
@@ -29,7 +34,13 @@ class PolygonClass {
 
     });
 
+    // console.log('twoLines', JSON.stringify(twoLines));
+    
     if (twoLines.length === 2) {
+
+      twoLines.sort((a, b) => (a[0] > b[0] ? 1 : -1));
+
+      // console.log('sorted twoLines', twoLines);
 
       const [ Line1, Line2 ] = twoLines;
 
@@ -38,8 +49,7 @@ class PolygonClass {
       const [ fromLine2, toLine2 ] = Line2;
       
       // polygon2 draw until meet the "toLine2"
-      // 단, 홀수이면 reverse 로 그리기
-      this.sortArrayInputItemFirst(polygon2.length % 2 === 0 ? polygon2 : polygon2.reverse(), toLine1);
+      this.sortArrayInputItemFirst(polygon2, toLine1);
       polygon2.some((point) => {
       
         if (point === toLine2) {
@@ -67,7 +77,7 @@ class PolygonClass {
       });
 
     } else {
-      console.error('twoLines.length', twoLines.length, 'is not 2');
+      console.error('twoLines.length', twoLines, 'is not 2');
     }
 
     return result;
@@ -152,6 +162,23 @@ class PolygonClass {
     if (d4 === 0 && this.isBetween(C, D, B)) return true;
 
     return false; // No intersection
+  }
+
+  isPointInPolygon(point: number[], polygon:number[][]) {
+    const [ px, py ] = point;
+    let inside = false;
+
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      const [ xi, yi ] = polygon[i];
+      const [ xj, yj ] = polygon[j];
+
+      const intersect = ((yi > py) !== (yj > py))
+                        && (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
+
+      if (intersect) inside = !inside;
+    }
+
+    return inside;
   }
 
   convexHull(points: number[][]) {
