@@ -105,7 +105,10 @@ export function Building3dLayer() {
         mapInstance.scrollZoom.setWheelZoomRate(0.0015);
   
         mapInstance.on('idle', (e) => {
-          // console.log('idle', e);
+          updateStat();
+        });
+
+        mapInstance.on('rotate', () => {
           updateStat();
         });
       
@@ -171,7 +174,7 @@ export function Building3dLayer() {
   const updateStat = () => {
     const { current } = map;
     if (current) {
-      setBear(current.getBearing());
+      setBear((current.getBearing() + 360) % 360);
       setZoom(current.getZoom());
       setMapCenter(current.getCenter());
       const [ , azi, alti ] = current.getLight().position as number[];
@@ -204,6 +207,45 @@ export function Building3dLayer() {
       }}
       />
 
+      {/* 나침반 */}
+      <div
+        style={{
+          position: 'absolute',
+          left: 10,
+          top: 10,
+          width: '60px',
+          height: '60px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '13px',
+          border: '1px solid black',
+          borderRadius: '50%',
+          transform: `rotate(-${bear}deg)`,
+          cursor: 'pointer',
+        }}
+        onClick={() => {
+          map.current?.setBearing(0);
+        }}
+      >
+        <div style={{
+          width: '2px',
+          background: 'red',
+          flex: 1,
+        }}
+        />
+        <div style={{
+          width: '2px',
+          background: 'blue',
+          flex: 1,
+        }}
+        />
+        <div style={{ position: 'absolute', color: 'red', fontSize: '14px', left: '50%', top: -3, transform: 'translateX(-50%)' }}>N</div>
+        <div style={{ position: 'absolute', color: 'blue', fontSize: '14px', left: '50%', top: 41, transform: 'translateX(-50%)' }}>S</div>
+        <div style={{ position: 'absolute', width: 'calc(100% - 4px)', margin: '0 5px', height: '1px', background: 'black', left: -3, top: '50%', transform: 'translateY(-50%)' }} />
+      </div>
+
       {/* Tool Layer */}
       <div style={{
         position: 'absolute',
@@ -227,7 +269,7 @@ export function Building3dLayer() {
           fontSize: '12px',
         }}
         >
-          <div>bear : {bear.toFixed(2)}</div>
+          <div>bear : {`${bear.toFixed(2)}º`}</div>
           <div>zoom : {zoom.toFixed(2)}</div>
           <div>lng : {mapCenter.lng.toFixed(7)}</div>
           <div>lat : {mapCenter.lat.toFixed(7)}</div>
@@ -279,7 +321,7 @@ const TimeInput = ({
 }:TimeInputProps) => (
   <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
     <input
-      style={{ width: 'calc(100% - 58px)' }}
+      style={{ width: 'calc(100% - 30px)' }}
       type='range'
       min={min}
       max={max}
