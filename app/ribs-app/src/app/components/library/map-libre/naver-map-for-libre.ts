@@ -42,6 +42,8 @@ export class NaverMapForLibre extends maplibregl.Map {
       throw new Error('MapLibre style must be an object');
     }
 
+    options.maplibreLogo = false;
+
     // super call
     super(options);
     

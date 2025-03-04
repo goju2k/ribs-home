@@ -16,6 +16,20 @@ export function Building3dLayer() {
   const [ currTime, setCurrTime ] = useState(new Date());
   const [ hour, setHour ] = useState(new Date().getHours());
   const [ minute, setMinute ] = useState(new Date().getMinutes());
+  const minHour = 5;
+  const maxHour = 20;
+  const totalHours = maxHour - minHour;
+  const totalMinutes = totalHours * 60;
+  
+  const getDayMinuteFromDate = (h:number, m:number) => (h - minHour) * 60 + m;
+
+  const getDateFromDayMinutes = (dayMinutes:number) => {
+    const h = minHour + Math.floor(dayMinutes / 60);
+    const m = dayMinutes % 60;
+    return [ h, m ];
+  };
+
+  const [ dayMinute, setDayMinute ] = useState(getDayMinuteFromDate(hour, minute));
 
   const mapInstance = useLibreMap();
   const map = useRef<maplibregl.Map>();
@@ -129,10 +143,16 @@ export function Building3dLayer() {
 
   }, [ mapInstance ]);
   
-  const setTimeWithHours = (hour:number, minute:number) => {
+  const setTimeWithDayMinutes = (dayMinute:number) => {
+    const [ h, m ] = getDateFromDayMinutes(dayMinute);
+    setTimeWithHours(h, m);
+  };
+
+  const setTimeWithHours = (hour:number, minute:number, dayMinute?:number) => {
       
     setHour(hour);
     setMinute(minute);
+    setDayMinute(dayMinute === undefined ? getDayMinuteFromDate(hour, minute) : dayMinute);
   
     const newTime = new Date();
     newTime.setHours(hour);
@@ -280,8 +300,8 @@ export function Building3dLayer() {
           <TimeInput
             value={hour}
             unitText='시'
-            min={0}
-            max={23}
+            min={minHour}
+            max={maxHour}
             onChange={(e) => {
               const hour = Number(e.target.value);
               setTimeWithHours(hour, minute);
@@ -301,6 +321,32 @@ export function Building3dLayer() {
 
         </div>
       </div>
+
+      <div
+        style={{
+          position: 'absolute',
+          left: '50%',
+          top: '100%',
+          transform: 'translate(-50%, -100%)',
+          width: '100%',
+          maxWidth: '724px',
+          height: '50px',
+          background: 'white',
+          border: '1px solid lightgray',
+          padding: '5px 20px',
+        }}
+      >
+        <div style={{ fontSize: '14px', textAlign: 'center' }}>{currTime.toLocaleString()}</div>
+        <AllTimeInput
+          value={dayMinute}
+          min={0}
+          max={totalMinutes}
+          onChange={(e) => {
+            const minute = Number(e.target.value);
+            setTimeWithDayMinutes(minute);
+          }}
+        />
+      </div>
     </>
   );
 }
@@ -310,6 +356,7 @@ interface TimeInputProps {
   unitText?:string;
   min?:number;
   max?:number;
+  step?:number;
   onChange?:(e:ChangeEvent<HTMLInputElement>) => void;
 }
 const TimeInput = ({
@@ -317,17 +364,39 @@ const TimeInput = ({
   unitText = '',
   max,
   min,
+  step = 1,
   onChange,
 }:TimeInputProps) => (
   <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
     <input
-      style={{ width: 'calc(100% - 30px)' }}
+      style={{ width: 'calc(100% - 32px)' }}
       type='range'
       min={min}
       max={max}
-      step={1}
+      step={step}
       value={value}
       onChange={onChange}
     /> {value}{unitText}
+  </div>
+);
+
+const AllTimeInput = ({
+  value,
+  unitText = '',
+  max,
+  min,
+  step = 10,
+  onChange,
+}:TimeInputProps) => (
+  <div style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '2px' }}>
+    <input
+      style={{ width: '100%' }}
+      type='range'
+      min={min}
+      max={max}
+      step={step}
+      value={value}
+      onChange={onChange}
+    /> {unitText}
   </div>
 );

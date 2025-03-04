@@ -2,6 +2,7 @@ import axios from 'axios';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import styled from 'styled-components';
 
 import { NaverMapForLibre, NaverMapOptions } from './naver-map-for-libre';
 
@@ -81,7 +82,7 @@ export const MapLibre = forwardRef<maplibregl.Map|undefined, MapLibreProps>(({
   return (
     <>
       {/* Map */}
-      <div
+      <MapLibreContainer
         ref={container}
         style={{
           width: '100%',
@@ -95,3 +96,9 @@ export const MapLibre = forwardRef<maplibregl.Map|undefined, MapLibreProps>(({
 });
 
 MapLibre.displayName = 'MapLibre';
+
+const MapLibreContainer = styled.div`
+  .maplibregl-ctrl {
+      display: none !important;
+  }
+`;
