@@ -1,6 +1,6 @@
 import { createContext, useContext, useState } from 'react';
 
-import { MapLibre, MapLibreOptions } from '../../../components/library/map-libre/MapLibre';
+import { KBLandNaverMap, KBLandNaverMapOption } from '../../../components/library/naver-map/KBLandNaverMap';
 import { Building3dLayer } from '../map-layer/Building3dLayer';
 
 export const LibreMapContext = createContext<maplibregl.Map|undefined>(undefined);
@@ -12,31 +12,18 @@ export function useLibreMap() {
 
 export function PlaceMap() {
   
-  const mode = new URLSearchParams(window.location.search).get('mode') as 'demo'|'naver';
-  
-  const [ map, setMap ] = useState<maplibregl.Map>();
-  const [ mapOption ] = useState<MapLibreOptions>({
+  const [ mapOption3d ] = useState<KBLandNaverMapOption['option3d']>({
     center: [ 127.15744426154328, 37.62122112865127 ], // starting position [lng, lat]
     zoom: 16, // starting zoom,
   });
   
-  const handleMapLoad = (mapInstance:maplibregl.Map) => {
-
-    setMap(mapInstance);
-
-  };
-
   return (
-    <LibreMapContext.Provider value={map}>
-      <MapLibre 
-        type={mode || 'naver'}
-        onLoad={handleMapLoad}
-        options={mapOption}
-      >
-
-        <Building3dLayer />
-        
-      </MapLibre>
-    </LibreMapContext.Provider>
+    <KBLandNaverMap
+      mapKey='yc2mrw1mz8'
+      mode='3d'
+      mapOption={{ option3d: mapOption3d }}
+    >
+      <Building3dLayer />
+    </KBLandNaverMap>
   );
 }

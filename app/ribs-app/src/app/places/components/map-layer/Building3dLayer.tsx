@@ -4,7 +4,7 @@ import { ChangeEvent, useEffect, useRef, useState } from 'react';
 import { testdata } from '../../../components/library/map-libre/data';
 import { ShadowUtil } from '../../../components/library/map-libre/util/ShadowUtil';
 import { SunPositionUtil } from '../../../components/library/map-libre/util/SunPositionUtil';
-import { useLibreMap } from '../map/PlaceMap';
+import { useKBLandNaverMap } from '../../../components/library/naver-map/KBLandNaverMap';
 
 export function Building3dLayer() {
 
@@ -31,11 +31,13 @@ export function Building3dLayer() {
 
   const [ dayMinute, setDayMinute ] = useState(getDayMinuteFromDate(hour, minute));
 
-  const mapInstance = useLibreMap();
+  const mapInstance = useKBLandNaverMap() as maplibregl.Map;
   const map = useRef<maplibregl.Map>();
   useEffect(() => {
     
     map.current = mapInstance;
+    console.log('map', map);
+    
     if (mapInstance) {
 
       mapInstance.on('load', () => {
@@ -322,11 +324,12 @@ export function Building3dLayer() {
         </div>
       </div>
 
+      {/* time line */}
       <div
         style={{
           position: 'absolute',
           left: '50%',
-          top: '100%',
+          top: 'calc(100% - 24px)',
           transform: 'translate(-50%, -100%)',
           width: '100%',
           maxWidth: '724px',
