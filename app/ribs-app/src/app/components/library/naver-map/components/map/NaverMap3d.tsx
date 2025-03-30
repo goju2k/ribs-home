@@ -8,6 +8,7 @@ import { NaverMapForLibre } from '../../../map-libre/naver-map-for-libre';
 
 export const NaverMap3d = forwardRef<maplibregl.Map|undefined, NaverMapProps>(({
   onLoad, 
+  option3d,
   children, 
 }, ref) => {
   const container = useRef(null);
@@ -29,6 +30,7 @@ export const NaverMap3d = forwardRef<maplibregl.Map|undefined, NaverMapProps>(({
             center: [ 127.15744426154328, 37.62122112865127 ], // starting position [lng, lat]
             zoom: 16, // starting zoom,
             pixelRatio: window.devicePixelRatio,
+            ...option3d,
           },
           { tiles: data.tiles },
         );

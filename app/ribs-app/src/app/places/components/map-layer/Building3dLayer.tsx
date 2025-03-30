@@ -4,6 +4,8 @@ import { ChangeEvent, useEffect, useRef, useState } from 'react';
 import { testdata } from '../../../components/library/map-libre/data';
 import { ShadowUtil } from '../../../components/library/map-libre/util/ShadowUtil';
 import { SunPositionUtil } from '../../../components/library/map-libre/util/SunPositionUtil';
+import { NaverMap3d } from '../../../components/library/naver-map/components/map/naver-map-types';
+import { NaverMarker } from '../../../components/library/naver-map/components/marker/NaverMarker';
 import { useKBLandNaverMap } from '../../../components/library/naver-map/KBLandNaverMap';
 
 export function Building3dLayer() {
@@ -31,7 +33,7 @@ export function Building3dLayer() {
 
   const [ dayMinute, setDayMinute ] = useState(getDayMinuteFromDate(hour, minute));
 
-  const mapInstance = useKBLandNaverMap() as maplibregl.Map;
+  const mapInstance = useKBLandNaverMap<NaverMap3d>();
   const map = useRef<maplibregl.Map>();
   useEffect(() => {
     
@@ -215,6 +217,19 @@ export function Building3dLayer() {
 
   return (
     <>
+      {/* test marker */}
+      <NaverMarker
+        lngLat={[ 127.15744426154328, 37.62122112865127 ]}
+      >
+        <div style={{ width: '100px', height: '30px', background: 'red', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+          <div style={{ color: 'white', fontSize: '14px', fontWeight: 700 }}>마커테스트</div>
+        </div>
+      </NaverMarker>
+      <NaverMarker
+        lngLat={[ 127.15744426154328, 37.62122112865127 ]}
+      >
+        <div style={{ width: '4px', height: '4px', borderRadius: '100%', background: 'blue' }} />
+      </NaverMarker>
       {/* Sunset Effect Layer */}
       <div style={{
         position: 'absolute',

@@ -7,9 +7,9 @@ import { useNaverApi } from './hook/load-naver-api-hook';
 
 export const KBLandNaverMapContext = createContext<NaverMapType|undefined>(undefined);
 
-export function useKBLandNaverMap() {
+export function useKBLandNaverMap<T>() {
   const map = useContext(KBLandNaverMapContext);
-  return map;
+  return map as T;
 }
 
 export type KBLandNaverMapOption = Omit<NaverMapProps, 'children'>;
