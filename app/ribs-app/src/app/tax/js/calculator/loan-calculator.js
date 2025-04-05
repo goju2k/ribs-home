@@ -3,6 +3,8 @@ export function 대출계산(param, result) {
   const { 대출금액, 대출금리, 대출기간년수 } = param;
   if (!대출금액 || !대출금리 || !대출기간년수) {
     console.log('대출계산 skip');
+    result.원리금상환 = {};
+    result.원금만기상환 = {};
     return false;
   }
 
@@ -16,7 +18,7 @@ export function 대출계산(param, result) {
 }
 
 function 원리금상환({대출금액, 대출금리, 대출기간년수}){
-  
+
   const 월이율 = 대출금리/100/12;
   const 월상환금액원본 = 대출금액*10000
     *((월이율)*(1+월이율)**(대출기간년수*12))

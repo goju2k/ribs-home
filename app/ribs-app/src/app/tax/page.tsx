@@ -9,6 +9,13 @@ import { BudgetPlanner } from './js/budget-planner';
 
 const Container = styled.div`
   padding: 10px;
+  display: flex;
+  width: fit-content;
+  border: 1px solid lightgray;
+  border-radius: 5px;
+  gap: 20px;
+  margin: 20px;
+  overflow: auto;
   input {
     border: 1px solid lightgray;
     padding: 5px 10px;
@@ -35,7 +42,6 @@ interface ResultData {
   중개수수료율: number;
   필요자금: number;
   대출금액: number;
-  KB시세대비대출금액비율: number;
 }
 
 export default function Index() {
@@ -50,7 +56,7 @@ export default function Index() {
     대출금액: 50000,
     대출금리: 3.9,
     대출기간년수: 20,
-    KB시세일반가: 85000,
+    KB시세일반가: 190000,
   });
 
   const [ result, setResult ] = useState<ResultData>({
@@ -60,7 +66,6 @@ export default function Index() {
     중개수수료율: 0,
     필요자금: 0,
     대출금액: 0,
-    KB시세대비대출금액비율: 0,
   });
 
   const { current: planner } = useRef(new BudgetPlanner(
@@ -88,26 +93,32 @@ export default function Index() {
 
   return (
     <Container>
-      입력값
-      <Form data={data} setData={setData}>
-        <Flex flexpadding='10px' flexgap='5px'>
-          <CalcInput<CalcData> targetId='전용면적' />
-          <CalcInput<CalcData> targetId='매물종별구분' />
-          <CalcInput<CalcData> targetId='매물거래구분' />
-          <br />
-          <CalcInput<CalcData> targetId='거래가격' />
-          <CalcInput<CalcData> targetId='월차임액' />
-          <br />
-          <CalcInput<CalcData> targetId='보유자금' />
-          <CalcInput<CalcData> targetId='대출금액' />
-          <CalcInput<CalcData> targetId='대출금리' type='number' step={0.1} />
-          <CalcInput<CalcData> targetId='대출기간년수' />
-        </Flex>
-      </Form>
-      출력값
-      <Flex flexpadding='5px 10px'>
-        {objectToString(result)}
+      <Flex flexfit>
+        입력값
+        <Form data={data} setData={setData}>
+          <Flex flexpadding='10px' flexgap='5px'>
+            <CalcInput<CalcData> targetId='전용면적' unit='㎡' />
+            <CalcInput<CalcData> targetId='매물종별구분' />
+            <CalcInput<CalcData> targetId='매물거래구분' />
+            <br />
+            <CalcInput<CalcData> targetId='거래가격' unit='만원' />
+            <CalcInput<CalcData> targetId='월차임액' unit='만원' />
+            <br />
+            <CalcInput<CalcData> targetId='보유자금' unit='만원' />
+            <CalcInput<CalcData> targetId='대출금액' unit='만원' />
+            <CalcInput<CalcData> targetId='대출금리' type='number' step={0.1} unit='%'  />
+            <CalcInput<CalcData> targetId='대출기간년수' unit='년' />
+            <br />
+            <CalcInput<CalcData> targetId='KB시세일반가' unit='만원' />
+          </Flex>
+        </Form>
       </Flex>
+      <Flex  flexfit>
+        출력값
+        <Flex flexpadding='5px 10px'>
+          {objectToString(result)}
+        </Flex>
+      </Flex> 
     </Container>
   );
 }
@@ -122,11 +133,13 @@ function objectToString(data:Record<string,any>, level = 0){
 
 function CalcInput<T>({
   targetId,
+  unit = '',
+  style,
   ...props
-}:InputProps<T>) {
+}:InputProps<T> & {unit?:string}) {
   return (
     <Flex flexrow flexgap='4px' flexalign='left-center'>
-      {String(targetId)}: <Input<T> inputMode='numeric' targetId={targetId} {...props} />
+      {String(targetId)}: <Input<T> inputMode='numeric' targetId={targetId} style={{maxWidth:'80px', textAlign: 'right', ...style}} {...props} /> {unit}
     </Flex>
   );
 }

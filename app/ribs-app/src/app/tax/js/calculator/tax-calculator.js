@@ -1,6 +1,8 @@
 export function 취득세({ 전용면적, 거래가격 }, result) {
 
   if (!전용면적 || !거래가격) {
+    result.취득세 = 0;
+    result.취득세율 = 0;
     console.log('취득세 skip');
     return false;
   }

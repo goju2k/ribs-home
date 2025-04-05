@@ -6,6 +6,8 @@ export function 중개보수(param, result) {
   const { 거래가격, 매물종별구분, 매물거래구분, 전용면적, 월차임액 } = param;
 
   if (!전용면적 || !거래가격 || !매물종별구분 || !매물거래구분) {
+    result.중개보수 = 0;
+    result.중개수수료율 = 0;
     console.log('중개보수 skip');
     return false;
   }
@@ -30,12 +32,17 @@ export function 중개보수(param, result) {
 
     if (!월차임액) {
       console.log('중개보수 skip 월세 월차임액 없음');
+      result.중개보수 = 0;
+      result.중개수수료율 = 0;
+      return false;
     }
 
     data = 월세(param, 매물종별분류);
 
   } else {
     console.log('중개보수 skip 매물거래구분', 매물거래구분);
+    result.중개보수 = 0;
+    result.중개수수료율 = 0;
     return false;
   }
 

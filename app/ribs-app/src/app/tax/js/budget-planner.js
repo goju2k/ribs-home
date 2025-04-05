@@ -55,15 +55,15 @@ export class BudgetPlanner {
     
     this.param = {... this.param, ...param};
 
-    if(!this.취득세()) return this.setResult();
+    this.취득세();
 
-    if(!this.중개보수()) return this.setResult();
+    this.중개보수();
 
-    // if(!this.필요자금()) return;
-
-    // if(!this.최대대출가능한도()) return;
+    this.필요자금();
 
     this.대출금액();
+
+    this.최대대출가능한도();
 
     return this.setResult();
     
@@ -79,11 +79,28 @@ export class BudgetPlanner {
   }
 
   필요자금(){
+    const {거래가격} = this.param;
+    const {취득세, 중개보수} = this.result;
+    
+    if(!거래가격 || !취득세 || !중개보수){
+      this.result.필요자금 = 0;
+      return false;
+    }
 
+    this.result.필요자금 = 거래가격 + 취득세 + 중개보수;
+    return true;
   }
 
   최대대출가능한도(){
+    const {KB시세일반가} = this.param;
+    if(!KB시세일반가){
+      this.result.최대대출가능한도_50 = 0;
+      this.result.최대대출가능한도_70 = 0;
+      return false;
+    }
 
+    this.result.최대대출가능한도_50 = KB시세일반가 * 0.5;
+    this.result.최대대출가능한도_70 = KB시세일반가 * 0.7;
   }
 
   대출금액(){
