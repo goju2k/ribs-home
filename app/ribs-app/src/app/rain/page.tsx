@@ -15,7 +15,8 @@ export default function TestPage() {
 }
 
 const MapKeys = {
-  naver: 'yc2mrw1mz8',
+  // naver: 'yc2mrw1mz8',
+  naver: '868psyu6ui', // new maps key for gl
   google: 'AIzaSyBgPrwr9buZ0EjOxFumRyXyqrkVtEZEtkk',
 } as Record<MapType, string>;
 
@@ -26,10 +27,16 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
       <MintMap
         mapType={mapType}
         mapKey={MapKeys[mapType]}
+        scriptModules={[ 'gl' ]}
         dissolveEffectWhenLoaded={false}
         base={{
           center: new Position(37.496837, 127.028104),
           zoomLevel: 7,
+        }}
+        onLoad={(mapType, controller) => {
+          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+          // @ts-ignore
+          controller.getMap().setOptions('gl', true);
         }}
       >
 

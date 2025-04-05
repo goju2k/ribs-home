@@ -1,5 +1,6 @@
 /* eslint-disable @next/next/no-sync-scripts */
 import { Metadata, Viewport } from 'next';
+import Script from 'next/script';
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -23,6 +24,9 @@ export default function RainLayout({ children }: {
   children: React.ReactNode;
 }) {
   return (
-    <>{children}</>
+    <>
+      <Script id='naver_map_script' type='text/javascript' src='https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=868psyu6ui' />
+      {children}
+    </>
   );
 }
