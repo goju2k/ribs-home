@@ -1,46 +1,82 @@
-/* eslint-disable */
-const Param = {
-  필요자금: 0,
-  대출금액: 0,
-  KB시세대비대출금액비율: 0,
-};
-
-const Result = {
-  거래가격: 0,
-  보유자금: 0,
-  대출금액: 0,
-  대출금리: 0,
-  대출기간년수: 0,
-  KB시세일반가: 0,
-};
-
-export class LoanCalculator {
-
-  param = Param;
-  result = Result;
-
-  reactive;
-
-  constructor(
-    param = { ...Param },
-    onChangeResult,
-    {
-      reactive = false
-    } = {}
-  ) {
-    this.param = param;
-    this.onChangeResult = onChangeResult;
-    this.reactive = reactive;
+export function 대출계산(param, result) {
+  
+  const { 대출금액, 대출금리, 대출기간년수 } = param;
+  if (!대출금액 || !대출금리 || !대출기간년수) {
+    console.log('대출계산 skip');
+    return false;
   }
 
-  calculate(){
+  result.원리금상환 = 원리금상환(param);
+  result.원금만기상환 = 원금만기상환(param);
+
+  console.log('원리금상환', result.원리금상환, '원금만기상환', result.원금만기상환);
+
+  return true;
+
+}
+
+function 원리금상환({대출금액, 대출금리, 대출기간년수}){
+  
+  const 월이율 = 대출금리/100/12;
+  const 월상환금액원본 = 대출금액*10000
+    *((월이율)*(1+월이율)**(대출기간년수*12))
+    /((1+월이율)**(대출기간년수*12)-1)
+  ;
+  const 월상환금액 = Math.floor(월상환금액원본);
+
+  // 월상환예시
+  console.log('월이율', 월이율, '월상환금액원본', 월상환금액원본, '월상환금액', 월상환금액);
+  let 초년차원금상환액 = 0;
+  let 초년차이자금액 = 0;
+  const 최종상환차액 = Array(대출기간년수 * 12).fill().reduce((amount, _val, idx)=>{
+    const 월이자 = amount * 월이율;
+
+    if(idx < 12){
+      초년차이자금액 += 월이자;
+    }
+
+    const 이번달원금상환액 = 월상환금액 - 월이자;
+    if(idx < 12){
+      초년차원금상환액 += 이번달원금상환액;
+    }
     
-    return this;
+    const 대출잔액 = amount - 이번달원금상환액;
 
+    console.log(`${idx + 1}회차`, '잔액', amount, '월이자', 월이자, '이번달원금상환액', 이번달원금상환액, '대출잔액', 대출잔액);
+    
+    return 대출잔액;
+  }, 대출금액 * 10000);
+
+  console.log('최종상환차액', 최종상환차액);
+  
+  const 연간상환금액 = 월상환금액 * 12;
+  const 연상환금액 = Math.floor(연간상환금액 / 10000);
+  초년차원금상환액 = Math.round(초년차원금상환액);
+  초년차이자금액 = Math.round(초년차이자금액);
+
+  console.log('1년차 연상환금액', 연상환금액);
+  console.log('1년차 연간상환금액', 연간상환금액);
+  console.log('1년차 연간상환금액_원금', 초년차원금상환액);
+  console.log('1년차 연간상환금액_이자', 초년차이자금액);
+
+  return {
+    월상환금액,
+    연간상환금액,
+    연상환금액,
+    연간상환금액_원금: 초년차원금상환액,
+    연간상환금액_이자: 초년차이자금액,
   }
+}
 
-  getResult(){
-    return this.result;
+function 원금만기상환({대출금액, 대출금리}){
+
+  const 원금만기상환금액 = Math.floor(대출금액 * 10000 * 대출금리 / 100 / 12);
+  const 연간상환금액 = 원금만기상환금액 * 12;
+
+  return {
+    월상환금액: 원금만기상환금액,
+    연상환금액: Math.floor(연간상환금액 / 10000),
+    연간상환금액_원금: 0,
+    연간상환금액_이자: 연간상환금액,
   }
-
 }

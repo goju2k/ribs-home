@@ -1,5 +1,5 @@
 import { 중개보수 } from './calculator/agent-fee-calculator';
-import { LoanCalculator } from './calculator/loan-calculator';
+import { 대출계산 } from './calculator/loan-calculator';
 import { 취득세 } from './calculator/tax-calculator';
 
 /* eslint-disable */
@@ -43,7 +43,6 @@ export class BudgetPlanner {
     this.param = param;
     this.onChangeResult = onChangeResult;
     this.reactive = reactive;
-    this.loanCalculator = new LoanCalculator();
   }
 
   setResult(){
@@ -88,7 +87,7 @@ export class BudgetPlanner {
   }
 
   대출금액(){
-    return this.loanCalculator.calculate().getResult();
+    return 대출계산(this.param, this.result);
   }
 
   getResult(){

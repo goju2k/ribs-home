@@ -100,16 +100,24 @@ export default function Index() {
           <br />
           <CalcInput<CalcData> targetId='보유자금' />
           <CalcInput<CalcData> targetId='대출금액' />
-          <CalcInput<CalcData> targetId='대출금리' />
+          <CalcInput<CalcData> targetId='대출금리' type='number' step={0.1} />
           <CalcInput<CalcData> targetId='대출기간년수' />
         </Flex>
       </Form>
       출력값
-      <Flex>
-        {Object.getOwnPropertyNames(result).map((name, idx) => <div key={idx}>{name} : {Number(result[name as keyof typeof result]).toLocaleString()}</div>)}
+      <Flex flexpadding='5px 10px'>
+        {objectToString(result)}
       </Flex>
     </Container>
   );
+}
+
+function objectToString(data:Record<string,any>, level = 0){
+  return Object.getOwnPropertyNames(data).map((name, idx) => {
+    const val = data[name as keyof typeof data];
+    const text = typeof val === 'object' ? objectToString(val, level + 1) : Number(val).toLocaleString();
+    return <div style={{paddingLeft: `${level * 16}px`}} key={`${level}_${idx}`}>{name} : {text}</div>
+  })
 }
 
 function CalcInput<T>({
