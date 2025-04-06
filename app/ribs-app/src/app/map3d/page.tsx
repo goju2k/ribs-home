@@ -8,7 +8,7 @@ export default function Index() {
   return <div style={{ width: '100vw', height: '100vh' }}><Map3d /></div>;
 }
 
-export function Map3d() {
+function Map3d() {
 
   const mapRef = useRef<naver.maps.Map>();
   const div = useRef<HTMLDivElement>(null);
@@ -21,7 +21,7 @@ export function Map3d() {
         scriptModules: [ 'gl' ],
         scriptParams: { ncpKeyId: '868psyu6ui' },
       }).then((apiLoaded) => {
-        
+
         if (!div.current || !apiLoaded) {
           return;
         }
