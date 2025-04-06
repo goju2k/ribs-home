@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 
 export interface NaverMapLoadParams {
-  mapKey:string;
+  mapKey?:string;
   scriptUrl:string;
   scriptModules?:string[];
   scriptParams?:Record<string, string>;
@@ -97,7 +97,7 @@ async function loadScript(url:string, id:string, checkLoaded:()=>boolean) {
 
 }
 
-function buildUrl(baseUrl: string, param: { [ key: string ]: string | string[] | boolean; }): string {
+function buildUrl(baseUrl: string, param: { [ key: string ]: string | string[] | boolean | undefined; }): string {
   const params = Object.entries(param).map(([ key, value ]) => {
     const temp = Array.isArray(value) ? value.join(',') : value;
 
