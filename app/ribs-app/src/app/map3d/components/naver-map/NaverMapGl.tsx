@@ -6,7 +6,7 @@ import { loadNaverMapApi } from '../../../components/library/naver-map/script/lo
 export interface MaverMapGlContextType {
   map?:naver.maps.Map;
 }
-const MaverMapGlContext = createContext<MaverMapGlContextType>({});
+export const MaverMapGlContext = createContext<MaverMapGlContextType>({});
 
 // Map Interfaces
 export interface NaverMapGlProps {
