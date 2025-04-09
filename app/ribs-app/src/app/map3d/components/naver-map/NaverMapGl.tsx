@@ -64,7 +64,7 @@ export const NaverMapGl = forwardRef<NaverMapGlRef, NaverMapGlProps>(({
       mapRef.current?.destroy();
     };
   
-  }, [ mapContext ]);
+  }, []);
 
   useImperativeHandle(ref, () => ({ map: mapContext?.map }), [ mapContext ]);
 
