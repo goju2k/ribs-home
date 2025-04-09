@@ -1,14 +1,12 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 
 export interface NaverMapLoadParams {
-  mapKey?:string;
   scriptUrl:string;
   scriptModules?:string[];
   scriptParams?:Record<string, string>;
 }
 
 export async function loadNaverMapApi({
-  mapKey,
   scriptUrl,
   scriptModules = [],
   scriptParams = {},
@@ -28,8 +26,7 @@ export async function loadNaverMapApi({
       delete window[callbackName];
     };
 
-    const params = { 
-      ncpClientId: mapKey,
+    const params = {
       submodules: scriptModules.join(','),
       callback: callbackName,
       ...scriptParams,
