@@ -1,0 +1,24 @@
+{
+  "name": "my-bot-server-app",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "app/my-bot-server-app/src",
+  "projectType": "application",
+  "tags": [],
+  "targets": {
+    "serve": {
+      "executor": "@nx/js:node",
+      "defaultConfiguration": "development",
+      "options": {
+        "buildTarget": "my-bot-server-app:build"
+      },
+      "configurations": {
+        "development": {
+          "buildTarget": "my-bot-server-app:build:development"
+        },
+        "production": {
+          "buildTarget": "my-bot-server-app:build:production"
+        }
+      }
+    }
+  }
+}
