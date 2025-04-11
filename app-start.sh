@@ -1,2 +1,2 @@
 node server.js &
-node /apiserver/main.js
+node apiserver/main.js

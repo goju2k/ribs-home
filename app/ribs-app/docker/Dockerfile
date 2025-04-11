@@ -15,7 +15,7 @@ COPY . .
 RUN npm run build:ribs
 
 # build2
-RUN npm run build:bot
+# RUN npm run build:bot
 
 # remove dev dep
 RUN npm prune --production
@@ -41,7 +41,11 @@ COPY --from=build --chown=nextjs:nodejs /app/app/ribs-app/.next/standalone/packa
 COPY --from=build --chown=nextjs:nodejs /app/app/ribs-app/.next/static  ./.next/static
 
 # copy for server
-COPY --from=build /app/dist/app/my-bot-server-app ./apiserver
+# COPY --from=build /app/dist/app/my-bot-server-app ./apiserver
+# COPY --from=build /app/node_modules ./apiserver/node_modules
+
+# copy sh
+# COPY --from=build /app/app-start.sh ./
 
 # user
 USER nextjs
@@ -51,5 +55,5 @@ EXPOSE 3000
 EXPOSE 3333
 
 # start app
-# CMD ["node", "server.js"]
-CMD ["/app-start.sh"]
+CMD ["node", "server.js"]
+# CMD ["sh", "app-start.sh"]
