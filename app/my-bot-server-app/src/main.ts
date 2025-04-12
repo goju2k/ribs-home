@@ -17,7 +17,7 @@ const sisul = new SisulBot(7);
 sisul.start();
 
 app.get('/', (req, res) => {
-  res.send({ message: 'sisulbot is ok.' });
+  res.send({ message: `sisulbot server is ok ${!sisul.interval ? 'but bot stopped ㅠ' : 'and bot running !!'}` });
 });
 
 app.get('/start', (req, res) => {
@@ -26,8 +26,13 @@ app.get('/start', (req, res) => {
 });
 
 app.get('/stop', (req, res) => {
-  sisul.start();
+  sisul.stop();
   res.send({ message: 'sisulbot stopped.' });
+});
+
+app.get('/get', async (req, res) => {
+  const data = await sisul.get();
+  res.send({ message: `get data => ${data ? JSON.stringify(data) : null}` });
 });
 
 app.get('/test', (req, res) => {

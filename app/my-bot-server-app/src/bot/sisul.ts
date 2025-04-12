@@ -23,38 +23,46 @@ export class SisulBot {
     }
 
     lo('interval start');
-    this.interval = setInterval(async () => {
-
-      try {
-        
-        const { data } = await axios.get('https://www.ribs.kr/api/spc-sisul/ydp');
-        
-        if (Array.isArray(data) && data?.length > 0) {
-          lo('find!!!', data);
-          this.sendMessage({
-            content: '예약 가능한 날짜가 발견되었습니다.!!!',
-            embeds: [
-              {
-                title: '예약 가능한 날짜가 발견되었습니다.!!!',
-                description: `가능한 날짜 => ${data.join(', ')}\n`,
-                url: 'https://spc.y-sisul.or.kr/page/rent/rent.od.list.asp',
-                color: 9498256,
-              },
-            ],
-          });
-        }
-
-      } catch (e) {
-        lo('fetch error', e);
-      }
-
-    }, this.time);
+    this.check();
+    this.interval = setInterval(this.check, this.time);
 
   }
 
   stop() {
     clearInterval(this.interval);
     this.interval = undefined;
+  }
+
+  async check() {
+
+    try {
+      
+      const data = await this.get();
+      
+      if (Array.isArray(data) && data?.length > 0) {
+        lo('find!!!', `get data => ${data ? JSON.stringify(data) : null}`);
+        this.sendMessage({
+          content: '예약 가능한 날짜가 발견되었습니다.!!!',
+          embeds: [
+            {
+              title: '예약 가능한 날짜가 발견되었습니다.!!!',
+              description: `가능한 날짜 => ${data.join(', ')}\n`,
+              url: 'https://spc.y-sisul.or.kr/page/rent/rent.od.list.asp',
+              color: 9498256,
+            },
+          ],
+        });
+      }
+
+    } catch (e) {
+      lo('fetch error', e);
+    }
+
+  }
+
+  async get() {
+    const { data } = await axios.get('https://www.ribs.kr/api/spc-sisul/ydp');
+    return data;
   }
 
   sendMessage(payload) {
