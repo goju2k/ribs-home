@@ -24,7 +24,7 @@ export class SisulBot {
 
     lo('interval start');
     this.check();
-    this.interval = setInterval(this.check, this.time);
+    this.interval = setInterval(() => this.check(true), this.time);
 
   }
 
@@ -33,7 +33,17 @@ export class SisulBot {
     this.interval = undefined;
   }
 
-  async check() {
+  checkRunningTime() {
+    const hh = new Date().getHours();
+    return hh >= 6 && hh <= 23;
+  }
+
+  async check(checkTime?:boolean) {
+
+    if (checkTime && !this.checkRunningTime()) {
+      lo('실행시간 아님 return;');
+      return;
+    }
 
     try {
       

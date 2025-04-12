@@ -17,7 +17,7 @@ const sisul = new SisulBot(7);
 sisul.start();
 
 app.get('/', (req, res) => {
-  res.send({ message: `sisulbot server is ok ${!sisul.interval ? 'but bot stopped ㅠ' : 'and bot running !!'}` });
+  res.send({ message: `sisulbot server is ok ${!sisul.interval ? 'but bot stopped ㅠ' : `/ bot ${sisul.checkRunningTime() ? 'running!!' : 'sleeping time (06시 ~ 23시에만 동작)'}`}` });
 });
 
 app.get('/start', (req, res) => {
