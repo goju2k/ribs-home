@@ -12,6 +12,3 @@ dist
 
 # env
 /.env*
-
-# nx etc : nx 가 플랫폼 의존성이 심해서 그냥 저장하지 말자
-package-lock.json
