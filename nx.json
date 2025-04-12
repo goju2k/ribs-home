@@ -58,8 +58,7 @@
       "plugin": "@nx/jest/plugin",
       "options": {
         "targetName": "test"
-      },
-      "exclude": ["app/my-bot-server-app-e2e/**/*"]
+      }
     },
     {
       "plugin": "@nx/webpack/plugin",

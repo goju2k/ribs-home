@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "dev:ribs": "nx dev ribs-app",
-    "build:ribs": "nx build ribs-app",
+    "build:ribs": "nx build ribs-app --verbose",
     "image:ribs": "docker build -f app/ribs-app/docker/Dockerfile -t ribs:latest .",
     "start:ribs": "next start",
     "dev:bot": "nx serve my-bot-server-app",
