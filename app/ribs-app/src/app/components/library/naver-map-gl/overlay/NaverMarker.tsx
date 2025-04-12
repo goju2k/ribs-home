@@ -23,25 +23,47 @@ export const NaverMarker = forwardRef<NaverMarkerRef, NaverMarkerProps>(({
   
   const markerDiv = useRef<HTMLDivElement>(document.createElement('div'));
   const markerRef = useRef<naver.maps.Marker>();
-  const [ markerCreated, setMarkerCreated ] = useState(false);
+  const [ marker, setMarker ] = useState<naver.maps.Marker>();
+
   useEffect(() => {
     
-    if (mapContext.map && !markerRef.current) {
-      markerRef.current = new naver.maps.Marker({
-        map: mapContext.map,
-        icon: { content: markerDiv.current },
-        ...option,
-      });
-      setMarkerCreated(true);
+    if (mapContext.map) {
+
+      if (!markerRef.current) {
+
+        const naverMarker = new naver.maps.Marker({
+          map: mapContext.map,
+          icon: { content: markerDiv.current },
+          ...option,
+        });
+        
+        markerRef.current = naverMarker;
+        setMarker(naverMarker);
+
+        console.log('marker created', markerRef.current);
+
+      } else {
+
+        markerRef.current.setOptions({
+          map: mapContext.map,
+          icon: { content: markerDiv.current },
+          ...option,
+        });
+
+        console.log('marker updated', markerRef.current);
+
+      }
+
     }
 
     return () => {
-      markerRef.current && markerRef.current.setMap(null);
+      console.log('marker release', markerRef.current);
+      markerRef.current?.setMap(null);
     };
 
-  }, []);
+  }, [ mapContext ]);
 
-  useImperativeHandle(ref, () => ({ marker: markerRef.current }), [ markerCreated ]);
+  useImperativeHandle(ref, () => ({ marker }), [ marker ]);
   
   if (!mapContext) {
     return null;
