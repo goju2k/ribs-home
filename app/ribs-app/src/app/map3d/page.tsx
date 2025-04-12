@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react';
 import styled from 'styled-components';
 
-import { NaverMapGl, NaverMapGlRef } from './components/naver-map/NaverMapGl';
-import { NaverMarker } from './components/naver-map/overlay/NaverMarker';
+import { NaverMapGl, NaverMapGlRef } from '../components/library/naver-map-gl/NaverMapGl';
+import { NaverMarker } from '../components/library/naver-map-gl/overlay/NaverMarker';
 
 export default function Index() {
   return <div style={{ width: '100vw', height: '100vh' }}><Map3d /></div>;

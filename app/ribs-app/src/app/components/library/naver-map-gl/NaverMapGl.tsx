@@ -1,6 +1,6 @@
 import { createContext, forwardRef, ReactNode, useEffect, useImperativeHandle, useRef, useState } from 'react';
 
-import { loadNaverMapApi } from '../../../components/library/naver-map/script/load-naver-map-api';
+import { loadNaverMapApi } from '../naver-map/script/load-naver-map-api';
 
 // Map Context
 export interface MaverMapGlContextType {
