@@ -1,11 +1,11 @@
 import { useContext, useEffect } from 'react';
 
-import { ComponentHistoryContext, ComponentHistoryOption } from '../context/component-history-context';
+import { ComponentHistoryContext } from '../context/component-history-context';
 
-export function useComponentHistory(componentName:string, option:ComponentHistoryOption) {
+export function useComponentHistory(componentName:string, option:unknown) {
   
   const { push } = useContext(ComponentHistoryContext);
-  const { onActive } = option;
+  //const { onActive } = option;
   useEffect(() => {
 
   }, []);
