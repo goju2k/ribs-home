@@ -1,5 +1,7 @@
 import axios from 'axios';
 
+import { getCurrentHours } from './date';
+
 function lo(...args) {
   console.log(new Date().toLocaleString(), ...args);
 }
@@ -11,6 +13,8 @@ export class SisulBot {
   time:number;
 
   interval:NodeJS.Timer;
+
+  checkCount:number = 0;
 
   constructor(minute:number) {
     this.time = minute * 60 * 1000;
@@ -34,7 +38,7 @@ export class SisulBot {
   }
 
   checkRunningTime() {
-    const hh = new Date().getHours();
+    const hh = getCurrentHours();
     return hh >= 6 && hh <= 23;
   }
 
@@ -46,6 +50,8 @@ export class SisulBot {
     }
 
     try {
+      
+      this.checkCount += 1;
       
       const data = await this.get();
       

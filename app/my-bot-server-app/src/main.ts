@@ -7,6 +7,7 @@ import express from 'express';
 
 import * as path from 'path';
 
+import { getCurrentHours } from './bot/date';
 import { SisulBot } from './bot/sisul';
 
 const app = express();
@@ -17,7 +18,11 @@ const sisul = new SisulBot(7);
 sisul.start();
 
 app.get('/', (req, res) => {
-  res.send({ message: `sisulbot server is ok ${!sisul.interval ? 'but bot stopped ㅠ' : `/ bot ${sisul.checkRunningTime() ? 'running!!' : 'sleeping time (06시 ~ 23시에만 동작)'}`}` });
+  res.send({ 
+    message: `sisulbot server is ok ${!sisul.interval ? 'but bot stopped ㅠ' : `/ bot ${sisul.checkRunningTime() ? 'running!!' : 'sleeping time (06시 ~ 23시에만 동작)'}`}`,
+    checkCount: sisul.checkCount,
+    currentHours: getCurrentHours(),
+  });
 });
 
 app.get('/start', (req, res) => {
