@@ -53,22 +53,10 @@ export class SisulBot {
       
       this.checkCount += 1;
       
-      const data = await this.get();
-      
-      if (Array.isArray(data) && data?.length > 0) {
-        lo('find!!!', `get data => ${data ? JSON.stringify(data) : null}`);
-        this.sendMessage({
-          content: '예약 가능한 날짜가 발견되었습니다.!!!',
-          embeds: [
-            {
-              title: '예약 가능한 날짜가 발견되었습니다.!!!',
-              description: `가능한 날짜 => ${data.join(', ')}\n`,
-              url: 'https://spc.y-sisul.or.kr/page/rent/rent.od.list.asp',
-              color: 9498256,
-            },
-          ],
-        });
-      }
+      const data = await this.get('');
+      const data2 = await this.get('2');
+      this.checkAndSend(data, '');
+      this.checkAndSend(data2, '2');
 
     } catch (e) {
       lo('fetch error', e);
@@ -76,9 +64,26 @@ export class SisulBot {
 
   }
 
-  async get() {
-    const { data } = await axios.get('https://www.ribs.kr/api/spc-sisul/ydp');
+  async get(no:string = '') {
+    const { data } = await axios.get(`https://www.ribs.kr/api/spc-sisul/ydp${no}`);
     return data;
+  }
+
+  checkAndSend(data, no) {
+    if (Array.isArray(data) && data?.length > 0) {
+        lo('find!!!', `get data => ${data ? JSON.stringify(data) : null}`);
+        this.sendMessage({
+          content: '예약 가능한 날짜가 발견되었습니다.!!!',
+          embeds: [
+          {
+            title: ( no === '2' ? '제2영등포' : '' ) + '예약 가능한 날짜가 발견되었습니다.!!!',
+            description: `가능한 날짜 => ${data.join(', ')}\n`,
+            url: `https://spc${no}.y-sisul.or.kr/page/rent/rent.od.list.asp`,
+            color: 9498256,
+          },
+        ],
+      });
+    }
   }
 
   sendMessage(payload) {
