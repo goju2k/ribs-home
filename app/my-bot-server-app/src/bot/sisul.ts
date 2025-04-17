@@ -16,6 +16,10 @@ export class SisulBot {
 
   checkCount:number = 0;
 
+  list = [];
+
+  list2 = [];
+
   constructor(minute:number) {
     this.time = minute * 60 * 1000;
   }
@@ -70,14 +74,28 @@ export class SisulBot {
   }
 
   checkAndSend(data, no) {
+    
+    const map = no === '2' ? this.list2 : this.list;
     if (Array.isArray(data) && data?.length > 0) {
-      lo('find!!!', `get data => ${data ? JSON.stringify(data) : null}`);
+      
+      const dataFiltered = data.filter((item) => {
+
+        if (!map.includes(item)) {
+          map.push(item);
+          return true;
+        }
+
+        return false;
+      });
+
+      lo('find!!!', `get data => ${dataFiltered ? JSON.stringify(dataFiltered) : null}`);
+
       this.sendMessage({
         content: '예약 가능한 날짜가 발견되었습니다.!!!',
         embeds: [
           {
             title: `${no === '2' ? '제2영등포' : ''}예약 가능한 날짜가 발견되었습니다.!!!`,
-            description: `가능한 날짜 => ${data.join(', ')}\n`,
+            description: `가능한 날짜 => ${dataFiltered.join(', ')}\n`,
             url: `https://spc${no}.y-sisul.or.kr/page/rent/rent.od.list.asp`,
             color: 9498256,
           },
