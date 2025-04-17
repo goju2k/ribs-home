@@ -71,12 +71,12 @@ export class SisulBot {
 
   checkAndSend(data, no) {
     if (Array.isArray(data) && data?.length > 0) {
-        lo('find!!!', `get data => ${data ? JSON.stringify(data) : null}`);
-        this.sendMessage({
-          content: '예약 가능한 날짜가 발견되었습니다.!!!',
-          embeds: [
+      lo('find!!!', `get data => ${data ? JSON.stringify(data) : null}`);
+      this.sendMessage({
+        content: '예약 가능한 날짜가 발견되었습니다.!!!',
+        embeds: [
           {
-            title: ( no === '2' ? '제2영등포' : '' ) + '예약 가능한 날짜가 발견되었습니다.!!!',
+            title: `${no === '2' ? '제2영등포' : ''}예약 가능한 날짜가 발견되었습니다.!!!`,
             description: `가능한 날짜 => ${data.join(', ')}\n`,
             url: `https://spc${no}.y-sisul.or.kr/page/rent/rent.od.list.asp`,
             color: 9498256,
