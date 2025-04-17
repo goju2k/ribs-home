@@ -1,5 +1,8 @@
 import axios from 'axios';
 
+import { readFileSync, writeFileSync } from 'fs';
+import path from 'path';
+
 import { getCurrentHours } from './date';
 
 function lo(...args) {
@@ -22,6 +25,10 @@ export class SisulBot {
 
   constructor(minute:number) {
     this.time = minute * 60 * 1000;
+    this.getData('');
+    this.getData('2');
+    console.log('list', this.list);
+    console.log('list', this.list2);
   }
 
   start() {
@@ -73,6 +80,26 @@ export class SisulBot {
     return data;
   }
 
+  getData(no:string) {
+    const filename = no === '2' ? 'list2.txt' : 'list.txt';
+    const file = readFileSync(path.resolve(__dirname, 'assets', filename)).toString('utf-8');
+    const split = file.split('\n');
+    if (no === '2') {
+      this.list2 = split;
+    } else {
+      this.list = split;
+    }
+  }
+
+  addData(no:string, date:string) {
+    const filename = no === '2' ? 'list2.txt' : 'list.txt';
+    const p = path.resolve(__dirname, 'assets', filename);
+    const file = readFileSync(p).toString('utf-8');
+    const split = file.split('\n');
+    split.push(date);
+    writeFileSync(p, split.join('\n'));
+  }
+
   checkAndSend(data, no) {
     
     const map = no === '2' ? this.list2 : this.list;
@@ -82,11 +109,16 @@ export class SisulBot {
 
         if (!map.includes(item)) {
           map.push(item);
+          this.addData(no, item);
           return true;
         }
 
         return false;
       });
+
+      if (dataFiltered.length <= 0) {
+        return;
+      }
 
       lo('find!!!', `get data => ${dataFiltered ? JSON.stringify(dataFiltered) : null}`);
 
