@@ -3,14 +3,17 @@
  * This is only a minimal backend to get started.
  */
 
+import bodyParser from 'body-parser';
 import express from 'express';
 
 import * as path from 'path';
 
 import { getCurrentHours } from './bot/date';
 import { SisulBot } from './bot/sisul';
+import router from './nlp/route';
 
 const app = express();
+app.use(bodyParser.json());
 
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
 
@@ -55,6 +58,9 @@ app.get('/test', (req, res) => {
   });
   res.send({ message: 'test message sent.' });
 });
+
+// NLP route
+app.use('/nlp', router);
 
 const port = process.env.PORT || 3333;
 const server = app.listen(port, () => {
