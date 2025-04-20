@@ -67,6 +67,9 @@
         "serveTargetName": "serve",
         "previewTargetName": "preview"
       }
+    },
+    {
+      "plugin": "@nxlv/python"
     }
   ],
   "generators": {

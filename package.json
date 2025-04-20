@@ -9,7 +9,8 @@
     "image:ribs": "docker build -f app/ribs-app/docker/Dockerfile -t ribs:latest .",
     "start:ribs": "next start",
     "dev:bot": "nx serve my-bot-server-app",
-    "build:bot": "nx build my-bot-server-app"
+    "build:bot": "nx build my-bot-server-app",
+    "image:py": "docker build -f app/py-api-server/docker/Dockerfile -t py-api-server:latest ."
   },
   "author": "",
   "license": "ISC",
@@ -28,6 +29,7 @@
     "@nx/vite": "18.2.4",
     "@nx/web": "18.2.4",
     "@nx/webpack": "18.2.4",
+    "@nxlv/python": "^20.13.3",
     "@openapitools/openapi-generator-cli": "^2.13.4",
     "@pmmmwh/react-refresh-webpack-plugin": "^0.5.7",
     "@rollup/plugin-url": "^7.0.0",
