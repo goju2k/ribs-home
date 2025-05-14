@@ -41,8 +41,8 @@ COPY --from=build --chown=nextjs:nodejs /app/app/ribs-app/.next/standalone/packa
 COPY --from=build --chown=nextjs:nodejs /app/app/ribs-app/.next/static  ./.next/static
 
 # copy for server
-COPY --from=build /app/dist/app/my-bot-server-app ./apiserver
-COPY --from=build /app/node_modules ./apiserver/node_modules
+COPY --from=build --chown=nextjs:nodejs /app/dist/app/my-bot-server-app ./apiserver
+COPY --from=build --chown=nextjs:nodejs /app/node_modules ./apiserver/node_modules
 
 # copy sh
 COPY --from=build /app/app-start.sh ./
