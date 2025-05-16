@@ -138,7 +138,12 @@ export class SisulBot {
 
   sendMessage(payload) {
     // 영등포시설관리공단 봇
-    axios.post('https://discord.com/api/webhooks/1360265276570075146/W5GLRhI9q2LIM5OTyLGmeREDRAf7xIqekV3zI9RCaA87bBFPf2iwzsjj6JkXN5deCcWU', payload);
+    const webhook = process.env.SISUL_BOT_WEBHOOK_URL;
+    if (webhook) {
+      axios.post(webhook, payload);
+    } else {
+      lo('sendMessage', payload);
+    }
   }
   
 }

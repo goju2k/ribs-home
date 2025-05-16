@@ -4,6 +4,10 @@ FROM node:18-alpine3.17 AS build
 # workdir
 WORKDIR /app
 
+# arg / env
+ARG SISUL_BOT_WEBHOOK_URL
+ENV SISUL_BOT_WEBHOOK_URL=$SISUL_BOT_WEBHOOK_URL
+
 # dep install
 COPY package*.json ./
 RUN npm i
