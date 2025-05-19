@@ -10,7 +10,8 @@
     "start:ribs": "next start",
     "dev:bot": "nx serve my-bot-server-app",
     "build:bot": "nx build my-bot-server-app",
-    "image:py": "docker build -f app/py-api-server/docker/Dockerfile -t py-api-server:latest ."
+    "image:py": "docker build -f app/py-api-server/docker/Dockerfile -t py-api-server:latest .",
+    "dev:dis": "nx serve discord-bot-app"
   },
   "author": "",
   "license": "ISC",
