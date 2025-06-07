@@ -19,7 +19,7 @@ export function PlaceMap() {
   
   return (
     <KBLandNaverMap
-      mapKey='yc2mrw1mz8'
+      mapKey='868psyu6ui'
       mode='3d'
       mapOption={{ option3d: mapOption3d }}
     >

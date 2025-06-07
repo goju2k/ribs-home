@@ -9,7 +9,7 @@ export function useNaverApi(mapKey:string) {
   useEffect(() => {
 
     loadNaverMapApi({
-      scriptParams: { ncpClientId: mapKey },
+      scriptParams: { ncpKeyId: mapKey },
       scriptUrl: 'https://oapi.map.naver.com/openapi/v3/maps.js',
     }).then((apiLoaded) => {
       setLoaded(apiLoaded);

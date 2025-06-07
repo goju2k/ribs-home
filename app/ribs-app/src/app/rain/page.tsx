@@ -15,7 +15,6 @@ export default function TestPage() {
 }
 
 const MapKeys = {
-  // naver: 'yc2mrw1mz8',
   naver: '868psyu6ui', // new maps key for gl
   google: 'AIzaSyBgPrwr9buZ0EjOxFumRyXyqrkVtEZEtkk',
 } as Record<MapType, string>;

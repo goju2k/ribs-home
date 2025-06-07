@@ -23,8 +23,8 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     `https://naveropenapi.apigw.ntruss.com/map-static/v2/raster?w=256&h=256&center=${centerLngLat}&level=${naverLevel}`,
     {
       headers: {
-        'x-ncp-apigw-api-key-id': 'yc2mrw1mz8',
-        'x-ncp-apigw-api-key': 'xJRq1JmZeANCqDtQBcQpVQs0lmWXLDgmswlGwxF6',
+        'x-ncp-apigw-api-key-id': '868psyu6ui',
+        'x-ncp-apigw-api-key': '7jNw6nQM6AmtfdJYw5swxAPJ5q0e5YCDyDof9ygG',
       },
     },
   );
