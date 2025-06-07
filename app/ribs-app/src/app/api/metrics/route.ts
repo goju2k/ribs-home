@@ -8,7 +8,7 @@ collectDefaultMetrics({ register });
 
 export async function GET(_request: Request) {
 
-  const res = NextResponse.json(await register.metrics());
+  const res = new NextResponse(await register.metrics());
   res.headers.set('Content-Type', register.contentType);
   return res;
 }
