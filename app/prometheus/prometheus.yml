@@ -4,5 +4,6 @@ global:
 scrape_configs:
   - job_name: 'ribs.kr-app'
     metrics_path: /api/metrics
+    scheme: https
     static_configs:
-      - targets: ['192.168.0.63:3000']
+      - targets: ['www.ribs.kr:443']
