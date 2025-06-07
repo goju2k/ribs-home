@@ -5,4 +5,4 @@ scrape_configs:
   - job_name: 'ribs.kr-app'
     metrics_path: /api/metrics
     static_configs:
-      - targets: ['localhost:3000']
+      - targets: ['https://www.ribs.kr']
