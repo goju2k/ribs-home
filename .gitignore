@@ -12,6 +12,7 @@ dist
 
 # env
 /.env*
+app/discord-bot-app/.env
 
 # poetry
 .cache

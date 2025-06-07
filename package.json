@@ -11,7 +11,8 @@
     "dev:bot": "nx serve my-bot-server-app",
     "build:bot": "nx build my-bot-server-app",
     "image:py": "docker build -f app/py-api-server/docker/Dockerfile -t py-api-server:latest .",
-    "dev:dis": "nx serve discord-bot-app"
+    "dev:dis": "nx serve discord-bot-app",
+    "ngrok:dis": "node app/discord-bot-app/ngrok.mjs"
   },
   "author": "",
   "license": "ISC",
@@ -87,6 +88,8 @@
     "@next/third-parties": "^14.2.13",
     "axios": "^1.6.8",
     "body-parser": "^2.2.0",
+    "discord-interactions": "^4.3.0",
+    "dotenv": "^16.5.0",
     "express": "^4.19.2",
     "maplibre-gl": "^5.1.1",
     "next": "14.0.4",
