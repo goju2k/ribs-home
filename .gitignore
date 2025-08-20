@@ -11,7 +11,7 @@ out
 dist
 
 # env
-/.env*
+.env.local
 
 # poetry
 .cache

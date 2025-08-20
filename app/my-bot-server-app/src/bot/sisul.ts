@@ -1,9 +1,7 @@
 import axios from 'axios';
 
-import { readFileSync, writeFileSync } from 'fs';
-import path from 'path';
-
 import { getCurrentHours } from './date';
+import { SisulBotDB } from './db/db';
 
 function lo(...args) {
   console.log(new Date().toLocaleString(), ...args);
@@ -19,26 +17,28 @@ export class SisulBot {
 
   checkCount:number = 0;
 
-  list = [];
-
-  list2 = [];
+  db:SisulBotDB = null;
 
   constructor(minute:number) {
     this.time = minute * 60 * 1000;
-    this.getData('');
-    this.getData('2');
-    console.log('list', this.list);
-    console.log('list', this.list2);
+    
+    this.db = new SisulBotDB();
   }
 
-  start() {
-
+  async start() {
+    
     if (this.interval) {
       return;
     }
 
+    lo('wait db connect');
+    await this.db.waitConnected().then(() => {
+      lo('db connect ok');
+      this.check();
+    });
+    
     lo('interval start');
-    this.check();
+    
     this.interval = setInterval(() => this.check(true), this.time);
 
   }
@@ -80,43 +80,25 @@ export class SisulBot {
     return data;
   }
 
-  getData(no:string) {
-    const filename = no === '2' ? 'list2.txt' : 'list.txt';
-    const file = readFileSync(path.resolve(__dirname, 'assets', filename)).toString('utf-8');
-    const split = file.split('\n');
-    if (no === '2') {
-      this.list2 = split;
-    } else {
-      this.list = split;
-    }
-  }
-
-  addData(no:string, date:string) {
-    const filename = no === '2' ? 'list2.txt' : 'list.txt';
-    const p = path.resolve(__dirname, 'assets', filename);
-    const file = readFileSync(p).toString('utf-8');
-    const split = file.split('\n');
-    split.push(date);
-    writeFileSync(p, split.join('\n'));
-  }
-
-  checkAndSend(data, no) {
+  async checkAndSend(data, no) {
     
-    const map = no === '2' ? this.list2 : this.list;
+    const type = no === '2' ? 'ydp2' : 'ydp';
     if (Array.isArray(data) && data?.length > 0) {
       
-      const dataFiltered = data.filter((item) => {
-
-        if (!map.includes(item)) {
-          map.push(item);
-          this.addData(no, item);
-          return true;
-        }
-
-        return false;
-      });
-
+      const dataFiltered = [];
+      await Promise.all(data.map((item) => new Promise<boolean>((resolve) => {
+        console.log('item', item, 'checking');
+        (async () => {
+          if (!(await this.db.isCheckedDate(type, item))) { 
+            await this.db.addDate(type, item);
+            dataFiltered.push(item);
+          }
+          resolve(true);
+        })();
+      })));
+      
       if (dataFiltered.length <= 0) {
+        console.log('No valid date');
         return;
       }
 
