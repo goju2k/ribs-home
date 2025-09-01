@@ -27,13 +27,13 @@ export async function parseSpcSite(type:'1'|'2', date?:string) {
 
 export function getNextMonthString() {
   const now = new Date();
-  now.setMonth(now.getMonth() + 1);
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  now.setUTCHours(now.getUTCHours() + 9); // UTC+9
+  now.setUTCMonth(now.getUTCMonth() + 1); // next month
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
 export function getCurrentDate() {
   const now = new Date();
-  const date = now.getUTCDate();
-  const h = now.getUTCHours() + 9;
-  return h >= 24 ? date + 1 : date;
+  now.setUTCHours(now.getUTCHours() + 9); // UTC+9
+  return now.getUTCDate();
 }
