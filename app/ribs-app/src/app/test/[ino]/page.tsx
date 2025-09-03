@@ -1,4 +1,10 @@
+
+import { Metadata } from 'next';
 import { permanentRedirect, RedirectType } from 'next/navigation';
+
+export async function generateMetadata():Promise<Metadata> {
+  return { openGraph: {} };
+}
 
 export default async function FriendEventPage({ params }:{params:{ino:string;};}) {
 
