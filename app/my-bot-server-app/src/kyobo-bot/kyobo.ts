@@ -15,7 +15,7 @@ export class KyoboBot {
 
   constructor() {
     // daily 분/시
-    cron.schedule('40 21 * * *', () => this.check());
+    cron.schedule('52 21 * * *', () => this.check());
   }
 
   async init() {
