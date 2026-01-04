@@ -16,7 +16,7 @@ export class KyoboBot {
   constructor() {
     // daily 분/시
     cron.schedule(
-      '02 22 * * *', 
+      '50 08 * * *', 
       () => this.check(),
       {
         timezone: 'Asia/Tokyo', // GMT+9
