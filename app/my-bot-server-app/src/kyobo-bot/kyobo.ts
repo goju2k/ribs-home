@@ -65,8 +65,8 @@ export class KyoboBot {
   }
 
   async fetch() {
-    // const { data } = await axios.get<unknown, AxiosResponse<Result[]>>('https://www.ribs.kr/api/kyobo/quantity');
-    const { data } = await axios.get<unknown, AxiosResponse<Result[]>>('http://localhost:3000/api/kyobo/quantity');
+    const { data } = await axios.get<unknown, AxiosResponse<Result[]>>('https://www.ribs.kr/api/kyobo/quantity');
+    // const { data } = await axios.get<unknown, AxiosResponse<Result[]>>('http://localhost:3000/api/kyobo/quantity');
     console.log('fetch data', data);
     return data.reduce<Item[]>((prev, item) => {
       prev.push(...item.list);
