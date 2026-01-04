@@ -86,7 +86,7 @@ export class SisulBot {
     if (Array.isArray(data) && data?.length > 0) {
       
       const dataFiltered = [];
-      await Promise.all(data.map((item) => new Promise<boolean>((resolve) => {
+      await Promise.allSettled(data.map((item) => new Promise<boolean>((resolve) => {
         console.log('item', item, 'checking');
         (async () => {
           if (!(await this.db.isCheckedDate(type, item))) { 
