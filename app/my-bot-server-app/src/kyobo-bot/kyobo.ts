@@ -15,7 +15,14 @@ export class KyoboBot {
 
   constructor() {
     // daily 분/시
-    cron.schedule('52 21 * * *', () => this.check());
+    cron.schedule(
+      '02 22 * * *', 
+      () => this.check(),
+      {
+        timezone: 'Asia/Tokyo', // GMT+9
+        // or 'Asia/Seoul'
+      },
+    );
   }
 
   async init() {
