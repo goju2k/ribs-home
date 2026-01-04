@@ -10,6 +10,7 @@ import * as path from 'path';
 
 import { getCurrentHours } from './bot/date';
 import { SisulBot } from './bot/sisul';
+import { KyoboBot } from './kyobo-bot/kyobo';
 import router from './nlp/route';
 
 const app = express();
@@ -17,8 +18,13 @@ app.use(bodyParser.json());
 
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
 
+// 시설 봇
 const sisul = new SisulBot(7);
 sisul.start();
+
+// 교보 봇
+const kyobo = new KyoboBot();
+kyobo.init();
 
 app.get('/', (req, res) => {
   res.send({ 
