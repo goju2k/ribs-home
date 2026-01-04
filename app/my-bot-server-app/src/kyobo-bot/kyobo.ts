@@ -51,7 +51,7 @@ export class KyoboBot {
       textList.push('재고 변동이 없습니다.');
     }
 
-    const title = `로캣 [${new Date().toLocaleString()}] 재고 체크 결과`;
+    const title = '로캣 재고 체크 결과';
     console.info(title);
     console.info(textList);
 
