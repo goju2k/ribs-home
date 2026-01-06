@@ -9,8 +9,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ gb:
   const { gb } = (await params);
 
   const result = gb === '2' ? await fetchYoungpung() : await fetchKyobo();
-
-  console.log('data', `${result}`);
+  
   return NextResponse.json(result);
 }
 
@@ -25,6 +24,7 @@ const fetchYoungpung = async () => {
     {
       strAreaGrpCode: '001',
       list: data.data.map((item) => ({
+        gb: '2',
         strName: item.werksNm,
         realInvnQntt: item.labst,
       })),
