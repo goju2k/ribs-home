@@ -2,6 +2,7 @@ import axios, { AxiosResponse } from 'axios';
 import cron from 'node-cron';
 
 interface Item {
+  gb: '1'|'2';
   strName: string;
   realInvnQntt: number;
 }
@@ -26,24 +27,25 @@ export class KyoboBot {
   }
 
   async init() {
-    const result = await this.fetch();
-    this.prev = result;
+    // const result = await this.fetch();
+    // this.prev = result;
+    this.prev = [];
   }
 
   async check() {
     
     const result = await this.fetch();
-
+    
     const textList:string[] = [];
 
     // 결과 비교
-    const prevMap = new Map(this.prev.map((item) => [ item.strName, item.realInvnQntt ]));
+    const prevMap = new Map(this.prev.map((item) => [ item.gb + item.strName, item.realInvnQntt ]));
 
     result.forEach((item) => {
-      const prevCnt = prevMap.get(item.strName) || 0;
+      const prevCnt = prevMap.get(item.gb + item.strName) || 0;
       if (prevCnt !== item.realInvnQntt) {
         const delta = item.realInvnQntt - prevCnt;
-        textList.push(`${item.strName} 지점에서 ${Math.abs(delta)} 권 ${delta > 0 ? '재고증가' : '판매'}`);
+        textList.push(`[${item.gb === '2' ? '영풍' : '교보'}] ${item.strName} 지점에서 ${Math.abs(delta)} 권 ${delta > 0 ? '재고증가' : '판매'}`);
       }
     });
 
@@ -72,10 +74,12 @@ export class KyoboBot {
   }
 
   async fetch() {
-    const { data } = await axios.get<unknown, AxiosResponse<Result[]>>('https://www.ribs.kr/api/kyobo/quantity');
-    // const { data } = await axios.get<unknown, AxiosResponse<Result[]>>('http://localhost:3000/api/kyobo/quantity');
-    console.log('fetch data', data);
-    return data.reduce<Item[]>((prev, item) => {
+    const { data } = await axios.get<unknown, AxiosResponse<Result[]>>('https://www.ribs.kr/api/kyobo/quantity/1');
+    const { data: data2 } = await axios.get<unknown, AxiosResponse<Result[]>>('https://www.ribs.kr/api/kyobo/quantity/2');
+    // const { data } = await axios.get<unknown, AxiosResponse<Result[]>>('http://localhost:3000/api/kyobo/quantity/1');
+    // const { data: data2 } = await axios.get<unknown, AxiosResponse<Result[]>>('http://localhost:3000/api/kyobo/quantity/2');
+    // console.log('fetch data', data);
+    return [ ...data, ...data2 ].reduce<Item[]>((prev, item) => {
       prev.push(...item.list);
       return prev;
     }, []);
