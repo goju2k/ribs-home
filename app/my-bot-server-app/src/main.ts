@@ -11,7 +11,7 @@ import * as path from 'path';
 import { getCurrentHours } from './bot/date';
 import { SisulBot } from './bot/sisul';
 import { KyoboBot } from './kyobo-bot/kyobo';
-import router from './nlp/route';
+// import router from './nlp/route';
 
 const app = express();
 app.use(bodyParser.json());
@@ -66,7 +66,7 @@ app.get('/test', (req, res) => {
 });
 
 // NLP route
-app.use('/nlp', router);
+// app.use('/nlp', router);
 
 const port = process.env.PORT || 3333;
 const server = app.listen(port, () => {
