@@ -16,46 +16,21 @@ const httpRequestDuration = new Histogram({
 
 register.registerMetric(httpRequestDuration);
 
-const labelList = [
-  // complex: main
-  {
-    method: 'get',
-    route: 'https://api.kbland.kr/land-complex/complex/main',
-    test: 'https://api.kbland.kr/land-complex/complex/main?%EB%8B%A8%EC%A7%80%EA%B8%B0%EB%B3%B8%EC%9D%BC%EB%A0%A8%EB%B2%88%ED%98%B8=13859',
-  },
-  // extra: menuList
-  {
-    method: 'get',
-    route: 'https://api.kbland.kr/land-extra/menu/menuList',
-    test: 'https://api.kbland.kr/land-extra/menu/menuList',
-  },
-];
+const label = {
+  method: 'get',
+  route: 'https://api.kbland.kr/land-complex/complex/main',
+};
 
 export async function GET(_request: Request) {
 
   const res = new NextResponse(await register.metrics());
   res.headers.set('Content-Type', register.contentType);
 
-  try {
-    
-    for (let i = 0; i < labelList.length; i++) {
+  const end = httpRequestDuration.startTimer(label);
 
-      const label = labelList[i];
-      await (async () => {
-  
-        const end = httpRequestDuration.startTimer(label);
-    
-        await axios.get(label.test);
-    
-        end(label);
-    
-      })();
+  await axios.get('https://api.kbland.kr/land-complex/complex/main?%EB%8B%A8%EC%A7%80%EA%B8%B0%EB%B3%B8%EC%9D%BC%EB%A0%A8%EB%B2%88%ED%98%B8=13859');
 
-    }
-    
-  } catch (e) {
-    console.log('e', e);
-  }
+  end(label);
 
   return res;
 }
