@@ -38,16 +38,21 @@ export async function GET(_request: Request) {
 
   try {
     
-    await Promise.allSettled(labelList.map((label) => (async () => {
-  
-      const end = httpRequestDuration.startTimer(label);
-  
-      await axios.get(label.test);
-  
-      end(label);
-  
-    })()));
+    for (let i = 0; i < labelList.length; i++) {
 
+      const label = labelList[i];
+      await (async () => {
+  
+        const end = httpRequestDuration.startTimer(label);
+    
+        await axios.get(label.test);
+    
+        end(label);
+    
+      })();
+
+    }
+    
   } catch (e) {
     console.log('e', e);
   }
