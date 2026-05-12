@@ -33,9 +33,6 @@ const labelList = [
 
 export async function GET(_request: Request) {
 
-  const res = new NextResponse(await register.metrics());
-  res.headers.set('Content-Type', register.contentType);
-
   try {
     
     await Promise.allSettled(labelList.map((label) => makeFactory(label)));
@@ -44,17 +41,21 @@ export async function GET(_request: Request) {
     console.log('e', e);
   }
 
+  const res = new NextResponse(await register.metrics());
+  res.headers.set('Content-Type', register.contentType);
+  
   return res;
 }
 
-function makeFactory(label: typeof labelList[0]) {
-  return (async () => {
-
-    const end = httpRequestDuration.startTimer({ method: label.method, route: label.route });
-    
+async function makeFactory(label: typeof labelList[0]) {
+  
+  const end = httpRequestDuration.startTimer({ method: label.method, route: label.route });
+  try {
     await axios.get(label.test);
-    
+  } catch (e) {
+    // error 무시
+  } finally {
     end();
-    
-  })();
+  }
+
 }
