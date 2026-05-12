@@ -38,24 +38,23 @@ export async function GET(_request: Request) {
 
   try {
     
-    for (let i = 0; i < labelList.length; i++) {
-
-      const label = labelList[i];
-      await (async () => {
-  
-        const end = httpRequestDuration.startTimer({ method: label.method, route: label.route });
-    
-        await axios.get(label.test);
-    
-        end();
-    
-      })();
-
-    }
+    await Promise.allSettled(labelList.map((label) => makeFactory(label)));
     
   } catch (e) {
     console.log('e', e);
   }
 
   return res;
+}
+
+function makeFactory(label: typeof labelList[0]) {
+  return (async () => {
+
+    const end = httpRequestDuration.startTimer({ method: label.method, route: label.route });
+    
+    await axios.get(label.test);
+    
+    end();
+    
+  })();
 }
