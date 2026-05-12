@@ -29,13 +29,38 @@ const labelList = [
     route: 'https://api.kbland.kr/land-extra/menu/menuList',
     test: 'https://api.kbland.kr/land-extra/menu/menuList',
   },
+  // auth: profile
+  {
+    method: 'get',
+    route: 'https://api.kbland.kr/land-auth/intgra/profile',
+    test: 'https://api.kbland.kr/land-auth/intgra/profile',
+  },
+  // next.js: link
+  {
+    method: 'get',
+    route: 'https://kbland.kr/se/l/c/14992',
+    test: 'https://kbland.kr/se/l/c/14992',
+  },
 ];
 
 export async function GET(_request: Request) {
 
   try {
     
-    await Promise.allSettled(labelList.map((label) => makeFactory(label)));
+    for (let i = 0; i < labelList.length; i++) {
+
+      const label = labelList[i];
+      await (async () => {
+  
+        const end = httpRequestDuration.startTimer({ method: label.method, route: label.route });
+    
+        await axios.get(label.test);
+    
+        end();
+    
+      })();
+
+    }
     
   } catch (e) {
     console.log('e', e);
@@ -45,17 +70,4 @@ export async function GET(_request: Request) {
   res.headers.set('Content-Type', register.contentType);
   
   return res;
-}
-
-async function makeFactory(label: typeof labelList[0]) {
-  
-  const end = httpRequestDuration.startTimer({ method: label.method, route: label.route });
-  try {
-    await axios.get(label.test);
-  } catch (e) {
-    // error 무시
-  } finally {
-    end();
-  }
-
 }
