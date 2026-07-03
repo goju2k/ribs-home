@@ -11,6 +11,7 @@ import * as path from 'path';
 import { getCurrentHours } from './bot/date';
 import { SisulBot } from './bot/sisul';
 import { KyoboBot } from './kyobo-bot/kyobo';
+import { RainRadarBot } from './rain-radar/rain-radar-bot';
 // import router from './nlp/route';
 
 const app = express();
@@ -25,6 +26,10 @@ sisul.start();
 // 교보 봇
 const kyobo = new KyoboBot();
 kyobo.init();
+
+// 강수 레이더 크롤러
+const rainRadar = new RainRadarBot();
+rainRadar.start();
 
 app.get('/', (req, res) => {
   res.send({ 
