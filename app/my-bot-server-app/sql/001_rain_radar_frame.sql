@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS ribs.rain_radar_frame (
   source_width  smallint     NOT NULL,          -- 디코드된 원본 PNG 실제 width (pngjs 기준)
   source_height smallint     NOT NULL,
   stride        smallint     NOT NULL,          -- 다운샘플 stride
-  grid_data     bytea        NOT NULL,          -- row-major 1byte/cell: 범례 인덱스 0-23, 255=no-data
+  grid_data     bytea        NOT NULL,          -- RLE 압축된 row-major 그리드(rle.ts). 복원 시 1byte/cell: 범례 인덱스 0-23, 255=no-data
   created_at    timestamptz  NOT NULL DEFAULT now()
 );
 

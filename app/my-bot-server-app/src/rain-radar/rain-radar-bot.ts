@@ -3,6 +3,7 @@ import cron from 'node-cron';
 import { fetchRadarPng } from './radar-fetch';
 import { buildGrid } from './radar-grid';
 import { RainRadarDB } from './rain-radar-db';
+import { rleEncode } from './rle';
 
 const RETENTION_MS = 6 * 60 * 60 * 1000; // 6시간 보관
 
@@ -51,6 +52,7 @@ export class RainRadarBot {
 
       const { tm, png } = await fetchRadarPng();
       const { grid, gridWidth, gridHeight, sourceWidth, sourceHeight, stride } = buildGrid(png);
+      const encodedGrid = rleEncode(grid);
 
       await this.db.insertFrame({
         tm,
@@ -59,13 +61,13 @@ export class RainRadarBot {
         sourceWidth,
         sourceHeight,
         stride,
-        gridData: grid,
+        gridData: encodedGrid,
       });
 
       const cutoff = toTm(new Date(Date.now() - RETENTION_MS));
       const pruned = await this.db.pruneOlderThan(cutoff);
 
-      lo('check ok', 'tm', tm, 'grid', `${gridWidth}x${gridHeight}`, 'pruned', pruned);
+      lo('check ok', 'tm', tm, 'grid', `${gridWidth}x${gridHeight}`, 'raw', grid.length, 'encoded', encodedGrid.length, 'pruned', pruned);
 
     } catch (e) {
       lo('check error', e);
