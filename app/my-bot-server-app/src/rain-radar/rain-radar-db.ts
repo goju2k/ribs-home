@@ -10,6 +10,13 @@ export interface RainRadarFrame {
   gridData:Buffer;
 }
 
+export interface RainRadarFrameSummary {
+  tm:string;
+  gridWidth:number;
+  gridHeight:number;
+  gridData:Buffer;
+}
+
 export class RainRadarDB {
 
   pool:Pool = null;
@@ -57,6 +64,24 @@ export class RainRadarDB {
         f.gridData,
       ],
     );
+  }
+
+  // S3에 발행할 최신 N개 프레임 조회 (ribs-app의 옛 /api/rain-assist/radar-frames route와 동일한 쿼리)
+  async getLatestFrames(count:number):Promise<RainRadarFrameSummary[]> {
+    const result = await this.pool.query<{ tm:string; grid_width:number; grid_height:number; grid_data:Buffer; }>(
+      'select tm, grid_width, grid_height, grid_data from ribs.rain_radar_frame order by tm desc limit $1',
+      [ count ],
+    );
+
+    return result.rows
+      .slice()
+      .reverse()
+      .map((row) => ({
+        tm: row.tm,
+        gridWidth: row.grid_width,
+        gridHeight: row.grid_height,
+        gridData: row.grid_data,
+      }));
   }
 
   async pruneOlderThan(cutoffTm:string) {

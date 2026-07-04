@@ -1,11 +1,18 @@
 import cron from 'node-cron';
 
 import { fetchRadarPng } from './radar-fetch';
+import { RADAR_CORNERS } from './radar-geo';
 import { buildGrid } from './radar-grid';
+import { NO_DATA, RAIN_THRESHOLD_INDEX, RadarLegend } from './radar-legend';
 import { RainRadarDB } from './rain-radar-db';
 import { rleEncode } from './rle';
+import { publishCurrentData } from './s3-publisher';
 
 const RETENTION_MS = 6 * 60 * 60 * 1000; // 6시간 보관
+const PUBLISH_FRAME_COUNT = 4;
+
+// ribs-app이 예전에 /api/rain-assist/radar-frames로 내려주던 것과 동일한 셰이프
+const LEGEND = RadarLegend.map(([ , mmh ], index) => ({ index, mmh }));
 
 function lo(...args) {
   console.log(new Date().toLocaleString(), '[RainRadarBot]', ...args);
@@ -71,6 +78,29 @@ export class RainRadarBot {
 
     } catch (e) {
       lo('check error', e);
+    }
+
+    try {
+
+      const frames = await this.db.getLatestFrames(PUBLISH_FRAME_COUNT);
+
+      await publishCurrentData({
+        corners: RADAR_CORNERS,
+        legend: LEGEND,
+        noDataIndex: NO_DATA,
+        rainThresholdIndex: RAIN_THRESHOLD_INDEX,
+        frames: frames.map((f) => ({
+          tm: f.tm,
+          gridWidth: f.gridWidth,
+          gridHeight: f.gridHeight,
+          gridDataBase64: f.gridData.toString('base64'),
+        })),
+      });
+
+      lo('publish ok', 'frames', frames.length);
+
+    } catch (e) {
+      lo('publish error', e);
     }
   }
 
