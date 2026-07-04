@@ -29,6 +29,10 @@ export const RadarLegend: [[number, number, number], number][] = [
 
 export const NO_DATA = 255;
 
+// mm/h > 0 인 마지막 범례 인덱스. 이 값 이하(더 진한 강수)를 강수로 간주.
+// KEEP IN SYNC WITH app/ribs-app/src/app/rain-assist/util/radar-legend.ts 의 RAIN_THRESHOLD_INDEX
+export const RAIN_THRESHOLD_INDEX = RadarLegend.findIndex(([ , mmh ]) => mmh === 0) - 1;
+
 // alpha 채널이 없거나(투명) 임계값 미만이면 강수 데이터 없음으로 간주.
 // PNG 압축/안티앨리어싱으로 픽셀이 범례 색과 정확히 일치하지 않는 경우가 많아 최근접 RGB 매칭을 사용.
 export function classifyPixel(r:number, g:number, b:number, a:number, alphaThreshold = 10):number {
