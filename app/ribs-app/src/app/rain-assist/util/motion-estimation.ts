@@ -1,3 +1,5 @@
+import { rleDecode } from './rle';
+
 const NO_DATA_INDEX = 255;
 
 export interface RadarGrid {
@@ -6,12 +8,14 @@ export interface RadarGrid {
   height:number;
 }
 
+// API가 내려주는 grid_data는 base64(RLE(grid)) 형태이므로 base64 디코드 후 RLE 복원까지 수행한다.
 export function decodeGridBase64(base64:string, width:number, height:number):RadarGrid {
   const binary = atob(base64);
-  const data = new Uint8Array(width * height);
-  for (let i = 0; i < data.length && i < binary.length; i += 1) {
-    data[i] = binary.charCodeAt(i);
+  const encoded = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    encoded[i] = binary.charCodeAt(i);
   }
+  const data = rleDecode(encoded, width * height);
   return { data, width, height };
 }
 
