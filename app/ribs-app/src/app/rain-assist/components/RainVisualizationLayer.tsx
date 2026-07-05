@@ -188,15 +188,18 @@ export function RainVisualizationLayer() {
 
   }, [ data, rasterWidth, rasterHeight ]);
 
-  if (!canvasShow) {
-    return null;
-  }
-
   return (
     <MapMarkerWrapper position={radarStartPosition} disablePointerEvent>
       <canvas
         ref={canvasRef}
-        style={{ width: `${screenWidth}px`, height: `${screenHeight}px` }}
+        // 줌 트랜지션 중에는 CSS로만 숨긴다 (canvasShow=false일 때 언마운트하면 캔버스 DOM 노드가
+        // 새로 생기는데, rasterWidth/Height 값이 이전과 같으면 크기 설정 effect가 재실행되지
+        // 않아 새 캔버스가 브라우저 기본 크기(300x150)로 남아 아무것도 안 보이는 버그가 있었다)
+        style={{
+          width: `${screenWidth}px`,
+          height: `${screenHeight}px`,
+          visibility: canvasShow ? 'visible' : 'hidden',
+        }}
       />
     </MapMarkerWrapper>
   );
