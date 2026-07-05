@@ -1,3 +1,5 @@
+/* eslint-disable @next/next/no-img-element */
+
 'use client';
 
 import { MapMarkerWrapper, useMintMapController } from '@mint-ui/map';
@@ -5,51 +7,37 @@ import { useEffect, useRef, useState } from 'react';
 
 import { getOffset } from '../../rain/util/map-util';
 import { useCurrentDataHook } from '../hook/use-current-data-hook';
-import { detectBlobs, RainBlob, traceBlobOutline } from '../util/blob-detection';
-import { matchNearestBlobs } from '../util/blob-tracking';
-import { drawSmoothClosedPath } from '../util/canvas-smooth-path';
-import { RadarGrid } from '../util/motion-estimation';
 import { toPositions } from '../util/radar-geo';
-import { Legends, NO_DATA_INDEX, RAIN_THRESHOLD_INDEX } from '../util/radar-legend';
+import { Legends, NO_DATA_INDEX } from '../util/radar-legend';
 
-// 캔버스 내부 래스터 해상도 상한. 브라우저의 캔버스 크기 한도를 넘어서면 화면이 하얗게 나온다.
-const MAX_RASTER_DIMENSION = 1400;
-
-// 화면 표시 크기(CSS)도 무한정 키우면 (줌 레벨에 따라 코너 간 거리가 계속 커짐) 마커 자체가
-// 사라지는 문제가 있었다(/rain의 RainRadarLayer.tsx도 동일 앵커링 패턴이라 같은 증상 확인됨,
-// 다만 그 파일은 규칙상 수정하지 않음). 표시 크기도 상한을 둬서 이 레이어만 더 안정적으로 만든다.
-const MAX_SCREEN_DIMENSION = 6000;
-
-function capSize(width:number, height:number, maxDimension:number) {
-  if (width <= maxDimension && height <= maxDimension) {
-    return { width, height };
+function parseRgb(css:string):[number, number, number] {
+  const m = css.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+  if (!m) {
+    return [ 0, 0, 0 ];
   }
-  const aspect = width / height;
-  if (aspect >= 1) {
-    return { width: maxDimension, height: Math.round(maxDimension / aspect) };
-  }
-  return { width: Math.round(maxDimension * aspect), height: maxDimension };
+  return [ Number(m[1]), Number(m[2]), Number(m[3]) ];
 }
 
-// current.json을 사람이 눈으로 검증하기 위한 시각화. RainRadarLayer.tsx와 스위치 관계이며
-// 이 레이어 자체는 마운트/언마운트로만 켜고 끄므로(page.tsx) 별도 on/off 플래그가 없다.
+const LEGEND_RGB = Legends.map(([ color ]) => parseRgb(color));
+
+// current.json이 실제 KMA 레이더와 맞는지 디버깅하기 위한 "가공 없는" 원본 렌더링.
+// 블롭 검출/외곽선/이동 추적선 없이 최신 프레임 1개만, 셀 하나하나를 원본 그대로 그린다.
+// RainRadarLayer.tsx와 동일하게 <img> + CSS 스케일링을 사용해 줌 동작을 일치시킨다
+// (캔버스를 CSS로 늘리는 방식은 확대 시 KMA 원본과 다르게 뭉개져 보이는 문제가 있었다).
 export function RainVisualizationLayer() {
 
   const controller = useMintMapController();
   const positions = useRef(toPositions());
   const radarStartPosition = positions.current[1];
 
-  // RainRadarLayer.tsx와 동일한 앵커링 패턴: top-left 꼭짓점에 고정, 줌마다 폭/높이 재계산
   const [ screenWidth, setScreenWidth ] = useState(1453);
   const [ screenHeight, setScreenHeight ] = useState(1381);
-  const [ rasterWidth, setRasterWidth ] = useState(1400);
-  const [ rasterHeight, setRasterHeight ] = useState(1332);
-  const [ canvasShow, setCanvasShow ] = useState(false);
+  const [ imageShow, setImageShow ] = useState(false);
 
   useEffect(() => {
 
     const handleZoomStart = () => {
-      setCanvasShow(false);
+      setImageShow(false);
     };
 
     const handleZoomChanged = () => {
@@ -62,14 +50,9 @@ export function RainVisualizationLayer() {
       const offset2y = getOffset(controller, positions.current[0]);
       const height = Math.floor(offset2y.y - offset1y.y);
 
-      const screen = capSize(width, height, MAX_SCREEN_DIMENSION);
-      const raster = capSize(width, height, MAX_RASTER_DIMENSION);
-
-      setScreenWidth(screen.width);
-      setScreenHeight(screen.height);
-      setRasterWidth(raster.width);
-      setRasterHeight(raster.height);
-      setCanvasShow(true);
+      setScreenWidth(width);
+      setScreenHeight(height);
+      setImageShow(true);
     };
 
     handleZoomChanged();
@@ -84,123 +67,65 @@ export function RainVisualizationLayer() {
   }, []);
 
   const data = useCurrentDataHook();
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [ imageSrc, setImageSrc ] = useState<string>();
 
   useEffect(() => {
 
-    const canvas = canvasRef.current;
-    if (!canvas || !data || data.frames.length === 0) {
+    if (!data || data.frames.length === 0) {
       return;
     }
 
-    canvas.width = rasterWidth;
-    canvas.height = rasterHeight;
+    const frame = data.frames[data.frames.length - 1];
+    const { grid } = frame;
 
+    const canvas = document.createElement('canvas');
+    canvas.width = grid.width;
+    canvas.height = grid.height;
     const ctx = canvas.getContext('2d');
     if (!ctx) {
       return;
     }
 
-    ctx.clearRect(0, 0, rasterWidth, rasterHeight);
+    const imageData = ctx.createImageData(grid.width, grid.height);
+    for (let i = 0; i < grid.data.length; i += 1) {
 
-    const frameCount = data.frames.length;
-    const denom = Math.max(frameCount - 1, 1);
-    const opacityOf = (frameIndex:number) => 0.25 + (0.75 * (frameIndex / denom));
+      const value = grid.data[i];
+      const pixelIdx = i * 4;
 
-    const toCanvasPoint = (grid:RadarGrid, row:number, col:number) => ({
-      x: (col / grid.width) * rasterWidth,
-      y: (row / grid.height) * rasterHeight,
-    });
-
-    // 프레임별로 실제 레이더 이미지와 동일하게 "셀 하나하나를 자기 색으로" 칠한다.
-    // (이전 버전은 블롭 전체를 대표색 1개로 뭉뚱그려 채워서 실제 이미지와 모양·색이 크게 달라 보였다.)
-    data.frames.forEach((frame, frameIndex) => {
-
-      const opacity = opacityOf(frameIndex);
-      ctx.globalAlpha = opacity;
-
-      const cellWidth = rasterWidth / frame.grid.width;
-      const cellHeight = rasterHeight / frame.grid.height;
-
-      for (let row = 0; row < frame.grid.height; row += 1) {
-        for (let col = 0; col < frame.grid.width; col += 1) {
-
-          const value = frame.grid.data[(row * frame.grid.width) + col];
-
-          if (value !== NO_DATA_INDEX) {
-            const [ color ] = Legends[value] ?? Legends[Legends.length - 1];
-            ctx.fillStyle = color;
-            // 반올림 경계에서 셀 사이 흰 틈이 보이지 않도록 1px씩 여유를 두고 채운다
-            ctx.fillRect(
-              col * cellWidth,
-              row * cellHeight,
-              cellWidth + 1,
-              cellHeight + 1,
-            );
-          }
-        }
+      if (value === NO_DATA_INDEX) {
+        // 실제 KMA PNG와 동일하게 강수 없는 곳은 투명 처리(배경 지도 노출)
+        imageData.data[pixelIdx + 3] = 0;
+      } else {
+        const [ r, g, b ] = LEGEND_RGB[value] ?? LEGEND_RGB[LEGEND_RGB.length - 1];
+        imageData.data[pixelIdx] = r;
+        imageData.data[pixelIdx + 1] = g;
+        imageData.data[pixelIdx + 2] = b;
+        imageData.data[pixelIdx + 3] = 255;
       }
-    });
-
-    // 블롭 검출은 (1) 외곽선 강조선, (2) 프레임 간 이동 추적선을 그리는 용도로만 사용
-    const blobsByFrame:RainBlob[][] = data.frames.map((f) => detectBlobs(f.grid, RAIN_THRESHOLD_INDEX));
-
-    data.frames.forEach((frame, frameIndex) => {
-
-      const opacity = opacityOf(frameIndex);
-
-      blobsByFrame[frameIndex].forEach((blob) => {
-
-        if (blob.cells.length > 4) {
-          const [ color ] = Legends[blob.peakIndex] ?? Legends[Legends.length - 1];
-          ctx.strokeStyle = color;
-          ctx.globalAlpha = opacity;
-          ctx.lineWidth = 1.5;
-
-          const outline = traceBlobOutline(frame.grid, blob)
-            .map((p) => toCanvasPoint(frame.grid, p.row, p.col));
-          drawSmoothClosedPath(ctx, outline);
-        }
-      });
-    });
-
-    for (let i = 0; i < data.frames.length - 1; i += 1) {
-
-      const fromBlobs = blobsByFrame[i];
-      const toBlobs = blobsByFrame[i + 1];
-      const pairs = matchNearestBlobs(fromBlobs, toBlobs);
-
-      ctx.strokeStyle = 'white';
-      ctx.globalAlpha = (opacityOf(i) + opacityOf(i + 1)) / 2;
-      ctx.lineWidth = 1;
-
-      pairs.forEach(({ from, to }) => {
-        const p1 = toCanvasPoint(data.frames[i].grid, from.centroidRow, from.centroidCol);
-        const p2 = toCanvasPoint(data.frames[i + 1].grid, to.centroidRow, to.centroidCol);
-        ctx.beginPath();
-        ctx.moveTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y);
-        ctx.stroke();
-      });
     }
+    ctx.putImageData(imageData, 0, 0);
 
-    ctx.globalAlpha = 1;
+    setImageSrc(canvas.toDataURL('image/png'));
 
-  }, [ data, rasterWidth, rasterHeight ]);
+  }, [ data ]);
 
   return (
     <MapMarkerWrapper position={radarStartPosition} disablePointerEvent>
-      <canvas
-        ref={canvasRef}
-        // 줌 트랜지션 중에는 CSS로만 숨긴다 (canvasShow=false일 때 언마운트하면 캔버스 DOM 노드가
-        // 새로 생기는데, rasterWidth/Height 값이 이전과 같으면 크기 설정 effect가 재실행되지
-        // 않아 새 캔버스가 브라우저 기본 크기(300x150)로 남아 아무것도 안 보이는 버그가 있었다)
+      <div
         style={{
           width: `${screenWidth}px`,
           height: `${screenHeight}px`,
-          visibility: canvasShow ? 'visible' : 'hidden',
+          visibility: imageShow ? 'visible' : 'hidden',
         }}
-      />
+      >
+        {imageSrc && (
+          <img
+            src={imageSrc}
+            alt='rain-assist debug'
+            style={{ width: '100%', height: '100%' }}
+          />
+        )}
+      </div>
     </MapMarkerWrapper>
   );
 }
