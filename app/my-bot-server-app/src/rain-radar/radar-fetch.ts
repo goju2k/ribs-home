@@ -1,20 +1,15 @@
 import axios from 'axios';
 
+import { formatKstTm } from './kst-time';
+
 // KMA가 실제 브라우저가 아닌 요청을 거부/차단하는 것을 방지하기 위한 실제 브라우저 User-Agent
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
-// 클라이언트(RainRadarLayer.tsx)의 getTime과 동일한 5분 버킷 로직
+// 클라이언트(RainRadarLayer.tsx)의 getTime과 동일한 5분 버킷 로직이지만,
+// 서버 컨테이너 타임존과 무관하게 항상 KST 기준으로 계산하도록 formatKstTm을 사용한다.
 export function getTime(minuteBefore?:number):string {
-  let now = new Date();
-  if (minuteBefore) {
-    now = new Date(now.setMinutes(now.getMinutes() - minuteBefore));
-  }
-  const yyyy = now.getFullYear();
-  const mm = String(now.getMonth() + 1).padStart(2, '0');
-  const dd = String(now.getDate()).padStart(2, '0');
-  const hh = String(now.getHours()).padStart(2, '0');
-  const mi = String(Math.floor(now.getMinutes() / 5) * 5).padStart(2, '0');
-  return `${yyyy}${mm}${dd}${hh}${mi}`;
+  const instant = minuteBefore ? new Date(Date.now() - (minuteBefore * 60 * 1000)) : new Date();
+  return formatKstTm(instant);
 }
 
 export interface FetchedRadarPng {
