@@ -15,3 +15,6 @@ dist
 
 # poetry
 .cache
+
+# playwright verification screenshots
+scripts/.output
