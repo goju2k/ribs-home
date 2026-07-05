@@ -10,6 +10,7 @@ export interface RadarFrameInput {
 export type RainForecastResult =
   | { status:'no-signal'; }
   | { status:'no-motion'; }
+  | { status:'raining'; }
   | { status:'result'; etaMinutes:number; bearingDeg:number; speedKmh:number; distanceKm:number; };
 
 // yyyyMMddHHmm -> 분 단위 타임스탬프(경과시간 계산용). 두 tm 모두 같은 방식으로 파싱해
@@ -101,6 +102,7 @@ function findStrongestNearby(grid:RadarGrid, center:GridCell, radiusCells:number
   return best;
 }
 
+const RAINING_NOW_KM = 2;
 const MAX_SEARCH_KM = 100;
 const TARGET_WORKING_KM_PER_CELL = 3;
 const BLOCK_RADIUS_KM = 8;
@@ -129,6 +131,15 @@ export function computeRainForecast(opts:{
   }
 
   const kmPerCell = estimateKmPerCell(corners, newest.grid.width, newest.grid.height);
+
+  // 0. 접근 예보(이동벡터/각도) 판정은 "아직 안 온 비"를 전제로 한다. 이미 내 위치 자체가
+  //    비 구역 안이면 그 판정(각도 불일치, 정지/느린 이동 등)에 걸려 오히려 "감지된 강수 없음"으로
+  //    오탐할 수 있으므로, 접근 예보보다 먼저 "지금 내 위치에 비가 오는 중인지"부터 확인한다.
+  const rainingNowRadiusCells = Math.max(1, Math.round(RAINING_NOW_KM / kmPerCell));
+  if (findNearestRainCell(newest.grid, userCell, rainingNowRadiusCells)) {
+    return { status: 'raining' };
+  }
+
   const maxRadiusCells = Math.max(1, Math.round(MAX_SEARCH_KM / kmPerCell));
 
   // 1. 내 위치가 아니라, 내 주변에서 가장 가까운 강수 셀을 먼저 찾는다.
