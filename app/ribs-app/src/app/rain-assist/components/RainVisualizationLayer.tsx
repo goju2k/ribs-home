@@ -10,27 +10,25 @@ import { matchNearestBlobs } from '../util/blob-tracking';
 import { drawSmoothClosedPath } from '../util/canvas-smooth-path';
 import { RadarGrid } from '../util/motion-estimation';
 import { toPositions } from '../util/radar-geo';
-import { Legends, RAIN_THRESHOLD_INDEX } from '../util/radar-legend';
+import { Legends, NO_DATA_INDEX, RAIN_THRESHOLD_INDEX } from '../util/radar-legend';
 
-// 캔버스 내부 래스터 해상도 상한. 줌 레벨에 따라 화면 픽셀 크기(screenWidth/Height)는
-// 계속 커지지만, 이걸 그대로 canvas.width/height에 넣으면 브라우저의 캔버스 크기 한도를
-// 넘어서 화면이 하얗게 나오는 문제가 생긴다. CSS(style)로만 확대하고 실제 래스터 해상도는
-// 고정 상한 이하로 유지 — 확대할수록 오히려 작은 셀도 더 크게 보이는 효과도 덤으로 얻는다.
+// 캔버스 내부 래스터 해상도 상한. 브라우저의 캔버스 크기 한도를 넘어서면 화면이 하얗게 나온다.
 const MAX_RASTER_DIMENSION = 1400;
 
-// 아주 작은 블롭(몇 셀)은 얇은 외곽선만으로는 잘 안 보이므로 원으로 표시
-const SMALL_BLOB_CELL_THRESHOLD = 4;
-const SMALL_BLOB_RADIUS = 4;
+// 화면 표시 크기(CSS)도 무한정 키우면 (줌 레벨에 따라 코너 간 거리가 계속 커짐) 마커 자체가
+// 사라지는 문제가 있었다(/rain의 RainRadarLayer.tsx도 동일 앵커링 패턴이라 같은 증상 확인됨,
+// 다만 그 파일은 규칙상 수정하지 않음). 표시 크기도 상한을 둬서 이 레이어만 더 안정적으로 만든다.
+const MAX_SCREEN_DIMENSION = 6000;
 
-function capRasterSize(width:number, height:number) {
-  if (width <= MAX_RASTER_DIMENSION && height <= MAX_RASTER_DIMENSION) {
+function capSize(width:number, height:number, maxDimension:number) {
+  if (width <= maxDimension && height <= maxDimension) {
     return { width, height };
   }
   const aspect = width / height;
   if (aspect >= 1) {
-    return { width: MAX_RASTER_DIMENSION, height: Math.round(MAX_RASTER_DIMENSION / aspect) };
+    return { width: maxDimension, height: Math.round(maxDimension / aspect) };
   }
-  return { width: Math.round(MAX_RASTER_DIMENSION * aspect), height: MAX_RASTER_DIMENSION };
+  return { width: Math.round(maxDimension * aspect), height: maxDimension };
 }
 
 // current.json을 사람이 눈으로 검증하기 위한 시각화. RainRadarLayer.tsx와 스위치 관계이며
@@ -64,10 +62,11 @@ export function RainVisualizationLayer() {
       const offset2y = getOffset(controller, positions.current[0]);
       const height = Math.floor(offset2y.y - offset1y.y);
 
-      const raster = capRasterSize(width, height);
+      const screen = capSize(width, height, MAX_SCREEN_DIMENSION);
+      const raster = capSize(width, height, MAX_RASTER_DIMENSION);
 
-      setScreenWidth(width);
-      setScreenHeight(height);
+      setScreenWidth(screen.width);
+      setScreenHeight(screen.height);
       setRasterWidth(raster.width);
       setRasterHeight(raster.height);
       setCanvasShow(true);
@@ -113,6 +112,37 @@ export function RainVisualizationLayer() {
       y: (row / grid.height) * rasterHeight,
     });
 
+    // 프레임별로 실제 레이더 이미지와 동일하게 "셀 하나하나를 자기 색으로" 칠한다.
+    // (이전 버전은 블롭 전체를 대표색 1개로 뭉뚱그려 채워서 실제 이미지와 모양·색이 크게 달라 보였다.)
+    data.frames.forEach((frame, frameIndex) => {
+
+      const opacity = opacityOf(frameIndex);
+      ctx.globalAlpha = opacity;
+
+      const cellWidth = rasterWidth / frame.grid.width;
+      const cellHeight = rasterHeight / frame.grid.height;
+
+      for (let row = 0; row < frame.grid.height; row += 1) {
+        for (let col = 0; col < frame.grid.width; col += 1) {
+
+          const value = frame.grid.data[(row * frame.grid.width) + col];
+
+          if (value !== NO_DATA_INDEX) {
+            const [ color ] = Legends[value] ?? Legends[Legends.length - 1];
+            ctx.fillStyle = color;
+            // 반올림 경계에서 셀 사이 흰 틈이 보이지 않도록 1px씩 여유를 두고 채운다
+            ctx.fillRect(
+              col * cellWidth,
+              row * cellHeight,
+              cellWidth + 1,
+              cellHeight + 1,
+            );
+          }
+        }
+      }
+    });
+
+    // 블롭 검출은 (1) 외곽선 강조선, (2) 프레임 간 이동 추적선을 그리는 용도로만 사용
     const blobsByFrame:RainBlob[][] = data.frames.map((f) => detectBlobs(f.grid, RAIN_THRESHOLD_INDEX));
 
     data.frames.forEach((frame, frameIndex) => {
@@ -121,24 +151,15 @@ export function RainVisualizationLayer() {
 
       blobsByFrame[frameIndex].forEach((blob) => {
 
-        const legendEntry = Legends[blob.peakIndex] ?? Legends[Legends.length - 1];
-        const [ color ] = legendEntry;
+        if (blob.cells.length > 4) {
+          const [ color ] = Legends[blob.peakIndex] ?? Legends[Legends.length - 1];
+          ctx.strokeStyle = color;
+          ctx.globalAlpha = opacity;
+          ctx.lineWidth = 1.5;
 
-        ctx.strokeStyle = color;
-        ctx.fillStyle = color;
-        ctx.globalAlpha = opacity;
-        ctx.lineWidth = 1.5;
-
-        if (blob.cells.length <= SMALL_BLOB_CELL_THRESHOLD) {
-          const center = toCanvasPoint(frame.grid, blob.centroidRow, blob.centroidCol);
-          ctx.beginPath();
-          ctx.arc(center.x, center.y, SMALL_BLOB_RADIUS, 0, Math.PI * 2);
-          ctx.fill();
-        } else {
           const outline = traceBlobOutline(frame.grid, blob)
             .map((p) => toCanvasPoint(frame.grid, p.row, p.col));
-          // 실제 레이더 이미지처럼 면이 채워져 보이도록 외곽선(stroke) + 반투명 채우기(fill)를 함께 그린다
-          drawSmoothClosedPath(ctx, outline, { fill: true });
+          drawSmoothClosedPath(ctx, outline);
         }
       });
     });
