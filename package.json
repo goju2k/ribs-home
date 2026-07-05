@@ -10,7 +10,8 @@
     "start:ribs": "next start",
     "dev:bot": "nx serve my-bot-server-app",
     "build:bot": "nx build my-bot-server-app",
-    "image:py": "docker build -f app/py-api-server/docker/Dockerfile -t py-api-server:latest ."
+    "image:py": "docker build -f app/py-api-server/docker/Dockerfile -t py-api-server:latest .",
+    "verify:page": "node scripts/verify-page.mjs"
   },
   "author": "",
   "license": "ISC",
@@ -70,6 +71,7 @@
     "jest-environment-jsdom": "^29.4.1",
     "jsdom": "~22.1.0",
     "nx": "18.2.4",
+    "playwright": "^1.47.0",
     "prettier": "^2.6.2",
     "react-refresh": "^0.10.0",
     "swc-loader": "0.1.15",
