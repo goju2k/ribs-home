@@ -27,6 +27,8 @@ export function RainForecastLayer({ userPosition }:RainForecastLayerProps) {
   let badgeText = '';
   if (forecast.status === 'result') {
     badgeText = `${Math.round(forecast.etaMinutes)}분 후 비 예상`;
+  } else if (forecast.status === 'raining') {
+    badgeText = '비가 오는 중';
   } else if (forecast.status === 'no-signal' || forecast.status === 'no-motion') {
     badgeText = '감지된 강수 없음';
   }
