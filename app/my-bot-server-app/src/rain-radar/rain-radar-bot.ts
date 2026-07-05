@@ -1,5 +1,6 @@
 import cron from 'node-cron';
 
+import { formatKstTm } from './kst-time';
 import { fetchRadarPng } from './radar-fetch';
 import { RADAR_CORNERS } from './radar-geo';
 import { buildGrid } from './radar-grid';
@@ -16,15 +17,6 @@ const LEGEND = RadarLegend.map(([ , mmh ], index) => ({ index, mmh }));
 
 function lo(...args) {
   console.log(new Date().toLocaleString(), '[RainRadarBot]', ...args);
-}
-
-function toTm(date:Date):string {
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, '0');
-  const dd = String(date.getDate()).padStart(2, '0');
-  const hh = String(date.getHours()).padStart(2, '0');
-  const mi = String(date.getMinutes()).padStart(2, '0');
-  return `${yyyy}${mm}${dd}${hh}${mi}`;
 }
 
 export class RainRadarBot {
@@ -71,7 +63,7 @@ export class RainRadarBot {
         gridData: encodedGrid,
       });
 
-      const cutoff = toTm(new Date(Date.now() - RETENTION_MS));
+      const cutoff = formatKstTm(new Date(Date.now() - RETENTION_MS));
       const pruned = await this.db.pruneOlderThan(cutoff);
 
       lo('check ok', 'tm', tm, 'grid', `${gridWidth}x${gridHeight}`, 'raw', grid.length, 'encoded', encodedGrid.length, 'pruned', pruned);
