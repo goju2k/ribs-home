@@ -52,6 +52,13 @@ export function estimateLocalMotionVector(opts:EstimateOptions):MotionVectorResu
   let bestSad = Infinity;
   let bestValidCount = 0;
 
+  const blockCells = (2 * blockRadius + 1) ** 2;
+  // 후보 오프셋 자체가 최소한 이 정도는 겹쳐야 SAD 비교에 낄 수 있다. 이게 없으면 우연히
+  // 겹친 셀 1~2개가 sad=0을 찍어 실제로는 40개 이상 겹치는 진짜 좋은 매칭을 이겨버리고,
+  // 그 가짜 승자가 마지막 유효셀수 검사에서 걸려 결국 null이 되는 문제가 있었다
+  // (진짜 매칭은 애초에 "best"로 뽑히지도 못하고 버려짐).
+  const minValidCountToConsider = Math.ceil(blockCells * 0.5);
+
   for (let dRow = -searchRadius; dRow <= searchRadius; dRow += 1) {
     for (let dCol = -searchRadius; dCol <= searchRadius; dCol += 1) {
 
@@ -81,7 +88,7 @@ export function estimateLocalMotionVector(opts:EstimateOptions):MotionVectorResu
         }
       }
 
-      if (validCount > 0) {
+      if (validCount >= minValidCountToConsider) {
         const normalizedSad = sad / validCount;
         if (normalizedSad < bestSad || (normalizedSad === bestSad && validCount > bestValidCount)) {
           bestSad = normalizedSad;
@@ -93,9 +100,8 @@ export function estimateLocalMotionVector(opts:EstimateOptions):MotionVectorResu
     }
   }
 
-  const blockCells = (2 * blockRadius + 1) ** 2;
-  if (bestValidCount < blockCells * 0.2) {
-    // 유효 강수 셀이 너무 적으면 이동벡터 신호가 부족한 것으로 판단
+  if (bestValidCount === 0) {
+    // 어떤 오프셋도 최소 겹침 기준을 못 채움 — 신호 자체가 부족
     return null;
   }
 

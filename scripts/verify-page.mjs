@@ -23,12 +23,19 @@ const clickSelector = getArg('click');
 const waitMs = Number(getArg('wait-ms') || 2000);
 const scrollZoomIn = Number(getArg('scroll-zoom-in') || 0);
 const panArg = getArg('pan'); // "dx,dy" 형식, 지도 드래그(마우스 down-move-up)로 이동
+const geoArg = getArg('geo'); // "lat,lng" 형식, navigator.geolocation을 이 좌표로 모의(헤드리스는 기본 위치 없음)
 
 const consoleMessages = [];
 const pageErrors = [];
 
 const browser = await chromium.launch();
-const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+const contextOptions = { viewport: { width: 1280, height: 900 } };
+if (geoArg) {
+  const [ latitude, longitude ] = geoArg.split(',').map(Number);
+  contextOptions.geolocation = { latitude, longitude };
+  contextOptions.permissions = [ 'geolocation' ];
+}
+const context = await browser.newContext(contextOptions);
 const page = await context.newPage();
 
 page.on('console', (msg) => {
