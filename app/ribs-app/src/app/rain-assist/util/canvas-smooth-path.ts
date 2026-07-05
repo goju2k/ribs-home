@@ -7,9 +7,18 @@ function midpoint(a:CanvasPoint, b:CanvasPoint):CanvasPoint {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 }
 
+interface DrawSmoothClosedPathOptions {
+  // 실제 레이더 이미지처럼 면이 채워져 보이도록 외곽선과 함께 내부를 채울지 여부 (기본값 false: 외곽선만)
+  fill?:boolean;
+}
+
 // 각 변의 중점을 지나는 2차 베지어로 그리드 격자의 계단 형태를 부드럽게 그린다.
-// Canvas 2D의 stroke는 기본적으로 안티앨리어싱되므로 별도 AA 처리는 불필요.
-export function drawSmoothClosedPath(ctx:CanvasRenderingContext2D, points:CanvasPoint[]) {
+// Canvas 2D의 stroke/fill은 기본적으로 안티앨리어싱되므로 별도 AA 처리는 불필요.
+export function drawSmoothClosedPath(
+  ctx:CanvasRenderingContext2D,
+  points:CanvasPoint[],
+  options:DrawSmoothClosedPathOptions = {},
+) {
 
   if (points.length === 0) {
     return;
@@ -36,5 +45,9 @@ export function drawSmoothClosedPath(ctx:CanvasRenderingContext2D, points:Canvas
   }
 
   ctx.closePath();
+
+  if (options.fill) {
+    ctx.fill();
+  }
   ctx.stroke();
 }
