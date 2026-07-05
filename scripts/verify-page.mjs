@@ -1,11 +1,11 @@
 // 브라우저 자동화로 페이지를 열어 HTTP 상태/콘솔 에러/스크린샷을 확인하는 범용 검증 스크립트.
-// 사용법: node scripts/verify-page.mjs <url> [outputScreenshotPath] [--wait-selector=CSS] [--click=CSS]
+// 사용법: node scripts/verify-page.mjs <url> [outputScreenshotPath] [--wait-selector=CSS] [--click=CSS] [--scroll-zoom-in=N]
 import { chromium } from 'playwright';
 
 const [ , , url, screenshotPathArg, ...rest ] = process.argv;
 
 if (!url) {
-  console.error('Usage: node scripts/verify-page.mjs <url> [screenshotPath] [--wait-selector=CSS] [--click=CSS] [--wait-ms=N]');
+  console.error('Usage: node scripts/verify-page.mjs <url> [screenshotPath] [--wait-selector=CSS] [--click=CSS] [--wait-ms=N] [--scroll-zoom-in=N]');
   process.exit(1);
 }
 
@@ -21,6 +21,7 @@ function getArg(name) {
 const waitSelector = getArg('wait-selector');
 const clickSelector = getArg('click');
 const waitMs = Number(getArg('wait-ms') || 2000);
+const scrollZoomIn = Number(getArg('scroll-zoom-in') || 0);
 
 const consoleMessages = [];
 const pageErrors = [];
@@ -57,6 +58,15 @@ if (clickSelector) {
     await page.click(clickSelector, { timeout: 10000 });
   } catch (e) {
     console.error(`CLICK "${clickSelector}" FAILED:`, e.message);
+  }
+}
+
+if (scrollZoomIn > 0) {
+  const viewport = page.viewportSize() ?? { width: 1280, height: 900 };
+  await page.mouse.move(viewport.width / 2, viewport.height / 2);
+  for (let i = 0; i < scrollZoomIn; i += 1) {
+    await page.mouse.wheel(0, -200); // deltaY 음수 = 스크롤 업(대부분 지도 라이브러리에서 줌인)
+    await page.waitForTimeout(300);
   }
 }
 
