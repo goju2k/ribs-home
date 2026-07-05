@@ -4,7 +4,10 @@ import { MapType, MintMap, Position } from '@mint-ui/map';
 import { useEffect } from 'react';
 
 import { RainForecastLayer } from './components/RainForecastLayer';
+import { RainVisualizationLayer } from './components/RainVisualizationLayer';
+import { VisualizationModeToggle } from './components/VisualizationModeToggle';
 import { useAutoGeoLocationHook } from './hook/use-auto-geo-location-hook';
+import { useVisualizationModeHook } from './hook/use-visualization-mode-hook';
 
 import { MapControlLayer } from '../rain/components/map-layer/MapControl';
 import { RainRadarLayer } from '../rain/components/map-layer/RainRadarLayer';
@@ -29,6 +32,7 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
   // 5분 간격 자동 위치 갱신 (기존 /rain의 수동 "현재위치" 버튼과 별개)
   const userPosition = useAutoGeoLocationHook();
   const updateControl = useUpdateMapControl();
+  const [ visualizationMode, setVisualizationMode ] = useVisualizationModeHook();
 
   useEffect(() => {
     if (userPosition) {
@@ -54,11 +58,14 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
         {/* 레이어: 전국 기온 (재사용) */}
         <TemperatureLayer />
 
-        {/* 레이어: 강수 레이더 (재사용) */}
-        <RainRadarLayer />
+        {/* 레이어: 강수 레이더 <-> current.json 시각화 확인 모드 (스위치 관계) */}
+        {!visualizationMode && <RainRadarLayer />}
+        {visualizationMode && <RainVisualizationLayer />}
 
-        {/* 레이어: 강수 예보 배지/화살표 (신규) */}
+        {/* 레이어: 강수 예보 배지/화살표 (신규, 모드와 무관하게 항상 표시) */}
         <RainForecastLayer userPosition={userPosition} />
+
+        <VisualizationModeToggle checked={visualizationMode} onChange={setVisualizationMode} />
 
       </MintMap>
     </>
