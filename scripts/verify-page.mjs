@@ -22,6 +22,7 @@ const waitSelector = getArg('wait-selector');
 const clickSelector = getArg('click');
 const waitMs = Number(getArg('wait-ms') || 2000);
 const scrollZoomIn = Number(getArg('scroll-zoom-in') || 0);
+const panArg = getArg('pan'); // "dx,dy" 형식, 지도 드래그(마우스 down-move-up)로 이동
 
 const consoleMessages = [];
 const pageErrors = [];
@@ -61,9 +62,25 @@ if (clickSelector) {
   }
 }
 
+if (panArg) {
+  const [ dx, dy ] = panArg.split(',').map(Number);
+  const viewport = page.viewportSize() ?? { width: 1280, height: 900 };
+  const cx = viewport.width / 2;
+  const cy = viewport.height / 2;
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + dx, cy + dy, { steps: 10 });
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+}
+
 if (scrollZoomIn > 0) {
   const viewport = page.viewportSize() ?? { width: 1280, height: 900 };
-  await page.mouse.move(viewport.width / 2, viewport.height / 2);
+  const zoomOriginArg = getArg('zoom-origin'); // "x,y" 형식, 이 화면좌표를 중심으로 줌(대부분 지도 라이브러리는 커서 위치 기준 줌)
+  const [ zx, zy ] = zoomOriginArg
+    ? zoomOriginArg.split(',').map(Number)
+    : [ viewport.width / 2, viewport.height / 2 ];
+  await page.mouse.move(zx, zy);
   for (let i = 0; i < scrollZoomIn; i += 1) {
     await page.mouse.wheel(0, -200); // deltaY 음수 = 스크롤 업(대부분 지도 라이브러리에서 줌인)
     await page.waitForTimeout(300);
