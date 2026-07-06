@@ -8,22 +8,13 @@ import { useEffect, useRef, useState } from 'react';
 import { getOffset } from '../../rain/util/map-util';
 import { useCurrentDataHook } from '../hook/use-current-data-hook';
 import { toPositions } from '../util/radar-geo';
-import { Legends, NO_DATA_INDEX } from '../util/radar-legend';
-
-function parseRgb(css:string):[number, number, number] {
-  const m = css.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-  if (!m) {
-    return [ 0, 0, 0 ];
-  }
-  return [ Number(m[1]), Number(m[2]), Number(m[3]) ];
-}
-
-const LEGEND_RGB = Legends.map(([ color ]) => parseRgb(color));
 
 // current.json이 실제 KMA 레이더와 맞는지 디버깅하기 위한 "가공 없는" 원본 렌더링.
-// 블롭 검출/외곽선/이동 추적선 없이 최신 프레임 1개만, 셀 하나하나를 원본 그대로 그린다.
-// RainRadarLayer.tsx와 동일하게 <img> + CSS 스케일링을 사용해 줌 동작을 일치시킨다
-// (캔버스를 CSS로 늘리는 방식은 확대 시 KMA 원본과 다르게 뭉개져 보이는 문제가 있었다).
+// S3가 원본 KMA PNG(base64)를 그대로 발행하므로, 여기서도 그 바이트를 재가공(분류/재색칠) 없이
+// <img>로 그대로 보여준다 — 재분류해서 다시 그리면 그 과정에서 원본과 미세하게 다른 모양이
+// 생길 수 있으므로, 시각화 확인 모드의 목적(원본과 실제로 같은지 확인) 자체가 항상 성립하도록
+// 원본 바이트를 그대로 쓴다. RainRadarLayer.tsx와 동일하게 <img> + CSS 스케일링을 사용해
+// 줌 동작을 일치시킨다(캔버스를 CSS로 늘리는 방식은 확대 시 KMA 원본과 다르게 뭉개져 보였다).
 export function RainVisualizationLayer() {
 
   const controller = useMintMapController();
@@ -67,47 +58,7 @@ export function RainVisualizationLayer() {
   }, []);
 
   const data = useCurrentDataHook();
-  const [ imageSrc, setImageSrc ] = useState<string>();
-
-  useEffect(() => {
-
-    if (!data || data.frames.length === 0) {
-      return;
-    }
-
-    const frame = data.frames[data.frames.length - 1];
-    const { grid } = frame;
-
-    const canvas = document.createElement('canvas');
-    canvas.width = grid.width;
-    canvas.height = grid.height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      return;
-    }
-
-    const imageData = ctx.createImageData(grid.width, grid.height);
-    for (let i = 0; i < grid.data.length; i += 1) {
-
-      const value = grid.data[i];
-      const pixelIdx = i * 4;
-
-      if (value === NO_DATA_INDEX) {
-        // 실제 KMA PNG와 동일하게 강수 없는 곳은 투명 처리(배경 지도 노출)
-        imageData.data[pixelIdx + 3] = 0;
-      } else {
-        const [ r, g, b ] = LEGEND_RGB[value] ?? LEGEND_RGB[LEGEND_RGB.length - 1];
-        imageData.data[pixelIdx] = r;
-        imageData.data[pixelIdx + 1] = g;
-        imageData.data[pixelIdx + 2] = b;
-        imageData.data[pixelIdx + 3] = 255;
-      }
-    }
-    ctx.putImageData(imageData, 0, 0);
-
-    setImageSrc(canvas.toDataURL('image/png'));
-
-  }, [ data ]);
+  const imageSrc = data ? `data:image/png;base64,${data.latestPngBase64}` : undefined;
 
   return (
     <MapMarkerWrapper position={radarStartPosition} disablePointerEvent>

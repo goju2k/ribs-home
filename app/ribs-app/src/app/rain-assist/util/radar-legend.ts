@@ -33,3 +33,34 @@ export const NO_DATA_INDEX = 255;
 
 // mm/h > 0 인 마지막 범례 인덱스. 이 값 이하(더 진한 강수)를 강수로 간주.
 export const RAIN_THRESHOLD_INDEX = Legends.findIndex(([ , mmh ]) => mmh === 0) - 1;
+
+// 'rgb(r,g,b)' 문자열을 매 픽셀마다 파싱하지 않도록 미리 튜플로 변환해둔다.
+const LEGEND_RGB:[number, number, number][] = Legends.map(([ css ]) => {
+  const m = css.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+  return m ? [ Number(m[1]), Number(m[2]), Number(m[3]) ] : [ 0, 0, 0 ];
+});
+
+// 원본 PNG를 서버에서 미리 분류해 압축·전송하는 대신, 클라이언트가 디코드한 원본 픽셀에서
+// 매번 직접 분류한다 — 서버측 인코드/디코드 왕복 과정에서 생기던 몇 픽셀 단위 불일치를 없애고
+// 항상 원본과 동일한 소스에서 분류하기 위함. 로직은 서버
+// (app/my-bot-server-app/src/rain-radar/radar-legend.ts)의 classifyPixel과 동일하게 유지.
+export function classifyPixel(r:number, g:number, b:number, a:number, alphaThreshold = 10):number {
+
+  if (a < alphaThreshold) {
+    return NO_DATA_INDEX;
+  }
+
+  let bestIndex = 0;
+  let bestDist = Infinity;
+
+  for (let i = 0; i < LEGEND_RGB.length; i += 1) {
+    const [ lr, lg, lb ] = LEGEND_RGB[i];
+    const dist = ((r - lr) ** 2) + ((g - lg) ** 2) + ((b - lb) ** 2);
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestIndex = i;
+    }
+  }
+
+  return bestIndex;
+}

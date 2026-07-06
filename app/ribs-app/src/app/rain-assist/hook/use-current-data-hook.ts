@@ -1,30 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { decodeGridBase64, RadarGrid } from '../util/motion-estimation';
-
 interface ApiFrame {
   tm:string;
-  gridWidth:number;
-  gridHeight:number;
-  gridDataBase64:string;
+  pngBase64:string;
 }
 interface ApiResponse {
   corners:[number, number][];
   frames:ApiFrame[];
 }
 
-export interface CurrentDataFrame {
-  tm:string;
-  grid:RadarGrid;
-}
-
 export interface CurrentData {
   corners:[number, number][];
-  frames:CurrentDataFrame[];
+  latestTm:string;
+  latestPngBase64:string;
 }
 
 // use-rain-prediction-hook.ts와는 독립적인 별도 fetch — 이미 검증된 예보 훅을 건드리지 않기 위한 의도적 선택.
 // 이 훅을 쓰는 컴포넌트가 마운트되어 있는 동안에만 폴링하면 되므로 별도 enabled 플래그는 두지 않는다.
+// 시각화 확인 모드는 최신 프레임의 원본 PNG를 그대로 보여주기만 하면 되므로, 그리드로 디코드하지
+// 않고 base64 원문을 그대로 반환한다(가공 없는 원본 그대로).
 export function useCurrentDataHook(pollMs = 60000):CurrentData | null {
 
   const [ data, setData ] = useState<CurrentData | null>(null);
@@ -45,18 +39,16 @@ export function useCurrentDataHook(pollMs = 60000):CurrentData | null {
           return;
         }
 
-        const latestTm = json.frames[json.frames.length - 1].tm;
-        if (latestTm === lastTmRef.current) {
+        const latest = json.frames[json.frames.length - 1];
+        if (latest.tm === lastTmRef.current) {
           return;
         }
-        lastTmRef.current = latestTm;
+        lastTmRef.current = latest.tm;
 
         setData({
           corners: json.corners,
-          frames: json.frames.map((f) => ({
-            tm: f.tm,
-            grid: decodeGridBase64(f.gridDataBase64, f.gridWidth, f.gridHeight),
-          })),
+          latestTm: latest.tm,
+          latestPngBase64: latest.pngBase64,
         });
 
       } catch (e) {
