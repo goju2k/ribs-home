@@ -49,8 +49,12 @@ export class RainRadarBot {
 
     await this.check();
 
-    // KMA는 시계 기준 5분 정각에 이미지를 갱신하므로 setInterval 대신 cron으로 정렬
-    this.task = cron.schedule('*/5 * * * *', () => this.check(), { timezone: 'Asia/Seoul' });
+    // KMA의 실제 이미지 발행 시각은 5분 정각과 정확히 일치하지 않는다(처리 지연으로 몇 분씩
+    // 밀릴 수 있음). 5분 주기로만 확인하면 이 밀림과 크론 틱이 어긋나 최대 5분(+CDN 캐시)까지
+    // 오래된 프레임을 발행하게 될 수 있어, 1분마다 재시도해 새 이미지가 나온 지 최대 1분 내로
+    // 잡는다. fetchRadarPng이 이미 "가장 최근 버킷부터 시도, 없으면 과거로" 하는 재시도 로직을
+    // 갖고 있어 별도 로직 변경 없이 이 주기 단축만으로 최신성이 개선된다.
+    this.task = cron.schedule('* * * * *', () => this.check(), { timezone: 'Asia/Seoul' });
 
   }
 
