@@ -17,8 +17,10 @@ export async function publishCurrentData(payload:unknown) {
     Key: S3_KEY,
     Body: JSON.stringify(payload),
     ContentType: 'application/json',
-    // 5분 주기로 갱신되는 데이터이므로 캐시 수명을 짧게 유지
-    CacheControl: 'public, max-age=60',
+    // 1분 주기로 갱신을 시도하는 데이터라 CDN(CloudFront)에서 오래 캐싱되면 그만큼 그대로
+    // 신선도 지연이 된다. 활성 invalidation은 이 빈도로는 비용이 커서(경로당 과금) 대신
+    // max-age를 짧게 둬 CDN이 원본과 자주 재검증하도록 한다.
+    CacheControl: 'public, max-age=10',
   }));
 
 }
