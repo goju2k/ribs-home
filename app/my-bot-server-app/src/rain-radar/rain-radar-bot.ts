@@ -63,36 +63,53 @@ export class RainRadarBot {
   }
 
   async check() {
+
+    // 1분마다 확인하지만 KMA가 5분 간격(또는 그 이상 지연)으로만 발행하므로, 대부분의 사이클은
+    // "아직 같은 tm"이다. 이럴 때는 분류/RLE(DB용)도, DB insert도, S3 재발행도 전부 스킵한다
+    // (같은 내용을 매번 다시 올려봐야 얻는 게 없고, KMA 조회 자체만 매분 하면 충분하다).
+    let newFrame = false;
+
     try {
 
       const { tm, png } = await fetchRadarPng();
-      const { grid, gridWidth, gridHeight, sourceWidth, sourceHeight, stride } = buildGrid(png);
-      const encodedGrid = rleEncode(grid);
 
-      await this.db.insertFrame({
-        tm,
-        gridWidth,
-        gridHeight,
-        sourceWidth,
-        sourceHeight,
-        stride,
-        gridData: encodedGrid,
-      });
+      if (this.pngHistory.some((f) => f.tm === tm)) {
+        lo('check skip (no new frame)', 'tm', tm);
+      } else {
 
-      const cutoff = formatKstTm(new Date(Date.now() - RETENTION_MS));
-      const pruned = await this.db.pruneOlderThan(cutoff);
+        const { grid, gridWidth, gridHeight, sourceWidth, sourceHeight, stride } = buildGrid(png);
+        const encodedGrid = rleEncode(grid);
 
-      this.pngHistory = this.pngHistory.filter((f) => f.tm !== tm);
-      this.pngHistory.push({ tm, png });
-      this.pngHistory.sort((a, b) => (a.tm < b.tm ? -1 : 1));
-      if (this.pngHistory.length > PUBLISH_FRAME_COUNT) {
-        this.pngHistory = this.pngHistory.slice(this.pngHistory.length - PUBLISH_FRAME_COUNT);
+        await this.db.insertFrame({
+          tm,
+          gridWidth,
+          gridHeight,
+          sourceWidth,
+          sourceHeight,
+          stride,
+          gridData: encodedGrid,
+        });
+
+        const cutoff = formatKstTm(new Date(Date.now() - RETENTION_MS));
+        const pruned = await this.db.pruneOlderThan(cutoff);
+
+        this.pngHistory.push({ tm, png });
+        this.pngHistory.sort((a, b) => (a.tm < b.tm ? -1 : 1));
+        if (this.pngHistory.length > PUBLISH_FRAME_COUNT) {
+          this.pngHistory = this.pngHistory.slice(this.pngHistory.length - PUBLISH_FRAME_COUNT);
+        }
+
+        newFrame = true;
+        lo('check ok', 'tm', tm, 'grid', `${gridWidth}x${gridHeight}`, 'raw', grid.length, 'encoded', encodedGrid.length, 'pruned', pruned);
+
       }
-
-      lo('check ok', 'tm', tm, 'grid', `${gridWidth}x${gridHeight}`, 'raw', grid.length, 'encoded', encodedGrid.length, 'pruned', pruned);
 
     } catch (e) {
       lo('check error', e);
+    }
+
+    if (!newFrame) {
+      return;
     }
 
     try {
