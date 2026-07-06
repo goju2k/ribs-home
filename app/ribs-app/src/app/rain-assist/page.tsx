@@ -3,6 +3,7 @@
 import { MapType, MintMap, Position } from '@mint-ui/map';
 import { useEffect } from 'react';
 
+import { AutoCenterOnLocation } from './components/AutoCenterOnLocation';
 import { RainForecastLayer } from './components/RainForecastLayer';
 import { RainVisualizationLayer } from './components/RainVisualizationLayer';
 import { VisualizationModeToggle } from './components/VisualizationModeToggle';
@@ -64,6 +65,9 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
 
         {/* 레이어: 강수 예보 배지/화살표 (신규, 모드와 무관하게 항상 표시) */}
         <RainForecastLayer userPosition={userPosition} />
+
+        {/* 최초 위치 획득 시 1회만 그 위치로 이동+확대(줌 14) */}
+        <AutoCenterOnLocation userPosition={userPosition} />
 
         <VisualizationModeToggle checked={visualizationMode} onChange={setVisualizationMode} />
 
