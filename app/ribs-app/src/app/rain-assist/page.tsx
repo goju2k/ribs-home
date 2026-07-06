@@ -3,11 +3,12 @@
 import { MapType, MintMap, Position } from '@mint-ui/map';
 import { useEffect } from 'react';
 
-import { AutoCenterOnLocation } from './components/AutoCenterOnLocation';
+import { MapLoadingOverlay } from './components/MapLoadingOverlay';
 import { RainForecastLayer } from './components/RainForecastLayer';
 import { RainVisualizationLayer } from './components/RainVisualizationLayer';
 import { VisualizationModeToggle } from './components/VisualizationModeToggle';
 import { useAutoGeoLocationHook } from './hook/use-auto-geo-location-hook';
+import { useInitialMapViewHook } from './hook/use-initial-map-view-hook';
 import { useVisualizationModeHook } from './hook/use-visualization-mode-hook';
 
 import { MapControlLayer } from '../rain/components/map-layer/MapControl';
@@ -28,6 +29,8 @@ const MapKeys = {
   google: 'AIzaSyBgPrwr9buZ0EjOxFumRyXyqrkVtEZEtkk',
 } as Record<MapType, string>;
 
+const DEFAULT_CENTER = new Position(37.496837, 127.028104);
+
 function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
 
   // 5분 간격 자동 위치 갱신 (기존 /rain의 수동 "현재위치" 버튼과 별개)
@@ -35,11 +38,20 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
   const updateControl = useUpdateMapControl();
   const [ visualizationMode, setVisualizationMode ] = useVisualizationModeHook();
 
+  // 최초 위치 획득까지 최대 3초 지도 마운트를 지연시켜, 위치를 얻었으면 처음부터 그 위치+줌14로
+  // 시작하고(마운트 후 재이동/재줌하면 부자연스럽게 튀어 보임), 못 얻었으면 기존 전국 줌으로
+  // 시작한다. 이 게이트가 닫힌 뒤에는 위치가 뒤늦게 와도 다시 이동하지 않는다.
+  const { ready, initialCenter } = useInitialMapViewHook(userPosition);
+
   useEffect(() => {
     if (userPosition) {
       updateControl('currPosition', new Position(userPosition.lat, userPosition.lng));
     }
   }, [ userPosition ]);
+
+  if (!ready) {
+    return <MapLoadingOverlay />;
+  }
 
   return (
     <>
@@ -48,8 +60,8 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
         mapKey={MapKeys[mapType]}
         dissolveEffectWhenLoaded={false}
         base={{
-          center: new Position(37.496837, 127.028104),
-          zoomLevel: 7,
+          center: initialCenter ? new Position(initialCenter.lat, initialCenter.lng) : DEFAULT_CENTER,
+          zoomLevel: initialCenter ? 14 : 7,
         }}
       >
 
@@ -65,9 +77,6 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
 
         {/* 레이어: 강수 예보 배지/화살표 (신규, 모드와 무관하게 항상 표시) */}
         <RainForecastLayer userPosition={userPosition} />
-
-        {/* 최초 위치 획득 시 1회만 그 위치로 이동+확대(줌 14) */}
-        <AutoCenterOnLocation userPosition={userPosition} />
 
         <VisualizationModeToggle checked={visualizationMode} onChange={setVisualizationMode} />
 
