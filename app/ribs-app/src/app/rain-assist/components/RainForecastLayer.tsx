@@ -18,33 +18,26 @@ export function RainForecastLayer({ userPosition }:RainForecastLayerProps) {
 
   const forecast = useRainPredictionHook({ userPosition, enabled: !!userPosition });
 
-  if (!userPosition) {
-    return null;
-  }
-
-  const markerPosition = new Position(userPosition.lat, userPosition.lng);
-
-  let badgeText = '';
+  let badgeText = '감지된 강수 없음';
   if (forecast.status === 'result') {
     badgeText = `${Math.round(forecast.etaMinutes)}분 후 비 예상`;
   } else if (forecast.status === 'raining') {
     badgeText = '비가 오는 중';
-  } else if (forecast.status === 'no-signal' || forecast.status === 'no-motion') {
-    badgeText = '감지된 강수 없음';
   }
 
   return (
     <>
-      {badgeText && (
-        <MapControlWrapper positionHorizontal='left' positionVertical='top'>
-          <BadgeContainer>
-            <Flex flexfit>{badgeText}</Flex>
-          </BadgeContainer>
-        </MapControlWrapper>
-      )}
+      <MapControlWrapper positionHorizontal='left' positionVertical='top'>
+        <BadgeContainer>
+          <Flex flexfit>{badgeText}</Flex>
+          {/* 지도는 최초 3초 대기(useInitialMapViewHook) 이후에도 위치를 못 얻으면 시작되므로,
+              여기서 userPosition이 없다는 건 그 이후에도 백그라운드에서 계속 위치를 찾는 중이라는 뜻 */}
+          {!userPosition && <SearchingText>위치를 찾는 중...</SearchingText>}
+        </BadgeContainer>
+      </MapControlWrapper>
 
-      {forecast.status === 'result' && (
-        <MapMarkerWrapper position={markerPosition} disablePointerEvent>
+      {forecast.status === 'result' && userPosition && (
+        <MapMarkerWrapper position={new Position(userPosition.lat, userPosition.lng)} disablePointerEvent>
           <ArrowOffset>
             <ArrowRotate style={{ transform: `rotate(${forecast.bearingDeg}deg)` }}>
               <RainDirectionArrowIcon />
@@ -61,10 +54,26 @@ const BadgeContainer = styled.div({
   border: '1px solid gray',
   borderRadius: '8px',
   padding: '5px 8px',
-  marginTop: '20px',
+  marginTop: '10px',
   marginLeft: '10px',
   fontSize: '14px',
 });
+
+const SearchingText = styled.div`
+  margin-top: 4px;
+  font-size: 12px;
+  color: #888;
+  animation: rain-assist-blink 1.2s ease-in-out infinite;
+
+  @keyframes rain-assist-blink {
+    0%, 100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.2;
+    }
+  }
+`;
 
 // 마커 기준점에서 우상단으로 살짝 띄워 RainRadarLayer의 "현재위치" 점/화살표와 겹치지 않도록 함
 const ArrowOffset = styled.div({
