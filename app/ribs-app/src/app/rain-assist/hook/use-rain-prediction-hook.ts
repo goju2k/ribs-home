@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { LatLng } from '../util/grid-projection';
-import { decodeGridBase64 } from '../util/motion-estimation';
+import { decodePngToGrid } from '../util/motion-estimation';
 import { computeRainForecast, RainForecastResult } from '../util/rain-forecast';
 
 interface ApiFrame {
   tm:string;
-  gridWidth:number;
-  gridHeight:number;
-  gridDataBase64:string;
+  pngBase64:string;
 }
 interface ApiResponse {
   corners:[number, number][];
@@ -60,10 +58,10 @@ export function useRainPredictionHook(opts:UseRainPredictionOptions):RainForecas
         lastKeyRef.current = key;
 
         const corners:LatLng[] = data.corners.map(([ lat, lng ]) => ({ lat, lng }));
-        const frames = data.frames.map((f) => ({
+        const frames = await Promise.all(data.frames.map(async (f) => ({
           tm: f.tm,
-          grid: decodeGridBase64(f.gridDataBase64, f.gridWidth, f.gridHeight),
-        }));
+          grid: await decodePngToGrid(f.pngBase64),
+        })));
 
         const forecast = computeRainForecast({ corners, frames, userPosition });
         if (!cancelled) {

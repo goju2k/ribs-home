@@ -1,4 +1,4 @@
-import { rleDecode } from './rle';
+import { classifyPixel } from './radar-legend';
 
 const NO_DATA_INDEX = 255;
 
@@ -8,15 +8,38 @@ export interface RadarGrid {
   height:number;
 }
 
-// API가 내려주는 grid_data는 base64(RLE(grid)) 형태이므로 base64 디코드 후 RLE 복원까지 수행한다.
-export function decodeGridBase64(base64:string, width:number, height:number):RadarGrid {
-  const binary = atob(base64);
-  const encoded = new Uint8Array(binary.length);
+// S3가 내려주는 각 프레임은 원본 KMA PNG(base64)다 — 서버에서 미리 분류하지 않고, 여기서
+// 브라우저의 canvas로 직접 디코드한 원본 픽셀에 classifyPixel을 적용해 그리드를 만든다.
+// 이렇게 하면 그리드 크기(width/height)도 항상 실제 디코드된 이미지 크기를 그대로 쓰게 되어
+// 별도의 stride/그리드 크기 동기화가 필요 없다.
+export async function decodePngToGrid(base64Png:string):Promise<RadarGrid> {
+
+  const binary = atob(base64Png);
+  const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i += 1) {
-    encoded[i] = binary.charCodeAt(i);
+    bytes[i] = binary.charCodeAt(i);
   }
-  const data = rleDecode(encoded, width * height);
-  return { data, width, height };
+
+  const blob = new Blob([ bytes ], { type: 'image/png' });
+  const bitmap = await createImageBitmap(blob);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('canvas 2d context unavailable');
+  }
+  ctx.drawImage(bitmap, 0, 0);
+  const { data: rgba } = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+
+  const data = new Uint8Array(bitmap.width * bitmap.height);
+  for (let i = 0; i < data.length; i += 1) {
+    const p = i * 4;
+    data[i] = classifyPixel(rgba[p], rgba[p + 1], rgba[p + 2], rgba[p + 3]);
+  }
+
+  return { data, width: bitmap.width, height: bitmap.height };
 }
 
 export interface MotionVectorResult {
