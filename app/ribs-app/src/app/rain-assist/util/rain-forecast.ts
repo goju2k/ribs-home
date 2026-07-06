@@ -1,4 +1,4 @@
-import { bearingDeg, gridCellToLatLng, haversineDistanceKm, LatLng, latLngToGridCell } from './grid-projection';
+import { bearingDeg, destinationPoint, gridCellToLatLng, haversineDistanceKm, LatLng, latLngToGridCell } from './grid-projection';
 import { estimateLocalMotionVector, poolGridMin, RadarGrid } from './motion-estimation';
 import { NO_DATA_INDEX, RAIN_THRESHOLD_INDEX } from './radar-legend';
 
@@ -27,6 +27,20 @@ function parseTmMinutes(tm:string):number {
 function angularDiffDeg(a:number, b:number):number {
   const diff = Math.abs(a - b) % 360;
   return diff > 180 ? 360 - diff : diff;
+}
+
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+// yyyyMMddHHmm(KST 벽시계) -> UTC epoch ms. parseTmMinutes와 달리 브라우저 로컬 타임존과
+// 무관하게 "실제 지금(Date.now())"과 직접 비교 가능한 절대 시각을 돌려준다(KST는 DST가 없어
+// 고정 오프셋으로 충분, 타임존 DB 불필요).
+function parseKstTmToEpochMs(tm:string):number {
+  const yyyy = Number(tm.slice(0, 4));
+  const month = Number(tm.slice(4, 6));
+  const dd = Number(tm.slice(6, 8));
+  const hh = Number(tm.slice(8, 10));
+  const mi = Number(tm.slice(10, 12));
+  return Date.UTC(yyyy, month - 1, dd, hh, mi) - KST_OFFSET_MS;
 }
 
 // corners+그리드 크기로부터 "셀당 실제 km"를 추정한다(그리드 중앙 행에서 좌우 끝 사이 거리 / 폭).
@@ -149,7 +163,6 @@ export function computeRainForecast(opts:{
   }
 
   const stormLatLng = gridCellToLatLng(corners, stormCell.col, stormCell.row, newest.grid.width, newest.grid.height);
-  const distanceKm = haversineDistanceKm(stormLatLng, userPosition);
 
   // 2. 그 강수 셀을 중심으로(내 위치가 아니라) 이동벡터를 계산 — 실제 강수 텍스처가 있는 곳이라
   //    신호가 훨씬 안정적이다. SAD 매칭은 원본 해상도가 아니라 축소한 작업용 그리드에서 수행.
@@ -214,13 +227,24 @@ export function computeRainForecast(opts:{
     return { status: 'no-motion' };
   }
 
+  // 4. stormLatLng/distanceKm은 "최신 프레임 시각(newest.tm)" 기준 강수 위치다. 이 프레임이
+  //    실제 지금(사용자가 예보를 보는 시각)보다 몇 분~몇십 분 뒤처져 있을 수 있으므로(KMA 발행
+  //    지연·크론 주기 등), 프레임 시각과 지금 사이 경과 시간만큼 이동벡터 방향/속도로 한 번 더
+  //    전진시킨 위치를 "현재 추정 위치"로 삼아 거리/방위/ETA를 계산한다. 이걸 안 하면 데이터가
+  //    뒤처질수록(간격이 클수록) ETA가 실제보다 과대평가된다(이미 더 가까워졌는데 옛 위치 기준
+  //    거리로 계산하기 때문).
+  const dataAgeMinutes = Math.max(0, (Date.now() - parseKstTmToEpochMs(newest.tm)) / 60000);
+  const advanceKm = speedKmh * (dataAgeMinutes / 60);
+  const stormLatLngNow = advanceKm > 0 ? destinationPoint(stormLatLng, movingBearing, advanceKm) : stormLatLng;
+  const distanceKmNow = haversineDistanceKm(stormLatLngNow, userPosition);
+
   return {
     status: 'result',
-    etaMinutes: (distanceKm / speedKmh) * 60,
-    // 화살표가 다가오는 비 쪽(나 -> 강수 셀 방향)을 가리키도록 함(기존 상류 방향 표기와 동일한 의미)
-    bearingDeg: bearingDeg(userPosition, stormLatLng),
+    etaMinutes: (distanceKmNow / speedKmh) * 60,
+    // 화살표가 다가오는 비 쪽(나 -> 강수 셀의 "지금 추정 위치" 방향)을 가리키도록 함
+    bearingDeg: bearingDeg(userPosition, stormLatLngNow),
     speedKmh,
-    distanceKm,
+    distanceKm: distanceKmNow,
   };
 
 }
