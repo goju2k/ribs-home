@@ -62,9 +62,11 @@ const BadgeContainer = styled.div({
   fontSize: '14px',
   // 알림이 오기 전(빈 배지)에도 실제 문구가 들어왔을 때와 같은 기본 크기를 유지한다 —
   // 내용이 없다고 박스 자체가 쪼그라들면(패딩만 남음) 화면이 부자연스럽게 깜빡여 보인다.
+  // 33px = 일반 모드 RainForecastLayer의 같은 배지 스타일(padding 5px 8px, font-size 14px)이
+  // 실제로 렌더링되는 높이(line-height 21px + padding 10px + border 2px)를 실측한 값.
   boxSizing: 'border-box',
   minWidth: '140px',
-  minHeight: '24px',
+  minHeight: '33px',
 });
 
 const ArrowRotate = styled.div({ transformOrigin: 'center' });
