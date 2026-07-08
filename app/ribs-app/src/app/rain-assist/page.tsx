@@ -3,6 +3,7 @@
 import { MapType, MintMap, Position } from '@mint-ui/map';
 import { useEffect } from 'react';
 
+import { HideRainCenterDotStyle } from './components/HideRainCenterDotStyle';
 import { MapLoadingOverlay } from './components/MapLoadingOverlay';
 import { RainForecastLayer } from './components/RainForecastLayer';
 import { RainVisualizationLayer } from './components/RainVisualizationLayer';
@@ -68,6 +69,7 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
 
   return (
     <>
+      <HideRainCenterDotStyle />
       <MintMap
         mapType={mapType}
         mapKey={MapKeys[mapType]}
