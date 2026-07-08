@@ -60,8 +60,11 @@ const BadgeContainer = styled.div({
   marginTop: '10px',
   marginLeft: '10px',
   fontSize: '14px',
-  minWidth: '20px',
-  minHeight: '20px',
+  // 알림이 오기 전(빈 배지)에도 실제 문구가 들어왔을 때와 같은 기본 크기를 유지한다 —
+  // 내용이 없다고 박스 자체가 쪼그라들면(패딩만 남음) 화면이 부자연스럽게 깜빡여 보인다.
+  boxSizing: 'border-box',
+  minWidth: '140px',
+  minHeight: '24px',
 });
 
 const ArrowRotate = styled.div({ transformOrigin: 'center' });
