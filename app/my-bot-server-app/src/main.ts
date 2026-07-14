@@ -11,7 +11,7 @@ import * as path from 'path';
 import { getCurrentHours } from './bot/date';
 import { SisulBot } from './bot/sisul';
 import { KyoboBot } from './kyobo-bot/kyobo';
-import { NtokBot } from './ntok-bot/ntok';
+// import { NtokBot } from './ntok-bot/ntok';
 import { RainRadarBot } from './rain-radar/rain-radar-bot';
 // import router from './nlp/route';
 
@@ -32,9 +32,9 @@ kyobo.init();
 const rainRadar = new RainRadarBot();
 rainRadar.start();
 
-// 안예은(국립극장) 예매 알림 봇
+// 안예은(국립극장) 예매 알림 봇 — 더 이상 사용하지 않아 비활성화
 // eslint-disable-next-line no-new
-new NtokBot();
+// new NtokBot();
 
 app.get('/', (req, res) => {
   res.send({ 
