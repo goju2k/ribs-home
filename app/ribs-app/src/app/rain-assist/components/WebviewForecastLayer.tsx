@@ -13,9 +13,15 @@ interface WebviewForecastLayerProps {
   bridge:RainAssistBridgeState;
 }
 
+interface PathPoint {
+  minutesFromNow:number;
+  lat:number;
+  lon:number;
+}
+
 // 경로 마지막 구간(끝에서 두번째 -> 마지막 점)의 실제 방향으로 화살표머리를 회전시킨다.
 // 점이 1개뿐이면 방향을 계산할 구간이 없으므로 앱이 준 headingDeg로 대체.
-function computeHeadingDeg(path:{ lat:number; lon:number; }[], fallbackHeadingDeg:number):number {
+function computeHeadingDeg(path:PathPoint[], fallbackHeadingDeg:number):number {
   if (path.length < 2) {
     return fallbackHeadingDeg;
   }
@@ -24,14 +30,19 @@ function computeHeadingDeg(path:{ lat:number; lon:number; }[], fallbackHeadingDe
   return bearingDeg({ lat: from.lat, lng: from.lon }, { lat: to.lat, lng: to.lon });
 }
 
+function toPositions(points:PathPoint[]):Position[] {
+  return points.map((p) => new Position(p.lat, p.lon));
+}
+
 // 웹뷰 모드(?webview=true) 전용 레이어. 자체 예측 로직 없이 앱이 window.RainAssistBridge로
 // 주입한 데이터만 그대로 그린다 — webview-interface.md 참고.
 //
 // blobs[].path를 "하나의 긴 화살표"로 표현한다(일반적인 강수/태풍 이동경로 표기 관례):
-// 실제 예측 경로(직선이 아니라 앱이 준 곡선 그대로)를 선으로 잇는 몸통과, 경로의 마지막(=가장
-// 먼 미래) 지점에 그 구간의 실제 진행방향으로 회전한 화살표머리를 둔다. 이전 버전은 화살표를
-// 현재 위치(시작점)에 두고 회전만 시켜서 "선"과 "화살표"가 서로 다른 걸 가리키는 것처럼
-// 보였는데, 화살표머리를 도착 지점으로 옮겨 하나의 벡터처럼 읽히도록 했다.
+// path는 minutesFromNow<0(과거 실측 관측값)와 >=0(등속 모델로 외삽한 예측값)을 함께 담으므로,
+// 이 둘을 시각적으로 구분해서 그린다 — 과거 구간은 실선/불투명, "지금" 지점(=future[0], 보통
+// minutesFromNow===0)부터 이어지는 미래 구간은 옅은 색(같은 색상, 낮은 opacity)으로. 화살표머리는
+// 여전히 경로의 가장 먼 미래 지점에 그 구간의 실제 진행방향으로 회전해 둔다. MapPolylineWrapper가
+// 점선(dash) 옵션을 노출하지 않아 "점선" 대신 "옅은 색"으로 과거/미래를 구분한다.
 export function WebviewForecastLayer({ bridge }:WebviewForecastLayerProps) {
 
   const { forecast, notification } = bridge;
@@ -53,23 +64,42 @@ export function WebviewForecastLayer({ bridge }:WebviewForecastLayerProps) {
           return null;
         }
 
-        const path = sortedPath.map((p) => new Position(p.lat, p.lon));
-        const startPosition = path[0];
-        const endPosition = path[path.length - 1];
-        const headingDeg = computeHeadingDeg(sortedPath, blob.headingDeg);
+        const pastPoints = sortedPath.filter((p) => p.minutesFromNow < 0);
+        const futurePoints = sortedPath.filter((p) => p.minutesFromNow >= 0);
+
+        // "지금" 지점: future의 첫 원소(보통 minutesFromNow===0). future가 비어있으면(이론상
+        // 발생 안 하지만 방어적으로) 가장 최근 과거 관측점으로 대체.
+        const nowPoint = futurePoints[0] ?? pastPoints[pastPoints.length - 1];
+        if (!nowPoint) {
+          return null;
+        }
+
+        // 과거 선(실선): 과거 관측점들 + "지금" 지점까지 이어서 미래 선과 시각적으로 끊김 없이 연결.
+        const pastLinePoints = pastPoints.length > 0 ? toPositions([ ...pastPoints, nowPoint ]) : [];
+        // 미래 선(옅은 색): "지금" 지점부터 가장 먼 미래까지.
+        const futureLinePoints = futurePoints.length > 0 ? toPositions(futurePoints) : toPositions([ nowPoint ]);
+
+        const endPoint = futurePoints.length > 0 ? futurePoints[futurePoints.length - 1] : nowPoint;
+        const endPosition = new Position(endPoint.lat, endPoint.lon);
+        const nowPosition = new Position(nowPoint.lat, nowPoint.lon);
+
+        // 화살표 방향은 미래 구간의 실제 진행방향 우선, 미래 점이 1개뿐이면 전체 경로로 대체
+        // (computeHeadingDeg가 점 2개 미만이면 알아서 blob.headingDeg로 폴백함).
+        const headingDeg = computeHeadingDeg(futurePoints.length >= 2 ? futurePoints : sortedPath, blob.headingDeg);
 
         return (
           <div key={blob.id}>
-            {/* lineOpacity를 1로 둔다 — 화살표머리(RainDirectionArrowIcon, 불투명 채움)와 색을
-                맞춰야 몸통(선)과 머리가 같은 색으로 보인다(0.8 등으로 반투명하면 선만 옅어 보여
-                같은 색인데도 달라 보였다). */}
-            {path.length > 1 && (
-              <MapPolylineWrapper position={path} lineColor='#1f6feb' lineSize={3} lineOpacity={1} />
+            {pastLinePoints.length > 1 && (
+              <MapPolylineWrapper position={pastLinePoints} lineColor='#1f6feb' lineSize={3} lineOpacity={1} />
             )}
 
-            {/* 지금(시작) 위치 — 작은 점으로만 표시, 방향은 나타내지 않음 */}
-            <MapMarkerWrapper position={startPosition} disablePointerEvent>
-              <StartDot />
+            {futureLinePoints.length > 1 && (
+              <MapPolylineWrapper position={futureLinePoints} lineColor='#1f6feb' lineSize={3} lineOpacity={0.4} />
+            )}
+
+            {/* "지금" 위치 — 작은 점으로만 표시, 방향은 나타내지 않음 */}
+            <MapMarkerWrapper position={nowPosition} disablePointerEvent>
+              <NowDot />
             </MapMarkerWrapper>
 
             {/* 도착(예상) 지점 — 화살표머리로 진행방향 표시. 선(몸통)과 합쳐 하나의 화살표로 읽힘.
@@ -109,7 +139,7 @@ const BadgeContainer = styled.div({
   minHeight: '33px',
 });
 
-const StartDot = styled.div({
+const NowDot = styled.div({
   width: '8px',
   height: '8px',
   borderRadius: '50%',

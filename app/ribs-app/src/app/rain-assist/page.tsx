@@ -1,7 +1,7 @@
 'use client';
 
 import { MapType, MintMap, Position } from '@mint-ui/map';
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { HideRainCenterDotStyle } from './components/HideRainCenterDotStyle';
 import { MapLoadingOverlay } from './components/MapLoadingOverlay';
@@ -44,10 +44,20 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
   const [ visualizationMode, setVisualizationMode ] = useVisualizationModeHook();
   const [ isWebview ] = useWebviewModeHook();
 
+  // RainRadarLayer(/rain 재사용, 파일 미수정)는 마운트 시 한 번만 레이더 이미지 시각을 계산할 뿐
+  // 자체적인 주기 갱신이 전혀 없다 — 앱이 오래 백그라운드에 있다가 돌아와도 이 컴포넌트를 직접
+  // 건드릴 수 없으니, refreshPosition() 시점에 key를 바꿔 강제로 리마운트시켜 새 이미지를
+  // 받아오게 한다(webview-interface.md 3.3절 신규 요구사항).
+  const [ radarRefreshKey, setRadarRefreshKey ] = useState(0);
+  const handleRefreshPosition = useCallback(() => {
+    refetchPosition();
+    setRadarRefreshKey((key) => key + 1);
+  }, [ refetchPosition ]);
+
   // window.RainAssistBridge는 앱이 호출 전 typeof 체크만 하고 재시도하지 않으므로(정의 안 돼
   // 있으면 조용히 무시) 가능한 한 이르게 정의해야 한다 — 아래 로딩 게이트(!ready) 이전, 이
   // 컴포넌트 최초 마운트 시점에 바로 등록. 상세 계약은 webview-interface.md 참고.
-  const bridge = useRainAssistBridgeHook(isWebview, refetchPosition);
+  const bridge = useRainAssistBridgeHook(isWebview, handleRefreshPosition);
 
   // 최초 위치 획득까지 최대 3초 지도 마운트를 지연시켜, 위치를 얻었으면 처음부터 그 위치+줌14로
   // 시작하고(마운트 후 재이동/재줌하면 부자연스럽게 튀어 보임), 못 얻었으면 기존 전국 줌으로
@@ -88,8 +98,10 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
         <TemperatureLayer />
 
         {/* 레이어: 강수 레이더 <-> current.json 시각화 확인 모드 (스위치 관계). 원본 KMA 레이더
-            오버레이는 예측 파이프라인과 무관한 별개 컴포넌트라 웹뷰 모드에서도 그대로 유지한다. */}
-        {!showVisualization && <RainRadarLayer />}
+            오버레이는 예측 파이프라인과 무관한 별개 컴포넌트라 웹뷰 모드에서도 그대로 유지한다.
+            key=radarRefreshKey: 웹뷰 모드가 아니면 절대 바뀌지 않으므로(refreshPosition은
+            웹뷰에서만 활성화) 일반 모드에는 영향 없음. */}
+        {!showVisualization && <RainRadarLayer key={radarRefreshKey} />}
         {showVisualization && <RainVisualizationLayer />}
 
         {/* 강수 예보 배지/화살표: 웹뷰 모드는 앱이 주입하는 데이터만 그리고(자체 예측 로직 없음),
