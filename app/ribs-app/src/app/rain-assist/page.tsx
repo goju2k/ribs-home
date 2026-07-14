@@ -3,8 +3,10 @@
 import { MapType, MintMap, Position } from '@mint-ui/map';
 import { useCallback, useEffect, useState } from 'react';
 
+import { GoToMyLocationButton } from './components/GoToMyLocationButton';
 import { HideRainCenterDotStyle } from './components/HideRainCenterDotStyle';
 import { MapLoadingOverlay } from './components/MapLoadingOverlay';
+import { RadarTimeLabel } from './components/RadarTimeLabel';
 import { RainForecastLayer } from './components/RainForecastLayer';
 import { RainVisualizationLayer } from './components/RainVisualizationLayer';
 import { VisualizationModeToggle } from './components/VisualizationModeToggle';
@@ -109,6 +111,15 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
         {isWebview
           ? <WebviewForecastLayer bridge={bridge} />
           : <RainForecastLayer userPosition={userPosition} />}
+
+        {/* 웹뷰 모드는 /rain의 MapControlLayer(레이더 기준시각 표시 포함)를 숨기므로 레이더 시각을
+            볼 방법이 없다 — 우상단에 배경 없는 작은 텍스트로 간단히 보여준다. */}
+        {isWebview && <RadarTimeLabel />}
+
+        {/* 웹뷰 모드는 /rain의 MapControlLayer("현재위치 바로가기" 버튼 포함)도 숨기므로, 지도를
+            탐색하다 내 위치로 돌아올 방법이 없다 — 범례 위에 typical한 지도 앱 스타일의
+            "내 위치로" 버튼을 별도로 둔다. */}
+        {isWebview && <GoToMyLocationButton userPosition={userPosition} />}
 
         {!isWebview && <VisualizationModeToggle checked={visualizationMode} onChange={setVisualizationMode} />}
 
