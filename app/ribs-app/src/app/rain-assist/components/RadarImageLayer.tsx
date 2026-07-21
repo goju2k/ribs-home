@@ -12,20 +12,21 @@ import { Flex } from 'ui-base-pack';
 import { MapControlState, useUpdateMapControl } from '../../rain/state/map-controls';
 import { getOffset } from '../../rain/util/map-util';
 import { useCurrentDataHook } from '../hook/use-current-data-hook';
-import { LatLngBounds, warpToLatLngRectangle } from '../util/bilinear-image-warp';
-import { RADAR_CORNERS } from '../util/radar-geo';
+import { LatLngBounds, warpToLatLngRectangle } from '../util/radar-lcc-warp';
 import { Legends } from '../util/radar-legend';
 
 // /rain의 RainRadarLayer.tsx(파일 미수정)를 대체하는 /rain-assist 전용 레이더 이미지 레이어.
-// 기상청 레이더(Lambert Conformal Conic)와 네이버지도(UTM-K 계열)는 투영법이 달라 RADAR_CORNERS
-// 4점은 위경도 상에서 사각형이 아니라 사다리꼴을 이룬다. bilinear-image-warp.ts로 이 사다리꼴
-// 이미지를 위경도 기준 순수 직사각형으로 캔버스에서 한 번 미리 재샘플링한 뒤에는,
-// RainRadarLayer.tsx가 이미 하는 것과 동일한 "2개 꼭짓점만으로 폭/높이를 재는" 단순 CSS
-// 스트레치로도 정확하게 배치할 수 있다(이제 실제로 직사각형이므로 근사가 아니라 정확함).
+// 기상청 레이더(Lambert Conformal Conic)와 네이버지도는 투영법이 달라 원본 이미지는 위경도
+// 상에서 사각형이 아니라 사다리꼴을 이룬다. weather.go.kr 자체 페이지의 실제 렌더링 로직(JS
+// 레벨로 확인, kma-lcc-projection.ts 참고 — 정확한 LCC 투영식+extent)을 그대로 재현해
+// radar-lcc-warp.ts가 이 사다리꼴을 위경도 기준 순수 직사각형으로 캔버스에서 한 번 미리
+// 재샘플링한 뒤에는, RainRadarLayer.tsx가 이미 하는 것과 동일한 "2개 꼭짓점만으로 폭/높이를
+// 재는" 단순 CSS 스트레치로도 정확하게 배치할 수 있다.
 //
-// (이전 시도: RADAR_CORNERS를 CSS matrix3d로 직접 projective 변환 — 이 프로젝트가 이미 실제
-// 강수 데이터로 검증해온 bilinear 모델(grid-projection.ts)과 다른 수학 모델이라 이미지 중심에서
-// 약 37km(거의 전부 남쪽 방향)나 어긋나는 것으로 확인되어 폐기.)
+// (이전 두 차례 시도 모두 폐기 — 자세한 경위는 project_rain_assist_feature 메모리 참고:
+// 1차 CSS matrix3d projective 변환은 이미지 중심에서 약 37km 오차, 2차 RADAR_CORNERS 4점
+// bilinear 근사는 실제 KMA extent와 비교해 약 5~7km 오차였음. 지금은 근사가 아니라 KMA
+// 자신이 쓰는 정확한 투영 공식+extent를 그대로 사용.)
 export function RadarImageLayer() {
 
   const controller = useMintMapController();
@@ -56,7 +57,7 @@ export function RadarImageLayer() {
       if (cancelled) {
         return;
       }
-      const result = warpToLatLngRectangle(img, img.naturalWidth, img.naturalHeight, RADAR_CORNERS);
+      const result = warpToLatLngRectangle(img, img.naturalWidth, img.naturalHeight);
       if (!result || cancelled) {
         return;
       }
