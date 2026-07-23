@@ -69,6 +69,22 @@ export class KyoboBot {
     } catch (e) {
       console.error('KyoboBot init: DB에서 prev 복원 실패, prev=[]로 계속 진행', e);
     }
+
+    // DB에 값이 하나도 없으면(최초 배포이거나 그동안 DB 적재가 계속 실패해온 경우) prev=[]인
+    // 채로 다음 08:50 체크를 맞이하게 되는데, 그러면 모든 지점을 "0에서 증가"로 오탐해 의미
+    // 없는 알림이 나간다. 그걸 막기 위해 지금 즉시 실제 재고를 조회해 기준값으로 삼고 DB에도
+    // 적재해둔다 — 다음 틱부터는 이 기준값과 정확히 비교할 수 있다. 알림은 보내지 않는다
+    // (변동을 감지한 게 아니라 그냥 기준점을 세우는 것뿐이므로).
+    if (this.prev.length === 0) {
+      try {
+        const result = await this.fetch();
+        this.prev = result;
+        await this.persistSnapshot(result);
+        console.info('KyoboBot init: DB가 비어있어 현재 재고를 기준값으로 즉시 적재했습니다.');
+      } catch (e) {
+        console.error('KyoboBot init: 기준값 즉시 적재 실패 — 다음 08:50 체크에서 재시도됨', e);
+      }
+    }
   }
 
   async check() {
@@ -113,6 +129,13 @@ export class KyoboBot {
       ],
     });
 
+    await this.persistSnapshot(result);
+
+  }
+
+  // DB 적재는 항상 핵심 동작(알림 발송, prev 갱신) 이후에 호출하고, 실패해도 예외를 삼켜
+  // 그 핵심 동작에 영향을 주지 않는다 — DB는 재시작 시 연속성을 위한 보조 수단일 뿐이다.
+  async persistSnapshot(result:Item[]) {
     try {
       await this.db.insertStock(result.map((item) => ({
         bookKey: item.bookKey,
@@ -121,9 +144,8 @@ export class KyoboBot {
         quantity: item.realInvnQntt,
       })));
     } catch (e) {
-      console.error('KyoboBot check: DB 적재 실패(다음 재시작 시 prev 복원이 안 될 수 있음)', e);
+      console.error('KyoboBot: DB 적재 실패(다음 재시작 시 prev 복원이 안 될 수 있음)', e);
     }
-
   }
 
   async fetch():Promise<Item[]> {
