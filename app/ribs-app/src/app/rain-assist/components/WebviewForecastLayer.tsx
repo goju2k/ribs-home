@@ -2,6 +2,7 @@
 
 import { MapControlWrapper, MapMarkerWrapper, MapPolylineWrapper, Position } from '@mint-ui/map';
 import styled from 'styled-components';
+
 import { Flex } from 'ui-base-pack';
 
 import { RainDirectionArrowIcon } from './RainDirectionArrowIcon';
@@ -33,6 +34,12 @@ function computeHeadingDeg(path:PathPoint[], fallbackHeadingDeg:number):number {
 function toPositions(points:PathPoint[]):Position[] {
   return points.map((p) => new Position(p.lat, p.lon));
 }
+
+// 일반 blob은 파란색, isForecastTarget(=내 위치에 실제로 도달 예정)인 blob은 주황/앰버로
+// 강조 — "경고"가 아니라 "이 경로가 나에게 온다"는 강조 의미라 위험/재해를 연상시키는 빨강
+// 대신 앰버를 선택 (사용자 확인 완료).
+const PATH_COLOR = '#1f6feb';
+const PATH_COLOR_TARGET = '#f59e0b';
 
 // 웹뷰 모드(?webview=true) 전용 레이어. 자체 예측 로직 없이 앱이 window.RainAssistBridge로
 // 주입한 데이터만 그대로 그린다 — webview-interface.md 참고.
@@ -87,19 +94,21 @@ export function WebviewForecastLayer({ bridge }:WebviewForecastLayerProps) {
         // (computeHeadingDeg가 점 2개 미만이면 알아서 blob.headingDeg로 폴백함).
         const headingDeg = computeHeadingDeg(futurePoints.length >= 2 ? futurePoints : sortedPath, blob.headingDeg);
 
+        const pathColor = blob.isForecastTarget ? PATH_COLOR_TARGET : PATH_COLOR;
+
         return (
           <div key={blob.id}>
             {pastLinePoints.length > 1 && (
-              <MapPolylineWrapper position={pastLinePoints} lineColor='#1f6feb' lineSize={3} lineOpacity={1} />
+              <MapPolylineWrapper position={pastLinePoints} lineColor={pathColor} lineSize={3} lineOpacity={1} />
             )}
 
             {futureLinePoints.length > 1 && (
-              <MapPolylineWrapper position={futureLinePoints} lineColor='#1f6feb' lineSize={3} lineOpacity={0.4} />
+              <MapPolylineWrapper position={futureLinePoints} lineColor={pathColor} lineSize={3} lineOpacity={0.4} />
             )}
 
             {/* "지금" 위치 — 작은 점으로만 표시, 방향은 나타내지 않음 */}
             <MapMarkerWrapper position={nowPosition} disablePointerEvent>
-              <NowDot />
+              <NowDot $color={pathColor} />
             </MapMarkerWrapper>
 
             {/* 도착(예상) 지점 — 화살표머리로 진행방향 표시. 선(몸통)과 합쳐 하나의 화살표로 읽힘.
@@ -111,7 +120,7 @@ export function WebviewForecastLayer({ bridge }:WebviewForecastLayerProps) {
               <ArrowRotate style={{ transform: `translate(-11px, -1px) rotate(${headingDeg}deg)` }}>
                 {/* 기본 흰 테두리는 지도 배경 위 단독 화살표용 — 여기선 선 끝에 딱 붙여야 해서
                     테두리가 곧 시각적 틈처럼 보인다. 채움과 같은 색으로 넘겨 테두리를 없앤다. */}
-                <RainDirectionArrowIcon stroke='#1f6feb' />
+                <RainDirectionArrowIcon fill={pathColor} stroke={pathColor} />
               </ArrowRotate>
             </MapMarkerWrapper>
           </div>
@@ -139,14 +148,14 @@ const BadgeContainer = styled.div({
   minHeight: '33px',
 });
 
-const NowDot = styled.div({
+const NowDot = styled.div<{ $color:string; }>(({ $color }) => ({
   width: '8px',
   height: '8px',
   borderRadius: '50%',
-  background: '#1f6feb',
+  background: $color,
   border: '1px solid white',
   transform: 'translate(-50%, -50%)',
-});
+}));
 
 // transform-origin을 아이콘의 뾰족한 끝(11px, 1px) 좌표로 둬서, translate로 그 끝을 지점에
 // 맞춘 뒤 회전해도(회전은 이 축을 중심으로 돎) 끝이 그 자리에 고정된 채로 방향만 바뀐다.
