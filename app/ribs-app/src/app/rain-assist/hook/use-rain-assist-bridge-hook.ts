@@ -13,6 +13,9 @@ export interface BridgeForecastBlob {
   headingDeg:number;
   speedKmh:number;
   peakMmh:number;
+  // webview-interface.md 3.1.3 — true면 이 blob의 경로가 실제로 forecast.state/etaMinutes를
+  // 만든 장본인(내 위치에 도달 예정). path를 다른 색으로 강조해서 그리는 데 사용.
+  isForecastTarget:boolean;
   path:{ minutesFromNow:number; lat:number; lon:number; }[];
 }
 
