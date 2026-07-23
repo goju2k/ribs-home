@@ -25,8 +25,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ gb: 
 }
 
 const fetchKyobo = async (code: string) => {
-  const { data } = await axios.get<unknown, AxiosResponse<{data:[];}>>(`https://product.kyobobook.co.kr/api/gw/pdt/product/${code}/location-inventory`, { headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Mobile Safari/537.36' } });
-  return data.data;
+  const { data } = await axios.get<unknown, AxiosResponse<{data:{list:{strName:string;realInvnQntt:number;}[];}[];}>>(`https://product.kyobobook.co.kr/api/gw/pdt/product/${code}/location-inventory`, { headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Mobile Safari/537.36' } });
+  // 교보 API 원본 응답엔 gb 필드가 없다(영풍만 아래에서 직접 채워 넣음) — 소비자(kyobo-bot)가
+  // gb='1'을 기대하므로 여기서 명시적으로 채워준다. 이게 없으면 kyobo_bot_stock.gb(NOT NULL)에
+  // undefined가 들어가 insert 전체가 롤백된다.
+  return data.data.map((area) => ({
+    ...area,
+    list: area.list.map((item) => ({ ...item, gb: '1' })),
+  }));
 };
 
 const fetchYoungpung = async (code: string, price: number) => {
