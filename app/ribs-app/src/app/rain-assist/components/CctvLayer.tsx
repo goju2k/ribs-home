@@ -19,7 +19,17 @@ interface CctvListItem {
 // 전국을 한 번에 조회하면 마커가 수천 개가 될 수 있어, 이 줌 레벨 미만(많이 축소된 상태)에서는
 // 조회 자체를 건너뛴다. 14부터 조회
 const MIN_ZOOM_LEVEL_TO_SHOW_CCTV = 14;
-const BOUNDS_FETCH_DEBOUNCE_MS = 500;
+const BOUNDS_FETCH_DEBOUNCE_MS = 100;
+
+// GoToMyLocationButton.tsx가 RainRadarLayer 범례(우하단) 위에 자신을 띄우기 위해 계산해둔 값
+// (LEGEND_RESERVED_HEIGHT_PX + BUTTON_GAP_PX)과 그 버튼 자신의 지름(36px)을 그대로 가져와, 이
+// 토글이 "내 위치로" 버튼 한 단 위에 오도록 한다 — 두 컴포넌트는 서로의 실제 렌더 크기를 모른 채
+// 독립적으로 우하단에 고정되는 기존 컨벤션 그대로다. GoToMyLocationButton.tsx의 상수가 바뀌면
+// 이 값도 같이 조정 필요.
+const GO_TO_MY_LOCATION_MARGIN_BOTTOM_PX = 396;
+const GO_TO_MY_LOCATION_BUTTON_HEIGHT_PX = 36;
+const TOGGLE_GAP_PX = 10;
+const CCTV_TOGGLE_MARGIN_BOTTOM_PX = GO_TO_MY_LOCATION_MARGIN_BOTTOM_PX + GO_TO_MY_LOCATION_BUTTON_HEIGHT_PX + TOGGLE_GAP_PX;
 
 // MapMarkerWrapper의 event prop 타입(Map<keyof DocumentEventMap, (e:Event) => boolean | void>)을
 // JSX 어트리뷰트 안에서 제네릭과 함께 인라인으로 쓰면 ESLint(non-TS-aware 규칙)가 파싱을
@@ -94,7 +104,7 @@ export function CctvLayer() {
 
   return (
     <>
-      <MapControlWrapper positionHorizontal='right' positionVertical='top'>
+      <MapControlWrapper positionHorizontal='right' positionVertical='bottom'>
         <ToggleContainer>
           <Flex flexrow flexalign='center' flexgap='6px'>
             <input
@@ -129,7 +139,7 @@ const ToggleContainer = styled.div({
   border: '1px solid gray',
   borderRadius: '8px',
   padding: '5px 8px',
-  marginTop: '10px',
+  marginBottom: `${CCTV_TOGGLE_MARGIN_BOTTOM_PX}px`,
   marginRight: '10px',
   fontSize: '14px',
 });

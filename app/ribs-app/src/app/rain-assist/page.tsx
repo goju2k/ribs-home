@@ -117,16 +117,17 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
             볼 방법이 없다 — 우상단에 배경 없는 작은 텍스트로 간단히 보여준다. */}
         {isWebview && <RadarTimeLabel />}
 
-        {/* 웹뷰 모드는 /rain의 MapControlLayer("현재위치 바로가기" 버튼 포함)도 숨기므로, 지도를
-            탐색하다 내 위치로 돌아올 방법이 없다 — 범례 위에 typical한 지도 앱 스타일의
-            "내 위치로" 버튼을 별도로 둔다. */}
-        {isWebview && <GoToMyLocationButton userPosition={userPosition} />}
+        {/* 웹뷰 모드는 /rain의 MapControlLayer("현재위치 바로가기" 버튼 포함)를 숨기므로 원래는
+            웹뷰 전용으로 뒀으나, CCTV 토글과 세로로 짝을 이루는 UI라 일반 브라우저에서도
+            노출한다(MapControlLayer의 "현재위치" 행과는 별개로 둘 다 보임). */}
+        <GoToMyLocationButton userPosition={userPosition} />
 
         {!isWebview && <VisualizationModeToggle checked={visualizationMode} onChange={setVisualizationMode} />}
 
-        {/* 도로 CCTV 위치 + 정지 이미지 확인(수동 토글) — 웹뷰 모드는 앱 임베드 전용 화면이라
-            디버그/수동 컨트롤을 숨기는 기존 방침과 동일하게 일반 브라우저에서만 노출. */}
-        {!isWebview && <CctvLayer />}
+        {/* 도로 CCTV 위치 + 정지 이미지 확인(수동 토글) — "내 위치로" 버튼 바로 위에 쌓이도록
+            CctvLayer 내부에서 위치를 잡는다. 웹뷰에서도 실제 강수 여부를 눈으로 확인할 수 있어야
+            하므로 이제 웹뷰 모드에서도 노출한다. */}
+        <CctvLayer />
 
       </MintMap>
     </>
