@@ -72,7 +72,9 @@ export function GoToMyLocationButton({ userPosition }:GoToMyLocationButtonProps)
 
   return (
     <MapControlWrapper positionHorizontal='right' positionVertical='bottom'>
-      <div style={{ marginBottom: `${LEGEND_RESERVED_HEIGHT_PX + BUTTON_GAP_PX}px`, marginRight: '10px' }}>
+      {/* 이 div는 마진으로 위치만 잡는 스페이서라 클릭을 받으면 안 된다 — pointer-events:none으로
+          뚫어놓고, 실제 눌리는 버튼에서만 auto로 되돌려 그 아래 지도 클릭/터치가 가려지지 않게 한다. */}
+      <div style={{ marginBottom: `${LEGEND_RESERVED_HEIGHT_PX + BUTTON_GAP_PX}px`, marginRight: '10px', pointerEvents: 'none' }}>
         <LocationButton type='button' onClick={handleClick} aria-label='내 위치로 이동' $active={isAtMyLocation}>
           <svg width='20' height='20' viewBox='0 0 24 24' fill='none'>
             <circle cx='12' cy='12' r='7' stroke='currentColor' strokeWidth='2' />
@@ -89,6 +91,7 @@ export function GoToMyLocationButton({ userPosition }:GoToMyLocationButtonProps)
 }
 
 const LocationButton = styled.button<{ $active:boolean; }>(({ $active }) => ({
+  pointerEvents: 'auto',
   width: '36px',
   height: '36px',
   borderRadius: '50%',
