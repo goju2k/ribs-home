@@ -3,6 +3,7 @@
 import { MapType, MintMap, Position } from '@mint-ui/map';
 import { useCallback, useEffect, useState } from 'react';
 
+import { CctvLayer } from './components/CctvLayer';
 import { GoToMyLocationButton } from './components/GoToMyLocationButton';
 import { HideRainCenterDotStyle } from './components/HideRainCenterDotStyle';
 import { MapLoadingOverlay } from './components/MapLoadingOverlay';
@@ -122,6 +123,10 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
         {isWebview && <GoToMyLocationButton userPosition={userPosition} />}
 
         {!isWebview && <VisualizationModeToggle checked={visualizationMode} onChange={setVisualizationMode} />}
+
+        {/* 도로 CCTV 위치 + 정지 이미지 확인(수동 토글) — 웹뷰 모드는 앱 임베드 전용 화면이라
+            디버그/수동 컨트롤을 숨기는 기존 방침과 동일하게 일반 브라우저에서만 노출. */}
+        {!isWebview && <CctvLayer />}
 
       </MintMap>
     </>
