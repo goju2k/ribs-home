@@ -49,6 +49,10 @@ export function CctvLayer() {
   const [ zoomTooFar, setZoomTooFar ] = useState(false);
   const modalRef = useRef<CctvFrameModalControl>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  // ITS 응답이 1초 넘게 걸리는 경우가 있어, 그 사이 지도를 더 움직이면 debounce가 새 요청을
+  // 내보내는데 먼저 나간 요청이 나중에 응답으로 도착해 최신 뷰포트 결과를 덮어쓸 수 있다 —
+  // 새 요청을 보낼 때마다 이전 in-flight 요청을 abort한다.
+  const fetchAbortRef = useRef<AbortController>();
 
   // 줌 레벨은 토글 on/off와 무관하게 항상 추적한다 — 버튼 자체의 disabled 표시를 결정하기 위함
   // (아직 켜지 않은 상태에서도 "지금 줌으로는 볼 수 없다"는 걸 미리 보여줘야 하므로).
@@ -76,6 +80,10 @@ export function CctvLayer() {
 
     const fetchByBounds = async () => {
 
+      fetchAbortRef.current?.abort();
+      const abortController = new AbortController();
+      fetchAbortRef.current = abortController;
+
       const bounds = controller.getCurrBounds();
       const params = new URLSearchParams({
         minX: String(bounds.sw.lng),
@@ -85,10 +93,13 @@ export function CctvLayer() {
       });
 
       try {
-        const res = await fetch(`/api/rain-assist/cctv/list?${params.toString()}`);
+        const res = await fetch(`/api/rain-assist/cctv/list?${params.toString()}`, { signal: abortController.signal });
         const json = await res.json() as { cctvs:CctvListItem[]; };
         setCctvs(json.cctvs ?? []);
       } catch (e) {
+        if (e instanceof Error && e.name === 'AbortError') {
+          return;
+        }
         console.error('CctvLayer fetch error', e);
       }
 
@@ -104,6 +115,7 @@ export function CctvLayer() {
 
     return () => {
       clearTimeout(debounceRef.current);
+      fetchAbortRef.current?.abort();
       controller.removeEventListener('IDLE', handleIdle);
     };
 
