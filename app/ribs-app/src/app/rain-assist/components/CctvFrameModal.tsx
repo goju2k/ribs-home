@@ -71,7 +71,7 @@ export const CctvFrameModal = forwardRef<CctvFrameModalControl>((_props, ref) =>
       <Container>
         <Flex flexrow flexalign='center' style={{ justifyContent: 'space-between' }}>
           <NameText>{name}</NameText>
-          <RequestButton
+          <CloseButton
             type='button'
             onClick={() => {
               clearInterval(autoRefreshTimerRef.current);
@@ -79,7 +79,7 @@ export const CctvFrameModal = forwardRef<CctvFrameModalControl>((_props, ref) =>
             }}
           >
             닫기
-          </RequestButton>
+          </CloseButton>
         </Flex>
 
         <ImageArea>
@@ -127,6 +127,14 @@ const Container = styled.div({
 const NameText = styled.div({
   fontSize: '15px',
   fontWeight: 600,
+});
+
+const CloseButton = styled.button({
+  border: 'none',
+  background: 'transparent',
+  fontSize: '13px',
+  color: '#888',
+  cursor: 'pointer',
 });
 
 // 정사각형 유지 + 화면이 작으면 80vw, 크면 560px에서 멈추도록.
