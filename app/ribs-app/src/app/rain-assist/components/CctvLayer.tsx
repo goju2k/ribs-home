@@ -111,9 +111,11 @@ export function CctvLayer() {
 
   return (
     <>
-      <MapControlWrapper positionHorizontal='right' positionVertical='bottom'>
-        {/* 이 div는 마진으로 위치만 잡는 스페이서라 클릭을 받으면 안 된다 — pointer-events:none으로
-            뚫어놓고, 실제 눌리는 버튼에서만 auto로 되돌려 그 아래 지도 클릭/터치가 가려지지 않게 한다. */}
+      <MapControlWrapper positionHorizontal='right' positionVertical='bottom' disablePointerEvent>
+        {/* MapControlWrapper 자체의 내부 래퍼 div가 기본적으로 pointer-events:auto라 fit-content
+            크기 계산이 어긋나면 그 영역 아래 지도(CCTV 마커 포함) 클릭이 최상단에서부터 막힐 수 있다
+            — disablePointerEvent로 그 레이어 전체를 뚫어놓고, 아래 스페이서(마진 전용)도 한 번 더
+            none 처리한 뒤, 실제 눌리는 버튼에서만 auto로 되돌려 지도 클릭/터치가 가려지지 않게 한다. */}
         <div style={{ marginBottom: `${CCTV_BUTTON_MARGIN_BOTTOM_PX}px`, marginRight: '10px', pointerEvents: 'none' }}>
           <CctvToggleButton
             type='button'
