@@ -2,10 +2,8 @@ import { NextResponse } from 'next/server';
 
 export const revalidate = 0;
 
-// ITS가 cctvType=3(정지 영상)로 실제로 어느 호스트의 URL을 내려주는지는 apiKey 발급 전이라
-// 확정하지 못했다 — 지금까지 조사로 확인된 ITS CCTV 영상 호스트를 우선 등록해두고, 키 발급 후
-// 정지 영상 응답을 실제로 받아보면서 필요한 호스트를 추가한다. 목록에 없는 호스트는 프록시를
-// 거부해 임의 URL을 릴레이하는 오픈 프록시가 되지 않게 한다.
+// 실제 발급받은 키로 cctvType=3(정지 영상) 응답을 확인해 이 호스트가 맞는 것으로 검증됨.
+// 목록에 없는 호스트는 프록시를 거부해 임의 URL을 릴레이하는 오픈 프록시가 되지 않게 한다.
 const ALLOWED_CCTV_HOSTS = [ 'cctvsec.ktict.co.kr' ];
 
 // cctvUrl은 /api/rain-assist/cctv/list가 그대로 돌려준 값을 클라이언트가 되돌려주는 것이라
@@ -28,7 +26,9 @@ export async function GET(request:Request) {
     return NextResponse.json({ error: 'invalid cctvUrl' }, { status: 400 });
   }
 
-  if (target.protocol !== 'https:' || !ALLOWED_CCTV_HOSTS.includes(target.hostname)) {
+  // 실제 발급받은 키로 확인해보니 ITS가 cctvurl을 http로 내려준다(https 아님) — 프로토콜은
+  // 강제하지 않고 허용 호스트인지만 검증한다.
+  if (!ALLOWED_CCTV_HOSTS.includes(target.hostname)) {
     return NextResponse.json({ error: 'host not allowed' }, { status: 403 });
   }
 
