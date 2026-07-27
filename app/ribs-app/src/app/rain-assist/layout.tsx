@@ -15,11 +15,13 @@ export const metadata:Metadata = {
   // /rain-assist가 메인 페이지가 되면서(옛 /rain은 여기로 서버사이드 리다이렉트) ?webview=true 같은
   // 쿼리스트링 변형이 별도로 색인되지 않도록 자기 자신을 canonical로 명시해둔다.
   alternates: { canonical: '/rain-assist' },
+  // 루트 레이아웃의 기본값(비노출)을 여기서만 명시적으로 뒤집는다 — 실제로 공개할 라우트.
+  robots: { index: true, follow: true },
   openGraph: {
     type: 'website',
     title: 'Ribs Weather - 강수 예보',
-    url: 'http://www.ribs.kr/rain-assist',
-    images: [ 'http://www.ribs.kr/images/rain/rain_og_image.png' ],
+    url: 'https://www.ribs.kr/rain-assist',
+    images: [ 'https://www.ribs.kr/images/rain/rain_og_image.png' ],
   },
 };
 
