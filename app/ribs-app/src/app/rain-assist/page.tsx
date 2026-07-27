@@ -8,14 +8,10 @@ import { GoToMyLocationButton } from './components/GoToMyLocationButton';
 import { HideRainCenterDotStyle } from './components/HideRainCenterDotStyle';
 import { MapLoadingOverlay } from './components/MapLoadingOverlay';
 import { RadarTimeLabel } from './components/RadarTimeLabel';
-import { RainForecastLayer } from './components/RainForecastLayer';
-import { RainVisualizationLayer } from './components/RainVisualizationLayer';
-import { VisualizationModeToggle } from './components/VisualizationModeToggle';
 import { WebviewForecastLayer } from './components/WebviewForecastLayer';
 import { useAutoGeoLocationHook } from './hook/use-auto-geo-location-hook';
 import { useInitialMapViewHook } from './hook/use-initial-map-view-hook';
 import { useRainAssistBridgeHook } from './hook/use-rain-assist-bridge-hook';
-import { useVisualizationModeHook } from './hook/use-visualization-mode-hook';
 import { useWebviewModeHook } from './hook/use-webview-mode-hook';
 
 import { MapControlLayer } from '../rain/components/map-layer/MapControl';
@@ -44,7 +40,6 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
   // 웹뷰 모드에서 앱의 refreshPosition() 브릿지 호출에 대응하기 위한 즉시 재조회 함수.
   const [ userPosition, refetchPosition ] = useAutoGeoLocationHook();
   const updateControl = useUpdateMapControl();
-  const [ visualizationMode, setVisualizationMode ] = useVisualizationModeHook();
   const [ isWebview ] = useWebviewModeHook();
 
   // RainRadarLayer(/rain 재사용, 파일 미수정)는 마운트 시 한 번만 레이더 이미지 시각을 계산할 뿐
@@ -77,9 +72,6 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
     return <MapLoadingOverlay />;
   }
 
-  // 웹뷰 모드에서는 시각화 확인 모드(디버그용)를 진입할 수 없다 — 항상 실제 레이더 오버레이만 표시.
-  const showVisualization = visualizationMode && !isWebview;
-
   return (
     <>
       <HideRainCenterDotStyle />
@@ -100,18 +92,13 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
         {/* 레이어: 전국 기온 (재사용) */}
         <TemperatureLayer />
 
-        {/* 레이어: 강수 레이더 <-> current.json 시각화 확인 모드 (스위치 관계). 원본 KMA 레이더
-            오버레이는 예측 파이프라인과 무관한 별개 컴포넌트라 웹뷰 모드에서도 그대로 유지한다.
-            key=radarRefreshKey: 웹뷰 모드가 아니면 절대 바뀌지 않으므로(refreshPosition은
-            웹뷰에서만 활성화) 일반 모드에는 영향 없음. */}
-        {!showVisualization && <RainRadarLayer key={radarRefreshKey} />}
-        {showVisualization && <RainVisualizationLayer />}
+        {/* 레이어: 강수 레이더. key=radarRefreshKey: 웹뷰 모드가 아니면 절대 바뀌지 않으므로
+            (refreshPosition은 웹뷰에서만 활성화) 일반 모드에는 영향 없음. */}
+        <RainRadarLayer key={radarRefreshKey} />
 
-        {/* 강수 예보 배지/화살표: 웹뷰 모드는 앱이 주입하는 데이터만 그리고(자체 예측 로직 없음),
-            일반 브라우저는 기존처럼 자체 계산 */}
-        {isWebview
-          ? <WebviewForecastLayer bridge={bridge} />
-          : <RainForecastLayer userPosition={userPosition} />}
+        {/* 강수 예보 배지/화살표: 이제 예보는 앱이 직접 계산해 웹뷰 브릿지로 주입하는 방식으로만
+            제공한다(웹 자체 계산 로직은 제거됨) — 일반 브라우저에서는 예보 영역 자체가 없다. */}
+        {isWebview && <WebviewForecastLayer bridge={bridge} />}
 
         {/* 웹뷰 모드는 /rain의 MapControlLayer(레이더 기준시각 표시 포함)를 숨기므로 레이더 시각을
             볼 방법이 없다 — 우상단에 배경 없는 작은 텍스트로 간단히 보여준다. */}
@@ -122,11 +109,9 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
             노출한다(MapControlLayer의 "현재위치" 행과는 별개로 둘 다 보임). */}
         <GoToMyLocationButton userPosition={userPosition} />
 
-        {!isWebview && <VisualizationModeToggle checked={visualizationMode} onChange={setVisualizationMode} />}
-
         {/* 도로 CCTV 위치 + 정지 이미지 확인(수동 토글) — "내 위치로" 버튼 바로 위에 쌓이도록
             CctvLayer 내부에서 위치를 잡는다. 웹뷰에서도 실제 강수 여부를 눈으로 확인할 수 있어야
-            하므로 이제 웹뷰 모드에서도 노출한다. */}
+            하므로 웹뷰 모드에서도 노출한다. */}
         <CctvLayer />
 
       </MintMap>
