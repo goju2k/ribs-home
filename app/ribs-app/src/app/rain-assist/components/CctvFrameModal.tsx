@@ -7,6 +7,7 @@ import styled from 'styled-components';
 
 import { Flex } from 'ui-base-pack';
 
+import { RequestButton } from '../../components/base/Button';
 import { Modal, ModalControl } from '../../components/layout/Modal';
 
 export interface CctvFrameModalControl {
@@ -70,7 +71,7 @@ export const CctvFrameModal = forwardRef<CctvFrameModalControl>((_props, ref) =>
       <Container>
         <Flex flexrow flexalign='center' style={{ justifyContent: 'space-between' }}>
           <NameText>{name}</NameText>
-          <CloseButton
+          <RequestButton
             type='button'
             onClick={() => {
               clearInterval(autoRefreshTimerRef.current);
@@ -78,7 +79,7 @@ export const CctvFrameModal = forwardRef<CctvFrameModalControl>((_props, ref) =>
             }}
           >
             닫기
-          </CloseButton>
+          </RequestButton>
         </Flex>
 
         <ImageArea>
@@ -89,22 +90,24 @@ export const CctvFrameModal = forwardRef<CctvFrameModalControl>((_props, ref) =>
               key={imageSrc}
               src={imageSrc}
               alt={name}
-              style={{ display: loadState === 'loaded' ? 'block' : 'none', width: '100%', height: '100%', objectFit: 'contain' }}
+              style={{ display: loadState === 'loaded' ? 'block' : 'none', width: '100%', height: '100%', objectFit: 'contain', borderRadius: '8px' }}
               onLoad={() => setLoadState('loaded')}
               onError={() => setLoadState('error')}
             />
           )}
         </ImageArea>
 
-        <RefreshButton
-          type='button'
-          onClick={() => {
-            refresh();
-            startAutoRefresh();
-          }}
-        >
-          새로고침
-        </RefreshButton>
+        <Flex flexalign='center' style={{ marginTop: '8px' }}>
+          <RequestButton
+            type='button'
+            onClick={() => {
+              refresh();
+              startAutoRefresh();
+            }}
+          >
+            새로고침
+          </RequestButton>
+        </Flex>
       </Container>
     </Modal>
   );
@@ -126,14 +129,6 @@ const NameText = styled.div({
   fontWeight: 600,
 });
 
-const CloseButton = styled.button({
-  border: 'none',
-  background: 'transparent',
-  fontSize: '13px',
-  color: '#888',
-  cursor: 'pointer',
-});
-
 // 정사각형 유지 + 화면이 작으면 80vw, 크면 560px에서 멈추도록.
 const ImageArea = styled.div({
   marginTop: '8px',
@@ -150,15 +145,4 @@ const ImageArea = styled.div({
 const StatusText = styled.div({
   fontSize: '13px',
   color: '#888',
-});
-
-const RefreshButton = styled.button({
-  marginTop: '8px',
-  width: '100%',
-  padding: '8px',
-  borderRadius: '8px',
-  border: '1px solid gray',
-  background: '#f5f5f5',
-  cursor: 'pointer',
-  fontSize: '13px',
 });

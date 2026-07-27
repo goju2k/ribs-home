@@ -1,5 +1,5 @@
 // 지도 컨트롤러 없이 순수 수학으로 위경도 <-> 그리드 좌표를 변환한다.
-// RADAR_CORNERS는 [bottomLeft, topLeft, topRight, bottomRight] 순서(radar-geo.ts와 동일 순서)를 가정한다.
+// corners 배열은 [bottomLeft, topLeft, topRight, bottomRight] 순서를 가정한다.
 
 export interface LatLng {
   lat:number;
