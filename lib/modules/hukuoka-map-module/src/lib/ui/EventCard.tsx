@@ -1,10 +1,10 @@
 import styled from 'styled-components';
 
 import { formatClock, tripTimeToParts } from '../data/time';
-import { describeActivity, findPlanEvents, TravelerState } from '../timeline/position';
+import { describeActivity, findCardEvents, TravelerState } from '../timeline/position';
 
 export function EventCard({ t, state }:{ t: number; state: TravelerState; }) {
-  const { current, next } = findPlanEvents(t);
+  const { current, next } = findCardEvents(t, state);
   const dayOf = (et:number) => tripTimeToParts(et).day;
   return (
     <Card>

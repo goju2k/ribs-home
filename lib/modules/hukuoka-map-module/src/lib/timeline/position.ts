@@ -71,6 +71,15 @@ export function findPlanEvents(t:number):{ current: PlanEvent | null; next: Plan
   return { current: PLAN_EVENTS[end - 1] ?? null, next: nextIndex < 0 ? null : PLAN_EVENTS[nextIndex] };
 }
 
+/** 일정 카드용: 이동 중이고 이동 시작 이후에 적힌 일정이 없으면, 지난 일정 대신 향하는 일정(다음 일정)을 보여준다 */
+export function findCardEvents(t:number, state:TravelerState):{ current: PlanEvent | null; next: PlanEvent | null; } {
+  const { current, next } = findPlanEvents(t);
+  const { segment } = state;
+  if (segment.kind !== 'move' || !next || (current && current.t >= segment.start)) return { current, next };
+  const after = PLAN_EVENTS[PLAN_EVENTS.indexOf(next) + 1] ?? null;
+  return { current: next, next: after };
+}
+
 const MODE_TEXT:Record<MoveMode, string> = {
   walk: '걸어서 이동 중',
   taxi: '택시로 이동 중',
