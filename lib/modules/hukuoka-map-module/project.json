@@ -1,0 +1,9 @@
+{
+  "name": "hukuoka-map-module",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "lib/modules/hukuoka-map-module/src",
+  "projectType": "library",
+  "tags": [],
+  "// targets": "to see all targets run: nx show project hukuoka-map-module --web",
+  "targets": {}
+}
