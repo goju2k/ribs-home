@@ -7,6 +7,8 @@ export interface StaySegment {
   start: number;
   end: number;
   placeId: string;
+  /** 투어 버스 일정 중 (경유지에 버스가 대기) */
+  tour?: boolean;
 }
 
 export interface MoveSegment {
@@ -18,11 +20,13 @@ export interface MoveSegment {
   mode: MoveMode;
   /** ROUTES 키 — 없으면 시내 이동(꺾인 직선) */
   route?: string;
+  tour?: boolean;
 }
 
 export type Segment = StaySegment | MoveSegment;
 
 const S = (start:string, end:string, placeId:string):StaySegment => ({ kind: 'stay', start: parseTripTime(start), end: parseTripTime(end), placeId });
+const tour = <T extends Segment>(seg:T):T => ({ ...seg, tour: true });
 const M = (start:string, end:string, from:string, to:string, mode:MoveMode, route?:string):MoveSegment => ({ kind: 'move', start: parseTripTime(start), end: parseTripTime(end), from, to, mode, route });
 
 // 지도 재생용 정규화 구간표. 원칙: 이동은 다음 일정 시각에 도착하도록, "A > B"는 적힌 시각에 출발,
@@ -62,18 +66,18 @@ export const SCHEDULE:Segment[] = [
 
   // 16일 (버스 투어)
   M('16 07:15', '16 07:30', 'hotel', 'lawson', 'walk'),
-  S('16 07:30', '16 07:50', 'lawson'),
-  M('16 07:50', '16 09:00', 'lawson', 'kusu', 'bus', 'expHakataKusu'),
-  S('16 09:00', '16 09:10', 'kusu'),
-  M('16 09:10', '16 09:40', 'kusu', 'yufuin', 'bus', 'expKusuYufuin'),
-  S('16 09:40', '16 13:00', 'yufuin'),
-  M('16 13:00', '16 13:10', 'yufuin', 'bungomori', 'bus', 'yufuinBungomori'),
-  S('16 13:10', '16 13:40', 'bungomori'),
-  M('16 13:40', '16 15:10', 'bungomori', 'ukihaTown', 'bus', 'bungomoriUkiha'),
-  S('16 15:10', '16 16:10', 'ukihaTown'),
-  M('16 16:10', '16 16:20', 'ukihaTown', 'ukihaInari', 'bus', 'ukihaTownInari'),
-  S('16 16:20', '16 16:50', 'ukihaInari'),
-  M('16 16:50', '16 18:00', 'ukihaInari', 'hakata', 'bus', 'ukihaHakata'),
+  tour(S('16 07:30', '16 07:50', 'lawson')),
+  tour(M('16 07:50', '16 09:00', 'lawson', 'kusu', 'bus', 'expHakataKusu')),
+  tour(S('16 09:00', '16 09:10', 'kusu')),
+  tour(M('16 09:10', '16 09:40', 'kusu', 'yufuin', 'bus', 'expKusuYufuin')),
+  tour(S('16 09:40', '16 13:00', 'yufuin')),
+  tour(M('16 13:00', '16 13:10', 'yufuin', 'bungomori', 'bus', 'yufuinBungomori')),
+  tour(S('16 13:10', '16 13:40', 'bungomori')),
+  tour(M('16 13:40', '16 15:10', 'bungomori', 'ukihaTown', 'bus', 'bungomoriUkiha')),
+  tour(S('16 15:10', '16 16:10', 'ukihaTown')),
+  tour(M('16 16:10', '16 16:20', 'ukihaTown', 'ukihaInari', 'bus', 'ukihaTownInari')),
+  tour(S('16 16:20', '16 16:50', 'ukihaInari')),
+  tour(M('16 16:50', '16 18:00', 'ukihaInari', 'hakata', 'bus', 'ukihaHakata')),
   S('16 18:00', '16 18:15', 'hakata'),
   M('16 18:15', '16 18:30', 'hakata', 'sushi', 'walk'),
   S('16 18:30', '16 19:20', 'sushi'),

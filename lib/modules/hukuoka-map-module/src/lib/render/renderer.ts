@@ -1,7 +1,7 @@
 /* eslint-disable no-continue, no-restricted-syntax, no-nested-ternary -- 프레임 그리기 루프 — 화면 밖 요소 건너뛰기에 continue 사용 */
 import { Camera, OVERVIEW_SCALE, toScreen, Viewport } from './camera';
 import { daylight, skyColor } from './daylight';
-import { BADGE_H, BADGE_W, getBadge, getPersonFrame, getVehicle } from './sprites';
+import { BADGE_H, BADGE_W, FAMILY, getBadge, getFamilyFrame, getVehicle } from './sprites';
 
 import { PLACES } from '../data/places';
 import { SCHEDULE } from '../data/schedule';
@@ -230,7 +230,7 @@ export function renderFrame({ ctx, vp, cam, world, images, clouds, state, t, rea
 
   // 생략된 먼 구간의 실제 거리 — 다른 글자·여행자와 겹치지 않는 자리에만
   const tp = scr(state.pos);
-  taken.push({ x: tp.x - 14 * S, y: tp.y - 32 * S, w: 28 * S, h: 36 * S });
+  taken.push({ x: tp.x - 26 * S, y: tp.y - 32 * S, w: 64 * S, h: 36 * S });
   for (const m of todayMoves) {
     if (!m?.gapKm || m.gapKm < 8) continue;
     const mid = scr(pointAlong(m.path, 0.5).point);
@@ -244,10 +244,40 @@ export function renderFrame({ ctx, vp, cam, world, images, clouds, state, t, rea
     outlinedText(ctx, text, mid.x, spot.y + 8, FONT, '#fff7c2');
   }
 
-  drawTraveler(ctx, tp, state, realMs, s >= OVERVIEW_SCALE, S);
+  drawTraveler(ctx, { p: tp, state, realMs, detailed: s >= OVERVIEW_SCALE, S, scr, path: world.moves[state.segmentIndex]?.path, scale: s });
 }
 
-function drawTraveler(ctx:CanvasRenderingContext2D, p:Point, state:TravelerState, realMs:number, detailed:boolean, S:number) {
+interface TravelerDraw {
+  p: Point;
+  state: TravelerState;
+  realMs: number;
+  detailed: boolean;
+  S: number;
+  scr: (p:Point) => Point;
+  path?: Path;
+  scale: number;
+}
+
+/** 발끝 가운데(cx, bottom) 기준으로 스프라이트를 그리고 위쪽 y를 돌려준다 */
+function drawSprite(ctx:CanvasRenderingContext2D, sprite:HTMLCanvasElement, cx:number, bottom:number, S:number, facing:number) {
+  const w = sprite.width * S;
+  const h = sprite.height * S;
+  const top = Math.round(bottom - h);
+  ctx.save();
+  ctx.translate(Math.round(cx), 0);
+  if (facing < 0) ctx.scale(-1, 1);
+  ctx.drawImage(sprite, -Math.round(w / 2), top, w, h);
+  ctx.restore();
+  return top;
+}
+
+function drawTraveler(ctx:CanvasRenderingContext2D, { p, state, realMs, detailed, S, scr, path, scale }:TravelerDraw) {
+  const { segment } = state;
+  // 투어 경유지에서는 배지 왼쪽에 투어 버스가 대기
+  if (segment.kind === 'stay' && segment.tour && detailed) {
+    drawSprite(ctx, getVehicle('bus'), p.x - 17 * S, p.y, S, 1);
+  }
+
   if (state.sleeping) {
     // 숙소에서 자는 중 — "쿨쿨"이 피어오름
     const phase = (realMs / 1600) % 1;
@@ -257,39 +287,61 @@ function drawTraveler(ctx:CanvasRenderingContext2D, p:Point, state:TravelerState
     return;
   }
 
-  let { x } = p;
-  const { y } = p;
-  if (state.mode === 'stay' && detailed) x += 9 * S; // 배지 옆에 서 있기
+  let centerX = p.x;
+  let top:number;
+  let ringW:number;
+  const groundY = p.y;
 
-  // 발밑 고리
-  const pulse = 7 + Math.sin(realMs / 250) * 2;
-  ctx.strokeStyle = 'rgba(255,90,78,0.9)';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.ellipse(Math.round(x), Math.round(y), pulse * 1.4, pulse * 0.6, 0, 0, Math.PI * 2);
-  ctx.stroke();
-
-  let sprite:HTMLCanvasElement;
   if (state.mode === 'stay' || state.mode === 'walk') {
-    const frame = state.mode === 'walk' ? 1 + (Math.floor(realMs / 180) % 2) : 0;
-    sprite = getPersonFrame(frame);
+    // 엄마·아빠·딸 3명 — 걸을 땐 아빠가 앞장서고 경로를 따라 줄지어, 머물 땐 배지 옆에 나란히
+    const gap = 9 * S;
+    let feet:Point[];
+    if (state.mode === 'walk' && path && path.length > 0) {
+      const back = gap / scale / path.length;
+      feet = FAMILY.map((_, i) => scr(pointAlong(path, state.progress - back * i).point));
+    } else {
+      const left = detailed ? p.x + 8 * S : p.x - gap;
+      feet = FAMILY.map((_, i) => ({ x: left + i * gap, y: groundY }));
+    }
+    const xs = feet.map((f) => f.x);
+    centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
+    ringW = (Math.max(...xs) - Math.min(...xs)) / 2 + 6 * S;
+    const pulse = Math.sin(realMs / 250) * 2;
+    ctx.strokeStyle = 'rgba(255,90,78,0.9)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(Math.round(centerX), Math.round(groundY), ringW + pulse, 4 * S + pulse * 0.5, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    top = Infinity;
+    // 뒤에 선 사람부터 그려서 앞사람이 위에 오게
+    for (let i = FAMILY.length - 1; i >= 0; i--) {
+      const walking = state.mode === 'walk';
+      const frame = walking ? 1 + ((Math.floor(realMs / 180) + i) % 2) : 0;
+      const bob = walking ? Math.round(Math.abs(Math.sin(realMs / 120 + i))) : Math.round(Math.sin(realMs / 400 + i * 1.3));
+      top = Math.min(top, drawSprite(ctx, getFamilyFrame(FAMILY[i], frame), feet[i].x, feet[i].y - bob, S, state.facing));
+    }
   } else {
-    sprite = getVehicle(state.mode);
+    const sprite = getVehicle(state.mode);
+    const plane = state.mode === 'plane';
+    const bob = plane ? Math.round(Math.sin(realMs / 300) * 3) : Math.round(Math.abs(Math.sin(realMs / 120)));
+    ringW = (sprite.width * S) / 2 + 2;
+    const pulse = 7 + Math.sin(realMs / 250) * 2;
+    ctx.strokeStyle = 'rgba(255,90,78,0.9)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(Math.round(p.x), Math.round(groundY), Math.max(ringW, pulse * 1.4), pulse * 0.6, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    top = drawSprite(ctx, sprite, p.x, (plane ? groundY + (sprite.height * S) / 2 - 10 : groundY) - bob, S, state.facing);
   }
-  const w = sprite.width * S;
-  const h = sprite.height * S;
-  const bob = state.mode === 'stay' ? Math.round(Math.sin(realMs / 400)) : state.mode === 'plane' ? Math.round(Math.sin(realMs / 300) * 3) : Math.round(Math.abs(Math.sin(realMs / 120)));
-  const top = Math.round(state.mode === 'plane' ? y - h / 2 - 10 : y - h) - bob;
-  ctx.save();
-  ctx.translate(Math.round(x), 0);
-  if (state.facing < 0) ctx.scale(-1, 1);
-  ctx.drawImage(sprite, -Math.round(w / 2), top, w, h);
-  ctx.restore();
 
-  // "나" 꼬리표
+  // "우리 가족" 꼬리표
+  const label = '우리 가족';
+  ctx.font = FONT;
+  const tw = Math.round(ctx.measureText(label).width) + 10;
   const tagY = top - 14;
+  const cx = Math.round(centerX);
   ctx.fillStyle = '#ff4d6d';
-  ctx.fillRect(Math.round(x) - 10, tagY - 8, 20, 15);
-  ctx.fillRect(Math.round(x) - 2, tagY + 7, 4, 3);
-  outlinedText(ctx, '나', x, tagY, FONT, '#ffffff', '#c2183f');
+  ctx.fillRect(cx - Math.round(tw / 2), tagY - 8, tw, 15);
+  ctx.fillRect(cx - 2, tagY + 7, 4, 3);
+  outlinedText(ctx, label, cx, tagY, FONT, '#ffffff', '#c2183f');
 }
