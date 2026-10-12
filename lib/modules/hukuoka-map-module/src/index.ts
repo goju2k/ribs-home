@@ -1,0 +1,1 @@
+export { HukuokaMapPage } from './lib/HukuokaMapPage';
