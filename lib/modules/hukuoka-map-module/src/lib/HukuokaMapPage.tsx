@@ -17,7 +17,7 @@ import { TimelineSlider } from './ui/TimelineSlider';
 import { TopBar } from './ui/TopBar';
 
 const SPEED_REALTIME = 0;
-const SPEED_DEFAULT = 2;
+const SPEED_DEFAULT = 3; // 15분/초
 
 const isLive = () => {
   const now = nowTripTime();
