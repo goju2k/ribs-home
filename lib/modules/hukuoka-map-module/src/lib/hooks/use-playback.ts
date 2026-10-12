@@ -13,7 +13,7 @@ export const SPEEDS = [
 ];
 
 /** 자는 시간은 재생 중 자동으로 빨리 넘김 */
-const SLEEP_SPEED = 90;
+const SLEEP_SPEED = 240; // 4시간/초
 
 export function usePlayback(initialT:number, initialPlaying:boolean, initialSpeed:number) {
   const [ t, setTState ] = useState(initialT);
