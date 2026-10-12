@@ -81,7 +81,10 @@ const MODE_TEXT:Record<MoveMode, string> = {
 
 export function describeActivity(state:TravelerState) {
   const { segment } = state;
-  if (segment.kind === 'move') return `${MODE_TEXT[segment.mode]} · ${PLACE_BY_ID[segment.from].name} → ${PLACE_BY_ID[segment.to].name}`;
+  if (segment.kind === 'move') {
+    const how = segment.tour ? '투어 버스로 이동 중' : MODE_TEXT[segment.mode];
+    return `${how} · ${PLACE_BY_ID[segment.from].name} → ${PLACE_BY_ID[segment.to].name}`;
+  }
   if (state.sleeping) return '숙소에서 쿨쿨 자는 중';
-  return `${PLACE_BY_ID[segment.placeId].name}에 머무는 중`;
+  return `${PLACE_BY_ID[segment.placeId].name}에 머무는 중${segment.tour ? ' · 투어 버스 대기' : ''}`;
 }

@@ -14,6 +14,9 @@ const PALETTE:Record<string, string> = {
   s: '#f6c99f',
   b: '#3e7be6',
   n: '#4a3a6a',
+  h: '#3b2a20',
+  m: '#c2185b',
+  e: '#2f6b4f',
 };
 
 function build(rows:string[], palette:Record<string, string> = PALETTE) {
@@ -118,14 +121,34 @@ export function getBadge(icon:PlaceIcon) {
   return c;
 }
 
-// ── 여행자 (8x12) ──
+// ── 가족 3명 (오른쪽을 향함, 프레임 0: 서 있기, 1·2: 걷기) ──
 
-const PERSON_TOP = [ '..rrrr..', '.rrrrrrr', '..ssss..', '..sskk..', '..ssss..', '.bbbbbb.', 'sbbbbbbs', 'sbbbbbbs', '..bbbb..' ];
-const PERSON_FRAMES = [
-  [ ...PERSON_TOP, '..nnnn..', '..n..n..', '..k..k..' ],
-  [ ...PERSON_TOP, '..nn.n..', '.n....n.', '.k....k.' ],
-  [ ...PERSON_TOP, '...nn...', '...nn...', '...kk...' ],
+export type FamilyMember = 'dad' | 'mom' | 'daughter';
+export const FAMILY:FamilyMember[] = [ 'dad', 'mom', 'daughter' ];
+
+const PANTS_LEGS = [
+  [ '..nnnn..', '..n..n..', '..k..k..' ],
+  [ '..nn.n..', '.n....n.', '.k....k.' ],
+  [ '...nn...', '...nn...', '...kk...' ],
 ];
+const SKIRT_LEGS = [
+  [ '..s..s..', '..k..k..' ],
+  [ '.s....s.', '.k....k.' ],
+  [ '...ss...', '...kk...' ],
+];
+
+// 아빠: 짧은 머리, 파란 셔츠 / 엄마: 긴 머리, 분홍 원피스 / 딸: 묶은 머리, 초록 셔츠
+const FAMILY_BODY:Record<FamilyMember, string[]> = {
+  dad: [ '..hhhh..', '.hhhhhh.', '.hsssss.', '..sssks.', '..sssss.', '...ss...', '.bbbbbb.', 'bbbbbbbb', 'sbbbbbbs', 'sbbbbbbs', '..bbbb..' ],
+  mom: [ '..hhhh..', '.hhhhhh.', 'hhsssks.', 'hhsssss.', 'hh.ss...', '.pppppp.', 'spppppps', '.mppppm.', '.pppppp.', '..pppp..' ],
+  daughter: [ '...hhh..', '..hhhhh.', 'h.hssks.', 'hhhssss.', '...ss...', '..gggg..', '.gggggg.', 'sggggggs', '..eeee..' ],
+};
+
+const FAMILY_FRAMES:Record<FamilyMember, string[][]> = {
+  dad: PANTS_LEGS.map((legs) => [ ...FAMILY_BODY.dad, ...legs ]),
+  mom: SKIRT_LEGS.map((legs) => [ ...FAMILY_BODY.mom, ...legs ]),
+  daughter: PANTS_LEGS.map((legs) => [ ...FAMILY_BODY.daughter, ...legs ]),
+};
 
 // ── 탈것 (오른쪽을 향함) ──
 
@@ -173,12 +196,16 @@ const VEHICLES:Record<Exclude<MoveMode, 'walk'>, string[]> = {
   ],
 };
 
-let personCache:HTMLCanvasElement[] | null = null;
+const familyCache = new Map<FamilyMember, HTMLCanvasElement[]>();
 const vehicleCache = new Map<string, HTMLCanvasElement>();
 
-export function getPersonFrame(frame:number) {
-  if (!personCache) personCache = PERSON_FRAMES.map((rows) => build(rows));
-  return personCache[frame % personCache.length];
+export function getFamilyFrame(member:FamilyMember, frame:number) {
+  let frames = familyCache.get(member);
+  if (!frames) {
+    frames = FAMILY_FRAMES[member].map((rows) => build(rows));
+    familyCache.set(member, frames);
+  }
+  return frames[frame % frames.length];
 }
 
 export function getVehicle(mode:Exclude<MoveMode, 'walk'>) {
