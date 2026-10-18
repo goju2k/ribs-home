@@ -19,6 +19,13 @@ import { RainRadarLayer } from '../rain/components/map-layer/RainRadarLayer';
 import { TemperatureLayer } from '../rain/components/map-layer/TemperatureLayer';
 import { useUpdateMapControl } from '../rain/state/map-controls';
 
+// epoch ms -> KMA tm(yyyyMMddHHmm, KST). KST는 DST가 없어 고정 +9h로 충분하다.
+function toKstTm(epochMs:number):string {
+  const d = new Date(epochMs + (9 * 60 * 60 * 1000));
+  const pad = (n:number) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}`;
+}
+
 export default function RainAssistPage() {
   return (
     <>
@@ -57,6 +64,11 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
   // 컴포넌트 최초 마운트 시점에 바로 등록. 상세 계약은 webview-interface.md 참고.
   const bridge = useRainAssistBridgeHook(isWebview, handleRefreshPosition);
 
+  // 웹뷰에서는 앱 예보가 근거한 바로 그 레이더 프레임을 그린다 — 웹이 따로 고른 최신 이미지와
+  // 앱의 프레임이 5~15분 어긋나면, 화살표가 지도 속 비구름 위치와 그만큼 엇나가 보였다.
+  const radarFrameEpochMs = bridge.forecast?.radarFrameEpochMs;
+  const forcedRadarTm = isWebview && radarFrameEpochMs ? toKstTm(radarFrameEpochMs) : undefined;
+
   // 최초 위치 획득까지 최대 3초 지도 마운트를 지연시켜, 위치를 얻었으면 처음부터 그 위치+줌14로
   // 시작하고(마운트 후 재이동/재줌하면 부자연스럽게 튀어 보임), 못 얻었으면 기존 전국 줌으로
   // 시작한다. 이 게이트가 닫힌 뒤에는 위치가 뒤늦게 와도 다시 이동하지 않는다.
@@ -94,7 +106,7 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
 
         {/* 레이어: 강수 레이더. key=radarRefreshKey: 웹뷰 모드가 아니면 절대 바뀌지 않으므로
             (refreshPosition은 웹뷰에서만 활성화) 일반 모드에는 영향 없음. */}
-        <RainRadarLayer key={radarRefreshKey} />
+        <RainRadarLayer key={radarRefreshKey} forcedTm={forcedRadarTm} />
 
         {/* 강수 예보 배지/화살표: 이제 예보는 앱이 직접 계산해 웹뷰 브릿지로 주입하는 방식으로만
             제공한다(웹 자체 계산 로직은 제거됨) — 일반 브라우저에서는 예보 영역 자체가 없다. */}

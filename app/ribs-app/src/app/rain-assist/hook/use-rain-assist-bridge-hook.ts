@@ -10,6 +10,8 @@ export interface BridgeForecastBlob {
   id:string;
   sizeCells:number;
   centroid:BridgeLatLng;
+  // 최신 레이더 프레임(radarFrameEpochMs) 기준 실제 위치 — 지도에 그려진 그 프레임 이미지 속 비구름의 중심.
+  observedCentroid?:BridgeLatLng;
   headingDeg:number;
   speedKmh:number;
   peakMmh:number;
@@ -21,6 +23,8 @@ export interface BridgeForecastBlob {
 
 export interface BridgeForecastPayload {
   generatedAtEpochMs:number;
+  // 이 예보가 근거한 레이더 프레임의 관측 시각(epoch ms). 웹뷰는 이 시각의 이미지를 지도에 그린다.
+  radarFrameEpochMs?:number;
   userLocation:BridgeLatLng;
   forecast:{
     willArrive:boolean;
