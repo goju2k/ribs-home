@@ -17,11 +17,29 @@ export interface FetchedRadarPng {
   png:Buffer;
 }
 
+function radarUrl(tm:string):string {
+  return `https://vapi.kma.go.kr/BUFD/rdr_sfc_pty_img_${tm}_1453.png`;
+}
+
+// 특정 tm 이미지. 아직 발행 전이거나(KMA는 이때 404 또는 CORS 헤더 없는 에러를 준다) 실패하면 null.
+// KMA는 대략 하루치 과거 이미지를 보관하므로 직전 프레임 보충(backfill)에도 쓴다.
+export async function fetchRadarPngAt(tm:string):Promise<Buffer | null> {
+  try {
+    const { data } = await axios.get<ArrayBuffer>(radarUrl(tm), {
+      responseType: 'arraybuffer',
+      headers: { 'User-Agent': USER_AGENT },
+    });
+    return Buffer.from(data);
+  } catch (e) {
+    return null;
+  }
+}
+
 // 클라이언트와 동일하게 최신 이미지가 아직 없을 경우 5분씩 최대 30분 전까지 재시도
 export async function fetchRadarPng(tmBefore = 4):Promise<FetchedRadarPng> {
 
   const tm = getTime(tmBefore);
-  const url = `https://vapi.kma.go.kr/BUFD/rdr_sfc_pty_img_${tm}_1453.png`;
+  const url = radarUrl(tm);
 
   try {
     const { data } = await axios.get<ArrayBuffer>(url, {

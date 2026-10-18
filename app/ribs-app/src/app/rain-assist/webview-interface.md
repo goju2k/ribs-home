@@ -71,7 +71,8 @@ window.RainAssistBridge = {
     "willArrive": true,
     "etaMinutes": 20,          // null이면 다가오는 비 없음
     "state": "INCOMING",       // "NONE" | "INCOMING" | "ACTIVE"
-    "intensityMmh": 6.0        // null 가능. state의 강수 강도 추정치(mm/h)
+    "intensityMmh": 6.0,       // null 가능. state의 강수 강도 추정치(mm/h)
+    "rainEndMinutes": null     // 신규(v2). ACTIVE일 때만: 몇 분 뒤 그칠지. null이면 비가 안 오거나 예보 범위(30분) 안에 안 그침
   },
   "blobs": [
     {

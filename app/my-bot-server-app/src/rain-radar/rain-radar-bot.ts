@@ -1,23 +1,36 @@
 import cron from 'node-cron';
 
-import { formatKstTm } from './kst-time';
-import { fetchRadarPng } from './radar-fetch';
+import { formatKstTm, kstTmToEpochMs, shiftTm } from './kst-time';
+import { fetchRadarPng, fetchRadarPngAt, getTime } from './radar-fetch';
 import { RADAR_CORNERS } from './radar-geo';
 import { buildGrid } from './radar-grid';
 import { NO_DATA, RAIN_THRESHOLD_INDEX, RadarLegend } from './radar-legend';
+import { buildTiles, TILE_SIZE } from './radar-tiles';
 import { RainRadarDB } from './rain-radar-db';
 import { rleEncode } from './rle';
-import { publishCurrentData } from './s3-publisher';
+import { deleteTiles, publishCurrentData, publishFramePng, publishIndex, publishTilePng } from './s3-publisher';
 
 const RETENTION_MS = 6 * 60 * 60 * 1000; // 6시간 보관
 const PUBLISH_FRAME_COUNT = 4;
+// 앱이 직전 index(최대 10초 캐시)를 보고 타일을 받는 도중에 지워지지 않도록, 발행 목록에서 빠진
+// 프레임의 타일도 이만큼은 남겨 뒀다가 지운다.
+const TILE_RETAIN_FRAME_COUNT = 8;
+// 마지막으로 받은 프레임 이후 이 이상 공백이면(서버 장기 중단, KMA 장기 장애) 이어 받기 대신
+// 처음 시작할 때처럼 최신 프레임부터 다시 찾는다.
+const RESYNC_GAP_MS = 45 * 60 * 1000;
+const MAX_PROBES_PER_CHECK = 10;
 
 // ribs-app이 예전에 /api/rain-assist/radar-frames로 내려주던 것과 동일한 셰이프
 const LEGEND = RadarLegend.map(([ , mmh ], index) => ({ index, mmh }));
 
-interface PngHistoryEntry {
+interface FetchedFrame {
   tm:string;
   png:Buffer;
+}
+
+interface FrameEntry extends FetchedFrame {
+  rainTiles:{ tx:number; ty:number; }[];
+  v2Published:boolean;
 }
 
 function lo(...args) {
@@ -30,12 +43,19 @@ export class RainRadarBot {
 
   task:ReturnType<typeof cron.schedule>;
 
-  // S3에는 분류된 그리드가 아니라 원본 PNG 시계열을 그대로 발행한다(분류/RLE는 클라이언트가
+  // S3에는 분류된 그리드가 아니라 원본 PNG 시계열을 그대로 발행한다(분류는 클라이언트가
   // 직접, 매번 원본 픽셀에서 새로 수행 — 서버에서 한 번 분류→압축→전송→복원하는 왕복 과정에서
   // 생기는 몇 픽셀 단위 불일치가 예보 정밀도에 영향을 줬기 때문). Postgres 적재(분류된 그리드)는
   // 이 변경과 무관하게 그대로 유지 — 원본 PNG 시계열은 DB가 아니라 이 프로세스 메모리에만
-  // 보관한다(어차피 "현재 스냅샷" 용도라 재시작에 따른 짧은 이력 손실은 문제 없음).
-  pngHistory:PngHistoryEntry[] = [];
+  // 보관한다(재시작해도 KMA가 하루치 과거 이미지를 보관하므로 시작 시 직전 프레임을 다시 받아 채운다).
+  history:FrameEntry[] = [];
+
+  // 발행 목록에서 빠졌지만 아직 지우지 않은 프레임의 타일 (오래된 것부터)
+  retiredTiles:FrameEntry[] = [];
+
+  imageSize = { width: 0, height: 0 };
+
+  running = false;
 
   constructor() {
     this.db = new RainRadarDB();
@@ -51,9 +71,7 @@ export class RainRadarBot {
 
     // KMA의 실제 이미지 발행 시각은 5분 정각과 정확히 일치하지 않는다(처리 지연으로 몇 분씩
     // 밀릴 수 있음). 5분 주기로만 확인하면 이 밀림과 크론 틱이 어긋나 최대 5분(+CDN 캐시)까지
-    // 오래된 프레임을 발행하게 될 수 있어, 1분마다 재시도해 새 이미지가 나온 지 최대 1분 내로
-    // 잡는다. fetchRadarPng이 이미 "가장 최근 버킷부터 시도, 없으면 과거로" 하는 재시도 로직을
-    // 갖고 있어 별도 로직 변경 없이 이 주기 단축만으로 최신성이 개선된다.
+    // 오래된 프레임을 발행하게 될 수 있어, 1분마다 확인해 새 이미지가 나온 지 최대 1분 내로 잡는다.
     this.task = cron.schedule('* * * * *', () => this.check(), { timezone: 'Asia/Seoul' });
 
   }
@@ -64,72 +82,157 @@ export class RainRadarBot {
 
   async check() {
 
-    // 1분마다 확인하지만 KMA가 5분 간격(또는 그 이상 지연)으로만 발행하므로, 대부분의 사이클은
-    // "아직 같은 tm"이다. 이럴 때는 분류/RLE(DB용)도, DB insert도, S3 재발행도 전부 스킵한다
-    // (같은 내용을 매번 다시 올려봐야 얻는 게 없고, KMA 조회 자체만 매분 하면 충분하다).
-    let newFrame = false;
+    // 시작 시 백필이나 타일 업로드가 1분을 넘기면 다음 크론 틱과 겹칠 수 있다.
+    if (this.running) {
+      return;
+    }
+    this.running = true;
 
     try {
 
-      const { tm, png } = await fetchRadarPng();
-
-      if (this.pngHistory.some((f) => f.tm === tm)) {
-        lo('check skip (no new frame)', 'tm', tm);
-      } else {
-
-        const { grid, gridWidth, gridHeight, sourceWidth, sourceHeight, stride } = buildGrid(png);
-        const encodedGrid = rleEncode(grid);
-
-        await this.db.insertFrame({
-          tm,
-          gridWidth,
-          gridHeight,
-          sourceWidth,
-          sourceHeight,
-          stride,
-          gridData: encodedGrid,
-        });
-
-        const cutoff = formatKstTm(new Date(Date.now() - RETENTION_MS));
-        const pruned = await this.db.pruneOlderThan(cutoff);
-
-        this.pngHistory.push({ tm, png });
-        this.pngHistory.sort((a, b) => (a.tm < b.tm ? -1 : 1));
-        if (this.pngHistory.length > PUBLISH_FRAME_COUNT) {
-          this.pngHistory = this.pngHistory.slice(this.pngHistory.length - PUBLISH_FRAME_COUNT);
-        }
-
-        newFrame = true;
-        lo('check ok', 'tm', tm, 'grid', `${gridWidth}x${gridHeight}`, 'raw', grid.length, 'encoded', encodedGrid.length, 'pruned', pruned);
-
+      const fetched = await this.collectNewFrames();
+      if (fetched.length === 0) {
+        lo('check skip (no new frame)', 'latest', this.history.at(-1)?.tm);
+        return;
       }
+
+      await fetched.reduce((prev, frame) => prev.then(() => this.ingest(frame)), Promise.resolve());
+
+      const dropped = this.history.slice(0, Math.max(0, this.history.length - PUBLISH_FRAME_COUNT));
+      this.history = this.history.slice(-PUBLISH_FRAME_COUNT);
+      this.retiredTiles.push(...dropped);
+      while (this.retiredTiles.length > TILE_RETAIN_FRAME_COUNT - PUBLISH_FRAME_COUNT) {
+        const old = this.retiredTiles.shift();
+        await deleteTiles(old.tm, old.rainTiles).catch((e) => lo('tile delete error', old.tm, e));
+      }
+
+      await this.publish();
 
     } catch (e) {
       lo('check error', e);
+    } finally {
+      this.running = false;
     }
 
-    if (!newFrame) {
-      return;
+  }
+
+  // 새로 받을 프레임들(오래된 것부터).
+  //  - 처음(또는 긴 공백 후): 최신 tm을 뒤로 걸어가며 찾고, 그 앞 프레임들을 KMA 과거 이미지로 채운다
+  //    — 재시작 직후에도 앱이 곧바로 이동 추정에 필요한 여러 장을 받게 한다.
+  //  - 평소: 마지막으로 받은 tm 이후의 5분 버킷만 오름차순으로 확인한다(대개 1~2회 요청).
+  //    KMA가 아예 건너뛴 버킷은 404로 지나가고 그다음 버킷을 받는다.
+  async collectNewFrames():Promise<FetchedFrame[]> {
+
+    const latestKnown = this.history.at(-1)?.tm;
+    const nowTm = getTime(0);
+
+    if (!latestKnown || kstTmToEpochMs(nowTm) - kstTmToEpochMs(latestKnown) > RESYNC_GAP_MS) {
+      if (latestKnown) {
+        lo('resync after gap', 'latest', latestKnown, 'now', nowTm);
+        this.retiredTiles.push(...this.history);
+        this.history = [];
+      }
+      const newest = await fetchRadarPng();
+      const frames:FetchedFrame[] = [ newest ];
+      for (let k = 1; k < PUBLISH_FRAME_COUNT; k += 1) {
+        const tm = shiftTm(newest.tm, -5 * k);
+        const png = await fetchRadarPngAt(tm);
+        if (png) {
+          frames.unshift({ tm, png });
+        }
+      }
+      lo('backfill', frames.map((f) => f.tm).join(','));
+      return frames;
     }
 
+    const frames:FetchedFrame[] = [];
+    let tm = shiftTm(latestKnown, 5);
+    for (let n = 0; tm <= nowTm && n < MAX_PROBES_PER_CHECK; n += 1) {
+      const png = await fetchRadarPngAt(tm);
+      if (png) {
+        frames.push({ tm, png });
+      }
+      tm = shiftTm(tm, 5);
+    }
+    return frames;
+
+  }
+
+  async ingest({ tm, png }:FetchedFrame) {
+
+    // 분류 그리드 DB 적재 — S3 발행과 독립적으로, 실패해도 발행은 계속한다.
     try {
+      const { grid, gridWidth, gridHeight, sourceWidth, sourceHeight, stride } = buildGrid(png);
+      await this.db.insertFrame({
+        tm,
+        gridWidth,
+        gridHeight,
+        sourceWidth,
+        sourceHeight,
+        stride,
+        gridData: rleEncode(grid),
+      });
+      await this.db.pruneOlderThan(formatKstTm(new Date(Date.now() - RETENTION_MS)));
+    } catch (e) {
+      lo('db error', tm, e);
+    }
 
-      await publishCurrentData({
+    // v2(타일/아카이브) 업로드 실패가 구버전 앱용 current.json 발행까지 막지 않도록 분리한다.
+    // 실패한 프레임은 index.json에서만 빠진다.
+    const { width, height, tiles } = buildTiles(png);
+    this.imageSize = { width, height };
+    let v2Published = false;
+    try {
+      await publishFramePng(tm, png);
+      // index가 가리키기 전에 타일이 먼저 올라가 있어야 한다(publish()는 이 다음에 호출된다).
+      await Promise.all(tiles.map((t) => publishTilePng(tm, t.tx, t.ty, t.png)));
+      v2Published = true;
+    } catch (e) {
+      lo('v2 upload error', tm, e);
+    }
+
+    this.history.push({ tm, png, rainTiles: tiles.map(({ tx, ty }) => ({ tx, ty })), v2Published });
+    this.history.sort((a, b) => (a.tm < b.tm ? -1 : 1));
+    lo('ingest ok', 'tm', tm, 'rainTiles', tiles.length, 'tileBytes', tiles.reduce((s, t) => s + t.png.length, 0));
+
+  }
+
+  async publish() {
+
+    const v2Frames = this.history.filter((f) => f.v2Published);
+    try {
+      await publishIndex({
+        version: 2,
         corners: RADAR_CORNERS,
-        legend: LEGEND,
-        noDataIndex: NO_DATA,
-        rainThresholdIndex: RAIN_THRESHOLD_INDEX,
-        frames: this.pngHistory.map((f) => ({
+        imageWidth: this.imageSize.width,
+        imageHeight: this.imageSize.height,
+        tileSize: TILE_SIZE,
+        // 경로는 index.json 기준 상대경로
+        tilePath: 'tiles/{tm}/{tx}_{ty}.png',
+        framePath: 'frames/{tm}.png',
+        frames: v2Frames.map((f) => ({
           tm: f.tm,
-          pngBase64: f.png.toString('base64'),
+          rainTiles: f.rainTiles.map(({ tx, ty }) => [ tx, ty ]),
         })),
       });
-
-      lo('publish ok', 'frames', this.pngHistory.length);
-
     } catch (e) {
-      lo('publish error', e);
+      lo('index publish error', e);
     }
+
+    // 구버전 앱용 (전체 프레임 4장을 한 파일로)
+    await publishCurrentData({
+      corners: RADAR_CORNERS,
+      legend: LEGEND,
+      noDataIndex: NO_DATA,
+      rainThresholdIndex: RAIN_THRESHOLD_INDEX,
+      frames: this.history.map((f) => ({
+        tm: f.tm,
+        pngBase64: f.png.toString('base64'),
+      })),
+    });
+
+    lo('publish ok', 'frames', this.history.map((f) => f.tm).join(','));
+
   }
 
 }
