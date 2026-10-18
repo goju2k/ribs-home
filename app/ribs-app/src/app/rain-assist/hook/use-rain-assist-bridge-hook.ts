@@ -35,7 +35,7 @@ export interface BridgeForecastPayload {
   blobs:BridgeForecastBlob[];
 }
 
-export type BridgeNotificationState = 'INCOMING' | 'ACTIVE' | 'STOPPED' | 'MISSED';
+export type BridgeNotificationState = 'IDLE' | 'INCOMING' | 'ACTIVE' | 'STOPPED' | 'MISSED';
 
 export interface BridgeNotificationPayload {
   state:BridgeNotificationState;
