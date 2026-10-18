@@ -30,6 +30,7 @@ interface FetchedFrame {
 
 interface FrameEntry extends FetchedFrame {
   rainTiles:{ tx:number; ty:number; }[];
+  v2Published:boolean;
 }
 
 function lo(...args) {
@@ -176,14 +177,21 @@ export class RainRadarBot {
       lo('db error', tm, e);
     }
 
-    await publishFramePng(tm, png);
-
+    // v2(타일/아카이브) 업로드 실패가 구버전 앱용 current.json 발행까지 막지 않도록 분리한다.
+    // 실패한 프레임은 index.json에서만 빠진다.
     const { width, height, tiles } = buildTiles(png);
     this.imageSize = { width, height };
-    // index가 가리키기 전에 타일이 먼저 올라가 있어야 한다(publish()는 이 다음에 호출된다).
-    await Promise.all(tiles.map((t) => publishTilePng(tm, t.tx, t.ty, t.png)));
+    let v2Published = false;
+    try {
+      await publishFramePng(tm, png);
+      // index가 가리키기 전에 타일이 먼저 올라가 있어야 한다(publish()는 이 다음에 호출된다).
+      await Promise.all(tiles.map((t) => publishTilePng(tm, t.tx, t.ty, t.png)));
+      v2Published = true;
+    } catch (e) {
+      lo('v2 upload error', tm, e);
+    }
 
-    this.history.push({ tm, png, rainTiles: tiles.map(({ tx, ty }) => ({ tx, ty })) });
+    this.history.push({ tm, png, rainTiles: tiles.map(({ tx, ty }) => ({ tx, ty })), v2Published });
     this.history.sort((a, b) => (a.tm < b.tm ? -1 : 1));
     lo('ingest ok', 'tm', tm, 'rainTiles', tiles.length, 'tileBytes', tiles.reduce((s, t) => s + t.png.length, 0));
 
@@ -191,20 +199,25 @@ export class RainRadarBot {
 
   async publish() {
 
-    await publishIndex({
-      version: 2,
-      corners: RADAR_CORNERS,
-      imageWidth: this.imageSize.width,
-      imageHeight: this.imageSize.height,
-      tileSize: TILE_SIZE,
-      // 경로는 index.json 기준 상대경로
-      tilePath: 'tiles/{tm}/{tx}_{ty}.png',
-      framePath: 'frames/{tm}.png',
-      frames: this.history.map((f) => ({
-        tm: f.tm,
-        rainTiles: f.rainTiles.map(({ tx, ty }) => [ tx, ty ]),
-      })),
-    });
+    const v2Frames = this.history.filter((f) => f.v2Published);
+    try {
+      await publishIndex({
+        version: 2,
+        corners: RADAR_CORNERS,
+        imageWidth: this.imageSize.width,
+        imageHeight: this.imageSize.height,
+        tileSize: TILE_SIZE,
+        // 경로는 index.json 기준 상대경로
+        tilePath: 'tiles/{tm}/{tx}_{ty}.png',
+        framePath: 'frames/{tm}.png',
+        frames: v2Frames.map((f) => ({
+          tm: f.tm,
+          rainTiles: f.rainTiles.map(({ tx, ty }) => [ tx, ty ]),
+        })),
+      });
+    } catch (e) {
+      lo('index publish error', e);
+    }
 
     // 구버전 앱용 (전체 프레임 4장을 한 파일로)
     await publishCurrentData({
