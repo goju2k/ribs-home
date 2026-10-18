@@ -1,7 +1,8 @@
 import { DeleteObjectsCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 
-// 자격증명/리전은 SDK 기본 프로바이더 체인(AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY/AWS_REGION env, 또는 IAM 역할)에 위임
-const client = new S3Client({});
+// 자격증명/리전은 SDK 기본 프로바이더 체인(AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY/AWS_REGION env, 또는 IAM 역할)에 위임.
+// 기본 핸들러는 요청 타임아웃이 없어, 응답 없이 걸린 업로드 하나가 봇 사이클을 무한정 붙잡을 수 있다.
+const client = new S3Client({ requestHandler: { connectionTimeout: 5 * 1000, requestTimeout: 30 * 1000 } });
 
 const S3_KEY = 'rain-assist/current.json';
 
