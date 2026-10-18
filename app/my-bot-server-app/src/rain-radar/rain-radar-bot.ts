@@ -19,6 +19,7 @@ const TILE_RETAIN_FRAME_COUNT = 8;
 // 처음 시작할 때처럼 최신 프레임부터 다시 찾는다.
 const RESYNC_GAP_MS = 45 * 60 * 1000;
 const MAX_PROBES_PER_CHECK = 10;
+const STUCK_MS = 5 * 60 * 1000;
 
 // ribs-app이 예전에 /api/rain-assist/radar-frames로 내려주던 것과 동일한 셰이프
 const LEGEND = RadarLegend.map(([ , mmh ], index) => ({ index, mmh }));
@@ -55,7 +56,8 @@ export class RainRadarBot {
 
   imageSize = { width: 0, height: 0 };
 
-  running = false;
+  // 진행 중인 check()의 시작 시각(없으면 0)
+  runningSince = 0;
 
   constructor() {
     this.db = new RainRadarDB();
@@ -82,11 +84,19 @@ export class RainRadarBot {
 
   async check() {
 
-    // 시작 시 백필이나 타일 업로드가 1분을 넘기면 다음 크론 틱과 겹칠 수 있다.
-    if (this.running) {
-      return;
+    // 시작 시 백필이나 타일 업로드가 1분을 넘기면 다음 크론 틱과 겹칠 수 있어 겹치는 틱은 건너뛴다.
+    // 단, 어떤 이유로든 한 사이클이 STUCK_MS 넘게 끝나지 않으면 막힌 것으로 보고 새 사이클을 시작한다
+    // — 이 가드가 영원히 true로 남아 발행이 조용히 멈춘 적이 있다(2026-10-18 19:56~, 타임아웃 없는 요청 추정).
+    if (this.runningSince) {
+      const elapsed = Date.now() - this.runningSince;
+      if (elapsed < STUCK_MS) {
+        lo('check skip (previous check still running)', Math.round(elapsed / 1000), 's');
+        return;
+      }
+      lo('previous check stuck, starting a new one', Math.round(elapsed / 1000), 's');
     }
-    this.running = true;
+    const startedAt = Date.now();
+    this.runningSince = startedAt;
 
     try {
 
@@ -111,7 +121,10 @@ export class RainRadarBot {
     } catch (e) {
       lo('check error', e);
     } finally {
-      this.running = false;
+      // 막힌 것으로 보고 넘어간 이전 사이클이 뒤늦게 끝나도 지금 사이클의 표시를 지우지 않게.
+      if (this.runningSince === startedAt) {
+        this.runningSince = 0;
+      }
     }
 
   }
