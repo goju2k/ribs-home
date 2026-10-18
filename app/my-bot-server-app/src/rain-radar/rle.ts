@@ -1,4 +1,4 @@
-// KEEP IN SYNC WITH app/ribs-app/src/app/rain-assist/util/rle.ts (decode 쪽)
+// DB(ribs.rain_radar_frame) 적재용 RLE 인코딩. 디코드 쪽 소비자는 현재 없다(앱은 S3의 원본 PNG/타일을 쓴다).
 // 그리드 대부분이 no-data(255)나 인접한 동일 값으로 이루어진 희소 데이터이므로
 // 단순 Run-Length Encoding만으로도 큰 압축 효과를 얻는다. 포맷: [marker:1byte] + ([value:1byte][count:2byte LE])*
 const RAW_MARKER = 0;
