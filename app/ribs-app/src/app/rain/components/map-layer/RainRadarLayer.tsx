@@ -15,19 +15,48 @@ const RADAR_IMAGE_SIZE = 1453;
 
 // A single global affine fit (one matrix for the whole 1453x1453 image) was tried first — exact
 // in LCC meters, but this grid spans ~120.6-133 lon / ~30.7-40.2 lat, over which the
-// LCC -> lat/lon -> Mercator chain is measurably non-linear. Verified against Naver's own
-// projection at real points: a global fit was off by 400-900px near the grid's edges (e.g. Jeju,
-// Ulleungdo). Splitting into a mesh and fitting each patch's own local affine keeps every patch
-// small enough that the curvature inside it is negligible — checked empirically at ~2-20px of
-// residual across the grid at MESH_N=16 (see buildMesh in radarGrid.ts for the triangle split
-// that makes adjacent patches agree exactly along their shared edge, not just approximately).
-const MESH_N = 16;
+// LCC -> lat/lon -> Mercator chain is measurably non-linear. The image is split into a mesh and
+// each triangle gets its own local affine (see buildMesh in radarGrid.ts). What's left is the
+// curvature inside one cell: measured on screen against Naver's own projection of the same points,
+// ~130 m mid-cell at 16x16 (0 at the vertices) — invisible zoomed out, a visible offset zoomed in.
+// So the mesh is as fine as possible while staying small: the finest of MESH_STEPS whose cells
+// on and around the screen (MESH_MARGIN viewports each side) stay under MAX_TRIANGLES; at country
+// level that falls back to 16x16, where 130 m is under a screen pixel anyway. (64x64: ~5 m.)
+const MESH_STEPS = [ 64, 32, 16 ];
+const MAX_TRIANGLES = 800;
+const MESH_MARGIN = 1;
+
+function buildVisibleMesh(controller:ReturnType<typeof useMintMapController>):MeshTriangle[] {
+  const el = controller.mapDivElement;
+  const w = el?.clientWidth || window.innerWidth;
+  const h = el?.clientHeight || window.innerHeight;
+  const visible = { left: -w * MESH_MARGIN, top: -h * MESH_MARGIN, right: w * (1 + MESH_MARGIN), bottom: h * (1 + MESH_MARGIN) };
+  let fine:MeshTriangle[] | undefined;
+  MESH_STEPS.slice(0, -1).some((n) => {
+    const mesh = buildMesh(controller, RADAR_MOSAIC_BOX, RADAR_IMAGE_SIZE, n, visible);
+    if (mesh.length > MAX_TRIANGLES) {
+      return false;
+    }
+    fine = mesh;
+    return true;
+  });
+  return fine ?? buildMesh(controller, RADAR_MOSAIC_BOX, RADAR_IMAGE_SIZE, MESH_STEPS[MESH_STEPS.length - 1]);
+}
 
 // NW corner of RADAR_MOSAIC_BOX, in real lat/lng — used as the geographic anchor Naver positions
 // the whole mesh group at. Computed once at module load (RADAR_MOSAIC_BOX is a fixed constant).
 const RADAR_NW = forwardUV(RADAR_MOSAIC_BOX, 0, 0);
 
-export function RainRadarLayer() {
+interface RainRadarLayerProps {
+  /**
+   * 이 시각(yyyyMMddHHmm, KST)의 레이더 이미지를 그린다. 없으면(기본, /rain) 최신 이미지를 직접
+   * 찾는다(getTime 역탐색). /rain-assist 웹뷰는 앱 예보가 근거한 프레임 시각을 넘겨, 지도에
+   * 그려진 비구름과 예보 화살표가 같은 시각을 가리키게 한다. 그 이미지를 못 받으면 자체 탐색으로 돌아간다.
+   */
+  forcedTm?:string;
+}
+
+export function RainRadarLayer({ forcedTm }:RainRadarLayerProps = {}) {
 
   const controller = useMintMapController();
 
@@ -40,7 +69,7 @@ export function RainRadarLayer() {
 
   const handleZoomChanged = () => {
 
-    setMeshCells(buildMesh(controller, RADAR_MOSAIC_BOX, RADAR_IMAGE_SIZE, MESH_N));
+    setMeshCells(buildVisibleMesh(controller));
     setImageShow(true);
 
     // 현재위치 대기상태
@@ -48,15 +77,22 @@ export function RainRadarLayer() {
 
   };
 
+  const handleIdle = () => {
+    setMeshCells(buildVisibleMesh(controller));
+  };
+
   useEffect(() => {
 
     handleZoomChanged();
     controller.addEventListener('ZOOMSTART', handleZoomStart);
     controller.addEventListener('ZOOM_CHANGED', handleZoomChanged);
+    // The mesh only covers the screen and its surroundings now — rebuild once panning settles.
+    controller.addEventListener('IDLE', handleIdle);
 
     return () => {
       controller.removeEventListener('ZOOMSTART', handleZoomStart);
       controller.removeEventListener('ZOOM_CHANGED', handleZoomChanged);
+      controller.removeEventListener('IDLE', handleIdle);
     };
 
   }, []);
@@ -64,7 +100,9 @@ export function RainRadarLayer() {
   const [ radarStartPosition ] = useState(new Position(RADAR_NW.lat, RADAR_NW.lng));
 
   const [ tmBefore, setTmBefore ] = useState(4);
-  const [ tm, setTm ] = useState(getTime(tmBefore));
+  const [ ownTm, setOwnTm ] = useState(getTime(tmBefore));
+  const [ failedForcedTm, setFailedForcedTm ] = useState<string | null>(null);
+  const tm = forcedTm && forcedTm !== failedForcedTm ? forcedTm : ownTm;
 
   const { opacity, currPosition, temperatureFlag } = useRecoilValue(MapControlState);
   const updateControl = useUpdateMapControl();
@@ -123,7 +161,12 @@ export function RainRadarLayer() {
 
       {imageShow && meshCells && (
         <MapMarkerWrapper position={radarStartPosition} disablePointerEvent>
-          <div style={{ position: 'relative', width: 0, height: 0 }}>
+          {/*
+            투명도는 삼각형마다가 아니라 묶음 전체에 한 번만 건다 — 삼각형들은 경계를 살짝 겹쳐
+            그리므로(buildMesh의 bleed), 각자 반투명이면 겹친 띠가 진해지고, 겹치지 않으면 각자의
+            안티앨리어싱 가장자리 사이로 지도가 비쳐 칸 경계가 실선처럼 보였다(이음새).
+          */}
+          <div style={{ position: 'relative', width: 0, height: 0, opacity }}>
             {/*
               Each *triangle* (2 per mesh cell — see buildMesh in radarGrid.ts for why cells are
               split this way) is a cellSize x cellSize div using the radar PNG as a CSS background
@@ -153,16 +196,15 @@ export function RainRadarLayer() {
                   position: 'absolute',
                   left: 0,
                   top: 0,
-                  width: `${tri.cellSizePx}px`,
-                  height: `${tri.cellSizePx}px`,
+                  width: `${tri.boxWidthPx}px`,
+                  height: `${tri.boxHeightPx}px`,
                   backgroundImage: `url(https://vapi.kma.go.kr/BUFD/rdr_sfc_pty_img_${tm}_1453.png)`,
                   backgroundSize: `${RADAR_IMAGE_SIZE}px ${RADAR_IMAGE_SIZE}px`,
                   backgroundPosition: `${-tri.srcX}px ${-tri.srcY}px`,
                   backgroundRepeat: 'no-repeat',
-                  clipPath: `polygon(${tri.clipPoints.map(([x, y]) => `${x}px ${y}px`).join(', ')})`,
+                  clipPath: `polygon(${tri.clipPoints.map(([ x, y ]) => `${x}px ${y}px`).join(', ')})`,
                   transformOrigin: '0 0',
                   transform: `matrix(${tri.matrix.a}, ${tri.matrix.b}, ${tri.matrix.c}, ${tri.matrix.d}, ${tri.originX}, ${tri.originY})`,
-                  opacity,
                 }}
               />
             ))}
@@ -176,13 +218,17 @@ export function RainRadarLayer() {
             style={{ display: 'none' }}
             onLoad={() => setImgLoaded(true)}
             onError={() => {
+              if (tm === forcedTm) {
+                setFailedForcedTm(forcedTm);
+                return;
+              }
               if (tmBefore < 30) {
 
                 const nextBefore = tmBefore + 5;
                 setTmBefore(nextBefore);
 
                 const time = getTime(nextBefore);
-                setTm(time);
+                setOwnTm(time);
 
               }
             }}
