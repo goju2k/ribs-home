@@ -81,6 +81,9 @@ export class IndoorBuilding {
 
   readonly name:string;
 
+  /** 건물 높이 = 옥상 높이 */
+  readonly height:number;
+
   readonly group = new THREE.Group();
 
   private floorGroup:THREE.Group | null = null;
@@ -105,6 +108,7 @@ export class IndoorBuilding {
     this.bid = bid;
     this.name = data.buildingNames[bid] ?? '건물';
     this.plan = makePlan(spec, data.buildingMeta[bid][1], row.slice(4), row[0]);
+    [ this.height ] = row;
     const { frame } = this.plan;
     // 지역 좌표(u→x, v→z)를 월드로: y축 회전 θ에서 x축 → (cosθ, -sinθ) = (ux, uz)
     this.group.position.set(frame.ox, 0, frame.oz);

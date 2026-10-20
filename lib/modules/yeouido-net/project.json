@@ -1,0 +1,8 @@
+{
+  "name": "yeouido-net",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "lib/modules/yeouido-net/src",
+  "projectType": "library",
+  "tags": [],
+  "targets": {}
+}

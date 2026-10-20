@@ -54,6 +54,7 @@
     "@types/styled-components": "5.1.26",
     "@types/suncalc": "^1.9.2",
     "@types/three": "0.169.0",
+    "@types/ws": "8.18.1",
     "@typescript-eslint/eslint-plugin": "^7.3.0",
     "@typescript-eslint/parser": "^7.3.0",
     "@vitejs/plugin-react": "^4.2.0",
@@ -110,7 +111,8 @@
     "styled-components": "5.3.6",
     "suncalc": "^1.9.0",
     "three": "0.169.0",
-    "tslib": "^2.3.0"
+    "tslib": "^2.3.0",
+    "ws": "8.18.1"
   },
   "nx": {
     "includedScripts": []

@@ -15,12 +15,17 @@ const place = (s:GameStatus) => {
   return s.onRoof ? '지붕' : '지상';
 };
 
+const netLabel = (s:GameStatus) => {
+  if (s.net.state === 'online') return `접속 ${s.net.count}명`;
+  return s.net.state === 'connecting' ? '접속 중…' : '오프라인';
+};
+
 const isTouch = () => typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
 
 export function Yeouido3DPage() {
   useGalmuriFont();
   const inputRef = useRef(createInput());
-  const statusRef = useRef<GameStatus>({ ready: false, buildMs: 0, pixel: 0, x: 0, z: 0, running: false, alt: 0, flying: false, onRoof: false, indoor: null });
+  const statusRef = useRef<GameStatus>({ ready: false, buildMs: 0, pixel: 0, x: 0, z: 0, running: false, alt: 0, flying: false, onRoof: false, indoor: null, net: { state: 'connecting', count: 0 } });
   const [ ready, setReady ] = useState(false);
   const [ touch ] = useState(isTouch);
   const [ status, setStatus ] = useState<GameStatus>(statusRef.current);
@@ -66,7 +71,7 @@ export function Yeouido3DPage() {
         <Title>
           <b>여의도 3D</b>
           <Sub>
-            {place(status)}{status.indoor ? '' : ` ${Math.round(status.alt)}m`} · {status.running ? '달리기' : '걷기'} · 도트 {status.pixel}px
+            {netLabel(status)} · {place(status)}{status.indoor ? '' : ` ${Math.round(status.alt)}m`} · {status.running ? '달리기' : '걷기'} · 도트 {status.pixel}px
           </Sub>
         </Title>
         <Buttons>

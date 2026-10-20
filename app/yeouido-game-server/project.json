@@ -1,0 +1,24 @@
+{
+  "name": "yeouido-game-server",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "app/yeouido-game-server/src",
+  "projectType": "application",
+  "tags": [],
+  "targets": {
+    "serve": {
+      "executor": "@nx/js:node",
+      "defaultConfiguration": "development",
+      "options": {
+        "buildTarget": "yeouido-game-server:build"
+      },
+      "configurations": {
+        "development": {
+          "buildTarget": "yeouido-game-server:build:development"
+        },
+        "production": {
+          "buildTarget": "yeouido-game-server:build:production"
+        }
+      }
+    }
+  }
+}

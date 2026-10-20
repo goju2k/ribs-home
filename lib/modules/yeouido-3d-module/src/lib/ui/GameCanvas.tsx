@@ -5,7 +5,9 @@ import * as THREE from 'three';
 import { WORLD } from '../data/world-data';
 import { createIndoorBuildings, IndoorBuilding } from '../indoor/indoor-building';
 import { InputState, readLift, readMove } from '../input';
+import { GameClient, myName, NetState, serverUrl } from '../net/client';
 import { createPerson } from '../player/person';
+import { RemotePlayers } from '../player/remote-players';
 import { buildCity } from '../world/build-city';
 import { Collision } from '../world/collision';
 import { SEE } from '../world/see-through';
@@ -39,6 +41,8 @@ export interface GameStatus {
   onRoof: boolean;
   /** 실내에 있을 때 건물 이름·층·엘리베이터 안인지 */
   indoor: { name: string; level: number; elevator: boolean; } | null;
+  /** 게임 서버 접속 상태와 접속자 수(나 포함) */
+  net: { state: NetState; count: number; };
 }
 
 /** 머리 위 ▼ 표식 — 9×9 도트 그림 */
@@ -83,6 +87,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
   onReady: () => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const tagRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current!;
@@ -113,23 +118,30 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     const SUN_DIR = new THREE.Vector3(-0.55, 1, 0.45).normalize(); // 남서쪽 높이 뜬 해
 
     const player = createPerson({ shirt: '#e2574c', pants: '#2f4a7a', skin: '#f1c7a0', hair: '#2a1d14' });
-    const pos = { x: WORLD.spawn.x, y: 0, z: WORLD.spawn.z };
-    // 확인용: 주소에 ?at=x,z,높이 를 주면 그 자리에서 시작
+    // 시작 위치: 시험하기 좋게 샘플 건물 옥상 가운데 (여럿이 겹치지 않게 ±3m 흩뿌림)
+    const roof = indoors[0];
+    const pos = roof
+      ? { x: roof.plan.frame.ox + (Math.random() - 0.5) * 6, y: roof.height, z: roof.plan.frame.oz + (Math.random() - 0.5) * 6 }
+      : { x: WORLD.spawn.x, y: 0, z: WORLD.spawn.z };
+    // 확인용: 주소에 ?at=x,z,높이 를 주면 그 자리에서 시작 (건물 안이면 높이로 층을 골라 실내에서)
     const at = new URLSearchParams(window.location.search).get('at')?.split(',').map(Number);
     if (at && at.length >= 2 && at.every(Number.isFinite)) {
       [ pos.x, pos.z ] = at;
       pos.y = at[2] ?? 0;
-    }
-    // ?at= 가 건물 안이면 그 건물 안에서 시작 (높이로 층을 고른다)
-    const startIn = indoors.find((b) => b.contains(pos.x, pos.z));
-    if (startIn) {
-      inside = startIn;
-      level = THREE.MathUtils.clamp(Math.round(pos.y / startIn.floorH) + 1, 1, startIn.levels);
+      const startIn = indoors.find((b) => b.contains(pos.x, pos.z) && pos.y < b.height - 0.5);
+      if (startIn) {
+        inside = startIn;
+        level = THREE.MathUtils.clamp(Math.round(pos.y / startIn.floorH) + 1, 1, startIn.levels);
+      }
     }
     let facing = 0;
     let speedNow = 0; // 걷기↔달리기가 툭 끊기지 않게 부드럽게 따라간다
     player.root.position.set(pos.x, 0, pos.z);
     scene.add(player.root);
+
+    // 다중접속: 내 상태를 보내고 다른 사람들을 받아 그린다
+    const net = new GameClient(serverUrl(), myName());
+    const others = new RemotePlayers(scene, tagRef.current!);
 
     // 멀리서도 보이게: 머리 위 ▼ 표식(항상 맨 위에 그림) + 발밑 땅까지 내린 선
     const marker = new THREE.Sprite(new THREE.SpriteMaterial({ map: markerTexture(), depthTest: false, depthWrite: false }));
@@ -317,6 +329,10 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       player.root.position.set(pos.x, pos.y, pos.z);
       player.root.rotation.y = facing;
       player.animate(dt, flying ? 0 : actual);
+      net.sendState({ x: pos.x, y: pos.y, z: pos.z, f: facing, a: flying ? 0 : actual, b: inside ? inside.bid : -1, l: inside ? level : 1 }, now);
+      // 실외 사람은 늘, 실내 사람은 나와 같은 건물·층일 때만
+      const here = inside;
+      others.update(net.remotes(now), dt, (r) => r.b < 0 || (!!here && r.b === here.bid && r.l === level), big);
       const tall = 1.72 * big;
       const onScreen = tall * Math.cos(PITCH); // 내려다보니 화면에선 키가 줄어 보인다
       const mk = onScreen * 1.2; // 화면에서 사람보다 살짝 크게
@@ -385,6 +401,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       SEE.foot.value.set(pos.x, pos.y, pos.z);
       SEE.toCam.value.set(toCamX, toCamZ);
 
+      others.placeTags(camera, w, h);
       renderer.render(scene, camera);
 
       statusRef.current = {
@@ -398,6 +415,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         flying,
         onRoof: !inside && !flying && floor > 1,
         indoor: inside ? { name: inside.name, level, elevator: cab >= 0 } : null,
+        net: { state: net.state, count: net.count },
       };
       if (!readySent) {
         readySent = true;
@@ -409,6 +427,8 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
 
     return () => {
       cancelAnimationFrame(raf);
+      net.close();
+      others.dispose();
       observer.disconnect();
       canvas.removeEventListener('wheel', onWheel);
       canvas.removeEventListener('pointerdown', onDown);
@@ -422,8 +442,21 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     };
   }, []);
 
-  return <Canvas ref={canvasRef} />;
+  return (
+    <>
+      <Canvas ref={canvasRef} />
+      <TagLayer ref={tagRef} />
+    </>
+  );
 }
+
+/** 다른 사람 이름표 (HTML 글자) */
+const TagLayer = styled.div({
+  position: 'absolute',
+  inset: 0,
+  overflow: 'hidden',
+  pointerEvents: 'none',
+});
 
 const Canvas = styled.canvas({
   position: 'absolute',
