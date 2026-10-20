@@ -126,6 +126,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     scene.add(drop);
     let autoZoom = 1;
     const bufSize = new THREE.Vector2();
+    let seeFade = 0;
 
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 6000);
     let view = 34; // 화면 세로에 담기는 미터
@@ -306,18 +307,20 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       sun.position.copy(ground).addScaledVector(SUN_DIR, 900);
       sun.target.position.copy(ground);
 
-      // 플레이어를 가리는 건물·나무에 구멍: 화면 위치·크기·깊이를 셰이더로 넘긴다
+      // 플레이어를 가리는 건물·나무에 구멍: 실제로 시선이 막혔을 때만 서서히 켠다
+      const toCamX = Math.sin(yaw);
+      const toCamZ = Math.cos(yaw);
+      const hidden = collision.hidesFrom(pos.x, pos.y, pos.z, tall, toCamX, toCamZ, Math.tan(PITCH));
+      seeFade += ((hidden ? 1 : 0) - seeFade) * (1 - Math.exp(-dt * 8));
       camera.updateMatrixWorld();
-      const mid = new THREE.Vector3(pos.x, pos.y + tall * 0.5, pos.z);
-      const viewZ = -mid.clone().applyMatrix4(camera.matrixWorldInverse).z;
-      const ndc = mid.project(camera);
+      const ndc = new THREE.Vector3(pos.x, pos.y + tall * 0.5, pos.z).project(camera);
       renderer.getDrawingBufferSize(bufSize);
       const personPx = (onScreen / shown) * bufSize.y;
-      SEE.on.value = 1;
+      SEE.strength.value = seeFade;
       SEE.center.value.set((ndc.x * 0.5 + 0.5) * bufSize.x, (ndc.y * 0.5 + 0.5) * bufSize.y);
-      SEE.radius.value = THREE.MathUtils.clamp(personPx * 3.2, 16, bufSize.y * 0.25);
-      SEE.depth.value = viewZ;
-      SEE.footY.value = pos.y;
+      SEE.radius.value = THREE.MathUtils.clamp(personPx * 3.2, 16, bufSize.y * 0.25) * (0.6 + 0.4 * seeFade);
+      SEE.foot.value.set(pos.x, pos.y, pos.z);
+      SEE.toCam.value.set(toCamX, toCamZ);
 
       renderer.render(scene, camera);
 

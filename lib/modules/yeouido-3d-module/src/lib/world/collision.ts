@@ -1,6 +1,7 @@
 import { BLOCK, decodeCollision, WorldData } from '../data/world-data';
 
 const BUCKET = 50; // 건물 높이 찾기용 공간 격자(m)
+const TREE_BUCKET = 8;
 
 interface Footprint {
   h: number;
@@ -43,6 +44,10 @@ export class Collision {
 
   private buckets = new Map<number, number[]>();
 
+  private treeBuckets = new Map<number, { x: number; z: number; k: number; }[]>();
+
+  private maxH = 0;
+
   constructor(data:WorldData) {
     this.grid = decodeCollision(data.collision);
     this.w = data.collision.w;
@@ -72,6 +77,43 @@ export class Collision {
           else this.buckets.set(key, [ idx ]);
         }
       }
+    });
+
+    // 나무 수관: 반지름 1.5k, 높이 1.7k~4.7k (build-city의 나무 모양과 맞춤)
+    for (let i = 0; i + 2 < data.trees.length; i += 3) {
+      const tree = { x: data.trees[i], z: data.trees[i + 1], k: data.trees[i + 2] / 10 };
+      const r = 1.5 * tree.k;
+      // 칸 경계에 걸친 수관도 찾도록 겹치는 칸마다 넣는다
+      for (let bx = Math.floor((tree.x - r) / TREE_BUCKET); bx <= Math.floor((tree.x + r) / TREE_BUCKET); bx++) {
+        for (let bz = Math.floor((tree.z - r) / TREE_BUCKET); bz <= Math.floor((tree.z + r) / TREE_BUCKET); bz++) {
+          const list = this.treeBuckets.get(bx * 100000 + bz);
+          if (list) list.push(tree);
+          else this.treeBuckets.set(bx * 100000 + bz, [ tree ]);
+        }
+      }
+    }
+    this.maxH = data.maxBuildingHeight;
+  }
+
+  private treeHit(x:number, y:number, z:number) {
+    const list = this.treeBuckets.get(Math.floor(x / TREE_BUCKET) * 100000 + Math.floor(z / TREE_BUCKET));
+    return !!list?.some((t) => y > 1.7 * t.k && y < 4.7 * t.k && Math.hypot(x - t.x, z - t.z) < 1.5 * t.k);
+  }
+
+  /**
+   * 카메라에서 (x, y~y+tall, z)를 보는 시선이 건물·나무에 막히는지.
+   * 정사영이라 시선은 평행선: 카메라 쪽 수평 방향 (dx, dz)로 1m 갈 때마다 rise 만큼 오른다.
+   */
+  hidesFrom(x:number, y:number, z:number, tall:number, dx:number, dz:number, rise:number) {
+    return [ y + tall * 0.25, y + tall * 0.9 ].some((y0) => {
+      for (let s = 0.6; y0 + s * rise < this.maxH + 1; s += 1) {
+        const sx = x + dx * s;
+        const sz = z + dz * s;
+        const sy = y0 + s * rise;
+        if (sy < 6 && this.treeHit(sx, sy, sz)) return true;
+        if (this.footprintsAt(sx, sz).some((f) => f.h > sy)) return true;
+      }
+      return false;
     });
   }
 
