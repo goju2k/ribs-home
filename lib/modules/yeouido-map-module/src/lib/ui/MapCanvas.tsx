@@ -5,7 +5,7 @@ import { PIXEL_FONT } from './pixel';
 
 import { YeouidoGrid } from '../data/decode';
 import { usePanZoom } from '../hooks/use-pan-zoom';
-import { Camera, clampToImage, fitRect, toScreen, Viewport } from '../render/camera';
+import { Camera, clampScale, clampToImage, fitRect, toScreen, Viewport } from '../render/camera';
 import { Composite, heightPx } from '../render/compose';
 import { BACKGROUND } from '../render/palette';
 
@@ -45,11 +45,17 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(({ grid, co
     camRef.current = clampToImage(camRef.current, composite.width, composite.height);
   });
 
+  /** 전체가 다 보이게 */
   const fit = () => {
+    camRef.current = fitRect(composite.width, composite.height, vpRef.current, 8);
+  };
+
+  /** 첫 화면: 빈 공간 없이 화면을 채우고 섬 가운데(그리드 중앙 약간 남동쪽)에 맞춘다 */
+  const start = () => {
     const vp = vpRef.current;
-    const cam = fitRect(composite.width, composite.height, vp, 8);
-    // 폰처럼 좁은 화면에선 너무 작아지니 섬 가운데를 적당히 확대해서 시작
-    camRef.current = cam.scale < 0.9 ? { ...cam, scale: 0.9 } : cam;
+    const cover = Math.max(vp.w / composite.width, vp.h / composite.height);
+    const scale = clampScale(Math.min(Math.max(cover, 0.9), 2.5));
+    camRef.current = { scale, x: composite.width * 0.52, y: composite.top + grid.h * 0.55 };
   };
 
   useImperativeHandle(ref, () => ({ fitAll: fit }), [ composite ]);
@@ -70,7 +76,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, MapCanvasProps>(({ grid, co
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       vpRef.current = { w, h };
       if (first) {
-        fit();
+        start();
         first = false;
       }
     };
