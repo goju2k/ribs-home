@@ -256,10 +256,13 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       player.root.position.set(pos.x, pos.y, pos.z);
       player.root.rotation.y = facing;
       player.animate(dt, flying ? 0 : actual);
-      const mk = shown * 0.05; // 화면 세로의 5%
+      const tall = 1.72 * big;
+      const onScreen = tall * Math.cos(PITCH); // 내려다보니 화면에선 키가 줄어 보인다
+      const mk = onScreen * 1.2; // 화면에서 사람보다 살짝 크게
       marker.visible = shown > 45;
       marker.scale.set(mk, mk, 1);
-      marker.position.set(pos.x, pos.y + 1.9 * big + mk * 0.7, pos.z);
+      // 화면에서 머리 위로 사람 키만큼 띄운다 (세로 거리도 cos 만큼 줄어 보여서 나눠 준다)
+      marker.position.set(pos.x, pos.y + tall + (onScreen + mk / 2) / Math.cos(PITCH), pos.z);
       const below = pos.y - floor > 1;
       drop.visible = below;
       if (below) {
