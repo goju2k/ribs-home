@@ -19,6 +19,8 @@ const RADIUS = 0.28;
 const PITCH = THREE.MathUtils.degToRad(48);
 const MIN_VIEW = 8; // 화면 세로가 담는 미터
 const MAX_VIEW = 900;
+const ALT_ZOOM = 60; // 이만큼(m) 오를 때마다 보이는 범위가 기본만큼 넓어진다
+const MAX_SHOWN_VIEW = 1600;
 const SKY = '#a8dcf5';
 
 export interface GameStatus {
@@ -31,6 +33,37 @@ export interface GameStatus {
   /** 땅에서 잰 높이(m) */
   alt: number;
   flying: boolean;
+  /** 지붕 위에 서 있음 (물 위에 떠 있는 1m는 제외) */
+  onRoof: boolean;
+}
+
+/** 머리 위 ▼ 표식 — 9×9 도트 그림 */
+function markerTexture() {
+  const rows = [
+    '#########',
+    '#yyyyyyy#',
+    '.#yyyyy#.',
+    '.#yyyyy#.',
+    '..#yyy#..',
+    '..#yyy#..',
+    '...#y#...',
+    '...#y#...',
+    '....#....',
+  ];
+  const c = document.createElement('canvas');
+  c.width = 9;
+  c.height = 9;
+  const g = c.getContext('2d')!;
+  rows.forEach((row, y) => [ ...row ].forEach((ch, x) => {
+    if (ch === '.') return;
+    g.fillStyle = ch === '#' ? '#0b0e22' : '#ffd84a';
+    g.fillRect(x, y, 1, 1);
+  }));
+  const tex = new THREE.CanvasTexture(c);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
 
 /** 화면 세로 기준 몇 CSS 픽셀을 한 도트로 그릴지 (주소의 ?pix= 로 바꿀 수 있다) */
@@ -71,12 +104,28 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
 
     const player = createPerson({ shirt: '#e2574c', pants: '#2f4a7a', skin: '#f1c7a0', hair: '#2a1d14' }, true);
     const pos = { x: WORLD.spawn.x, y: 0, z: WORLD.spawn.z };
+    // 확인용: 주소에 ?at=x,z,높이 를 주면 그 자리에서 시작
+    const at = new URLSearchParams(window.location.search).get('at')?.split(',').map(Number);
+    if (at && at.length >= 2 && at.every(Number.isFinite)) {
+      [ pos.x, pos.z ] = at;
+      pos.y = at[2] ?? 0;
+    }
     let facing = 0;
     let speedNow = 0; // 걷기↔달리기가 툭 끊기지 않게 부드럽게 따라간다
     player.root.position.set(pos.x, 0, pos.z);
     scene.add(player.root);
 
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 4000);
+    // 멀리서도 보이게: 머리 위 ▼ 표식(항상 맨 위에 그림) + 발밑 땅까지 내린 선
+    const marker = new THREE.Sprite(new THREE.SpriteMaterial({ map: markerTexture(), depthTest: false, depthWrite: false }));
+    marker.renderOrder = 20;
+    scene.add(marker);
+    const dropGeo = new THREE.BufferGeometry().setFromPoints([ new THREE.Vector3(), new THREE.Vector3() ]);
+    const drop = new THREE.Line(dropGeo, new THREE.LineBasicMaterial({ color: '#ffd84a', transparent: true, opacity: 0.7 }));
+    drop.frustumCulled = false;
+    scene.add(drop);
+    let autoZoom = 1;
+
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 6000);
     let view = 34; // 화면 세로에 담기는 미터
     let yaw = 0;
     let yawTarget = 0;
@@ -165,8 +214,10 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       // 높이: 누르는 동안 오르내리고, 놓으면 그 높이에 떠 있는다
       const mv = readMove(input);
       const lift = readLift(input);
+      const prevY = pos.y;
       if (lift) pos.y = Math.min(MAX_ALT, pos.y + lift * (mv.run ? LIFT_RUN : LIFT) * dt);
-      const floor = collision.floorAt(pos.x, pos.z, pos.y);
+      // 빨리 내려오면 한 프레임에 지붕을 지나칠 수 있어 움직이기 전 높이로 바닥을 찾는다
+      const floor = collision.floorAt(pos.x, pos.z, Math.max(prevY, pos.y));
       if (pos.y < floor) pos.y = floor;
       const grounded = floor === 0 && pos.y < 0.05;
       const flying = pos.y - floor > 0.5;
@@ -195,20 +246,38 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         diff = Math.atan2(Math.sin(diff), Math.cos(diff));
         facing += diff * (1 - Math.exp(-dt * 14));
       } else speedNow = 0;
+      // 높이 오를수록 자동으로 멀리 본다 (손으로 맞춘 배율에 곱한다)
+      autoZoom += (1 + pos.y / ALT_ZOOM - autoZoom) * (1 - Math.exp(-dt * 4));
+      const shown = Math.min(MAX_SHOWN_VIEW, view * autoZoom);
+
+      // 축소할수록 캐릭터를 키워 점으로 사라지지 않게
+      const big = THREE.MathUtils.clamp(shown / 60, 1, 5);
+      player.root.scale.setScalar(big);
       player.root.position.set(pos.x, pos.y, pos.z);
       player.root.rotation.y = facing;
       player.animate(dt, flying ? 0 : actual);
+      const mk = shown * 0.05; // 화면 세로의 5%
+      marker.visible = shown > 45;
+      marker.scale.set(mk, mk, 1);
+      marker.position.set(pos.x, pos.y + 1.9 * big + mk * 0.7, pos.z);
+      const below = pos.y - floor > 1;
+      drop.visible = below;
+      if (below) {
+        dropGeo.attributes.position.setXYZ(0, pos.x, pos.y, pos.z);
+        dropGeo.attributes.position.setXYZ(1, pos.x, floor, pos.z);
+        dropGeo.attributes.position.needsUpdate = true;
+      }
 
       // 카메라: 플레이어를 바라보는 고정 각도 정사영
       const { clientWidth: w, clientHeight: h } = canvas;
       const aspect = w / Math.max(h, 1);
-      camera.top = view / 2;
-      camera.bottom = -view / 2;
-      camera.left = (-view / 2) * aspect;
-      camera.right = (view / 2) * aspect;
+      camera.top = shown / 2;
+      camera.bottom = -shown / 2;
+      camera.left = (-shown / 2) * aspect;
+      camera.right = (shown / 2) * aspect;
       camera.updateProjectionMatrix();
       const target = new THREE.Vector3(pos.x, pos.y + 1, pos.z);
-      const dist = 1500;
+      const dist = 2500;
       camera.position.set(
         target.x + Math.sin(yaw) * Math.cos(PITCH) * dist,
         target.y + Math.sin(PITCH) * dist,
@@ -217,7 +286,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       camera.lookAt(target);
 
       // 그림자는 화면에 보이는 범위만 (확대할수록 선명)
-      const s = Math.min(320, view * aspect * 0.75 + 20);
+      const s = Math.min(500, shown * aspect * 0.75 + 20);
       const cam = sun.shadow.camera;
       cam.left = -s;
       cam.right = s;
@@ -234,7 +303,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
 
       renderer.render(scene, camera);
 
-      statusRef.current = { ready: true, buildMs, pixel: pix, x: pos.x, z: pos.z, running: mv.run, alt: pos.y, flying };
+      statusRef.current = { ready: true, buildMs, pixel: pix, x: pos.x, z: pos.z, running: mv.run, alt: pos.y, flying, onRoof: !flying && floor > 1 };
       if (!readySent) {
         readySent = true;
         onReady();
