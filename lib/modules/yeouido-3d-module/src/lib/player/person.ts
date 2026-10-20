@@ -90,7 +90,9 @@ export function createPerson(look:PersonLook, silhouette = false):Person {
     // 걸을 때 위아래로 살짝
     body.position.y = moving ? Math.abs(Math.cos(phase)) * 0.03 * Math.min(2, speed) : 0;
     if (!moving) {
-      [ legL, legR, armL, armR ].forEach((m) => { m.rotation.x *= 0.8; });
+      [ legL, legR, armL, armR ].forEach((m) => {
+        m.rotation.x *= 0.8; 
+      });
     }
   };
 

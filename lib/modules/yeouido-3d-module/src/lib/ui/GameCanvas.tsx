@@ -3,13 +3,18 @@ import styled from 'styled-components';
 import * as THREE from 'three';
 
 import { WORLD } from '../data/world-data';
-import { InputState, readMove } from '../input';
+import { InputState, readLift, readMove } from '../input';
 import { createPerson } from '../player/person';
 import { buildCity } from '../world/build-city';
 import { Collision } from '../world/collision';
 
 const WALK = 1.4; // m/s
-const RUN = 4.8;
+const RUN = 9.6; // 임시로 두 배 (원래 4.8)
+const FLY = 12; // 날 때 수평 속도
+const FLY_RUN = 36;
+const LIFT = 10; // 오르내리는 속도
+const LIFT_RUN = 30;
+const MAX_ALT = 500;
 const RADIUS = 0.28;
 const PITCH = THREE.MathUtils.degToRad(48);
 const MIN_VIEW = 8; // 화면 세로가 담는 미터
@@ -23,6 +28,9 @@ export interface GameStatus {
   x: number;
   z: number;
   running: boolean;
+  /** 땅에서 잰 높이(m) */
+  alt: number;
+  flying: boolean;
 }
 
 /** 화면 세로 기준 몇 CSS 픽셀을 한 도트로 그릴지 (주소의 ?pix= 로 바꿀 수 있다) */
@@ -62,8 +70,9 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     const SUN_DIR = new THREE.Vector3(-0.55, 1, 0.45).normalize(); // 남서쪽 높이 뜬 해
 
     const player = createPerson({ shirt: '#e2574c', pants: '#2f4a7a', skin: '#f1c7a0', hair: '#2a1d14' }, true);
-    const pos = { x: WORLD.spawn.x, z: WORLD.spawn.z };
+    const pos = { x: WORLD.spawn.x, y: 0, z: WORLD.spawn.z };
     let facing = 0;
+    let speedNow = 0; // 걷기↔달리기가 툭 끊기지 않게 부드럽게 따라간다
     player.root.position.set(pos.x, 0, pos.z);
     scene.add(player.root);
 
@@ -120,7 +129,9 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
 
     const onKey = (e:KeyboardEvent) => {
       if (e.type === 'keydown') {
+        if (e.code === 'Space') e.preventDefault();
         inputRef.current.keys.add(e.code);
+        if (e.code === 'KeyT' && !e.repeat) inputRef.current.runToggle = !inputRef.current.runToggle;
         if (e.code === 'KeyQ') inputRef.current.rotate -= 1;
         if (e.code === 'KeyE') inputRef.current.rotate += 1;
         if (e.code === 'Equal' || e.code === 'NumpadAdd') inputRef.current.zoom *= 0.8;
@@ -151,9 +162,21 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         input.zoom = 1;
       }
 
-      // 이동: 화면 기준 입력을 카메라 방향으로 돌린다
+      // 높이: 누르는 동안 오르내리고, 놓으면 그 높이에 떠 있는다
       const mv = readMove(input);
-      const speed = mv.amount * (mv.run ? RUN : WALK);
+      const lift = readLift(input);
+      if (lift) pos.y = Math.min(MAX_ALT, pos.y + lift * (mv.run ? LIFT_RUN : LIFT) * dt);
+      const floor = collision.floorAt(pos.x, pos.z, pos.y);
+      if (pos.y < floor) pos.y = floor;
+      const grounded = floor === 0 && pos.y < 0.05;
+      const flying = pos.y - floor > 0.5;
+
+      // 이동: 화면 기준 입력을 카메라 방향으로 돌린다
+      const speeds = flying ? [ FLY, FLY_RUN ] : [ WALK, RUN ];
+      const topSpeed = speeds[mv.run ? 1 : 0];
+      const want = mv.amount > 0.05 ? mv.amount * topSpeed : 0;
+      speedNow += (want - speedNow) * (1 - Math.exp(-dt * 6));
+      const speed = speedNow;
       let actual = 0;
       if (mv.amount > 0.05) {
         const fx = -Math.sin(yaw);
@@ -163,18 +186,18 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         const wx = rx * mv.x - fx * mv.y;
         const wz = rz * mv.x - fz * mv.y;
         const len = Math.hypot(wx, wz) || 1;
-        const next = collision.move(pos.x, pos.z, (wx / len) * speed * dt, (wz / len) * speed * dt, RADIUS);
+        const next = collision.move(pos.x, pos.z, (wx / len) * speed * dt, (wz / len) * speed * dt, RADIUS, grounded ? 0 : pos.y);
         actual = Math.hypot(next.x - pos.x, next.z - pos.z) / dt;
         pos.x = next.x;
         pos.z = next.z;
-        const want = Math.atan2(wx, wz);
-        let diff = want - facing;
+        const turn = Math.atan2(wx, wz);
+        let diff = turn - facing;
         diff = Math.atan2(Math.sin(diff), Math.cos(diff));
         facing += diff * (1 - Math.exp(-dt * 14));
-      }
-      player.root.position.set(pos.x, 0, pos.z);
+      } else speedNow = 0;
+      player.root.position.set(pos.x, pos.y, pos.z);
       player.root.rotation.y = facing;
-      player.animate(dt, actual);
+      player.animate(dt, flying ? 0 : actual);
 
       // 카메라: 플레이어를 바라보는 고정 각도 정사영
       const { clientWidth: w, clientHeight: h } = canvas;
@@ -184,7 +207,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       camera.left = (-view / 2) * aspect;
       camera.right = (view / 2) * aspect;
       camera.updateProjectionMatrix();
-      const target = new THREE.Vector3(pos.x, 1, pos.z);
+      const target = new THREE.Vector3(pos.x, pos.y + 1, pos.z);
       const dist = 1500;
       camera.position.set(
         target.x + Math.sin(yaw) * Math.cos(PITCH) * dist,
@@ -201,14 +224,17 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       cam.top = s;
       cam.bottom = -s;
       cam.near = 1;
-      cam.far = 1600;
+      cam.far = 2000;
       cam.updateProjectionMatrix();
-      sun.position.copy(target).addScaledVector(SUN_DIR, 700);
-      sun.target.position.copy(target);
+      // 높이 날면 화면 가운데 보이는 땅이 플레이어 발밑과 달라진다 → 그 땅을 기준으로 그림자를 잡는다
+      const back = target.y / Math.tan(PITCH);
+      const ground = new THREE.Vector3(target.x - Math.sin(yaw) * back, 0, target.z - Math.cos(yaw) * back);
+      sun.position.copy(ground).addScaledVector(SUN_DIR, 900);
+      sun.target.position.copy(ground);
 
       renderer.render(scene, camera);
 
-      statusRef.current = { ready: true, buildMs, pixel: pix, x: pos.x, z: pos.z, running: mv.run && mv.amount > 0.05 };
+      statusRef.current = { ready: true, buildMs, pixel: pix, x: pos.x, z: pos.z, running: mv.run, alt: pos.y, flying };
       if (!readySent) {
         readySent = true;
         onReady();

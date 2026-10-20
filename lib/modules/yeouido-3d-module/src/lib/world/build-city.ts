@@ -1,10 +1,12 @@
-/* eslint-disable no-continue -- 도형 생성 반복문 */
+/* eslint-disable no-continue, no-restricted-syntax -- 도형 생성 반복문 */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 import { FlatRing, toPoints, WorldData } from '../data/world-data';
 
-type P = { x: number; z: number; };
+interface P {
+  x: number; z: number;
+}
 
 // 바닥 겹침 순서 — 정사영 카메라라 몇 cm 차이로 충분하다
 const Y = { ground: 0, water: 0.02, area: 0.04, bridge: 0.06, path: 0.08, rail: 0.09, road: 0.1, mark: 0.12 };
@@ -189,8 +191,8 @@ function buildBuildings(data:WorldData) {
       // 법선 방향에 맞게 감기: (b-a)×up = (-dz, dx) 와 같은 쪽이면 a,b 순서 그대로
       const sameSide = nx * -(b.z - a.z) + nz * (b.x - a.x) > 0;
       const quad = sameSide
-        ? [ [ a, 0, u0, 0 ], [ b, 0, u1, 0 ], [ b, h, u1, v1 ], [ a, 0, u0, 0 ], [ b, h, u1, v1 ], [ a, h, u0, v1 ] ]
-        : [ [ a, 0, u0, 0 ], [ b, h, u1, v1 ], [ b, 0, u1, 0 ], [ a, 0, u0, 0 ], [ a, h, u0, v1 ], [ b, h, u1, v1 ] ];
+        ? [[ a, 0, u0, 0 ], [ b, 0, u1, 0 ], [ b, h, u1, v1 ], [ a, 0, u0, 0 ], [ b, h, u1, v1 ], [ a, h, u0, v1 ]]
+        : [[ a, 0, u0, 0 ], [ b, h, u1, v1 ], [ b, 0, u1, 0 ], [ a, 0, u0, 0 ], [ a, h, u0, v1 ], [ b, h, u1, v1 ]];
       for (const [ p, y, uu, vv ] of quad as [P, number, number, number][]) {
         wallPos.push(p.x, y, p.z);
         wallNor.push(nx, 0, nz);
@@ -297,7 +299,7 @@ export function buildCity(data:WorldData):THREE.Group {
   if (railMesh) city.add(railMesh);
 
   // 도로 + 노면 표시
-  const roadGeos:(THREE.BufferGeometry | null)[][] = [ [], [] ];
+  const roadGeos:(THREE.BufferGeometry | null)[][] = [[], []];
   const yellow:THREE.BufferGeometry[] = [];
   const white:THREE.BufferGeometry[] = [];
   for (const r of data.roads) {
