@@ -1,25 +1,17 @@
 import { MutableRefObject, useEffect, useRef } from 'react';
 import styled from 'styled-components';
 import * as THREE from 'three';
+import { fromBody, InputTuple } from 'yeouido-net';
+import { Body, copyBody, createSimWorld, describe, FLY, Input, newBody, STEP, step, WORLD } from 'yeouido-sim';
 
-import { WORLD } from '../data/world-data';
-import { createIndoorBuildings, IndoorBuilding } from '../indoor/indoor-building';
+import { createIndoorViews } from '../indoor/indoor-building';
 import { InputState, readLift, readMove } from '../input';
-import { GameClient, myName, NetState, serverUrl } from '../net/client';
+import { GameClient, myName, NetState, serverUrl, Transport } from '../net/client';
 import { createPerson } from '../player/person';
 import { RemotePlayers } from '../player/remote-players';
 import { buildCity } from '../world/build-city';
-import { Collision } from '../world/collision';
 import { SEE } from '../world/see-through';
 
-const WALK = 1.4; // m/s
-const RUN = 9.6; // 임시로 두 배 (원래 4.8)
-const FLY = 12; // 날 때 수평 속도
-const FLY_RUN = 36;
-const LIFT = 10; // 오르내리는 속도
-const LIFT_RUN = 30;
-const MAX_ALT = 500;
-const RADIUS = 0.28;
 const PITCH = THREE.MathUtils.degToRad(48);
 const MIN_VIEW = 8; // 화면 세로가 담는 미터
 const MAX_VIEW = 900;
@@ -41,8 +33,8 @@ export interface GameStatus {
   onRoof: boolean;
   /** 실내에 있을 때 건물 이름·층·엘리베이터 안인지 */
   indoor: { name: string; level: number; elevator: boolean; } | null;
-  /** 게임 서버 접속 상태와 접속자 수(나 포함) */
-  net: { state: NetState; count: number; };
+  /** 게임 서버 접속 상태, 접속자 수(나 포함), 오류, 마지막 서버 보정 크기(m)와 확인 대기 입력 수 */
+  net: { state: NetState; count: number; error: string; correction: number; pending: number; transport: Transport; };
 }
 
 /** 머리 위 ▼ 표식 — 9×9 도트 그림 */
@@ -100,13 +92,11 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
 
     const t0 = performance.now();
     scene.add(buildCity(WORLD));
-    const collision = new Collision(WORLD);
-    // 들어갈 수 있는 건물: 문에 닿으면 들어가고, 엘리베이터 칸에서 ▲▼로 층 이동
-    const indoors = createIndoorBuildings(WORLD);
-    indoors.forEach((b) => scene.add(b.group));
-    let inside:IndoorBuilding | null = null;
-    let level = 1;
-    let liftReady = 0; // 다음 층 이동이 가능한 시각(ms) — 프레임 속도와 무관하게
+    // 이동·충돌·실내 판정은 서버와 같은 공용 시뮬레이션 (문에 닿으면 들어가고, 엘리베이터 칸에서 ▲▼로 층 이동)
+    const sim = createSimWorld(WORLD);
+    const { collision } = sim;
+    const views = createIndoorViews(sim.indoors);
+    views.forEach((v) => scene.add(v.group));
     const buildMs = Math.round(performance.now() - t0);
 
     scene.add(new THREE.HemisphereLight('#e6f4ff', '#8a8573', 1.6));
@@ -118,29 +108,39 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     const SUN_DIR = new THREE.Vector3(-0.55, 1, 0.45).normalize(); // 남서쪽 높이 뜬 해
 
     const player = createPerson({ shirt: '#e2574c', pants: '#2f4a7a', skin: '#f1c7a0', hair: '#2a1d14' });
-    // 시작 위치: 시험하기 좋게 샘플 건물 옥상 가운데 (여럿이 겹치지 않게 ±3m 흩뿌림)
-    const roof = indoors[0];
-    const pos = roof
-      ? { x: roof.plan.frame.ox + (Math.random() - 0.5) * 6, y: roof.height, z: roof.plan.frame.oz + (Math.random() - 0.5) * 6 }
-      : { x: WORLD.spawn.x, y: 0, z: WORLD.spawn.z };
+    // 시작 위치: 시험하기 좋게 샘플 건물 옥상 가운데 ±3m (서버에 붙으면 서버가 정한 자리를 따른다)
+    const roof = sim.indoors[0];
+    const body:Body = roof
+      ? newBody(roof.plan.frame.ox + (Math.random() - 0.5) * 6, roof.height, roof.plan.frame.oz + (Math.random() - 0.5) * 6)
+      : newBody(WORLD.spawn.x, 0, WORLD.spawn.z);
     // 확인용: 주소에 ?at=x,z,높이 를 주면 그 자리에서 시작 (건물 안이면 높이로 층을 골라 실내에서)
     const at = new URLSearchParams(window.location.search).get('at')?.split(',').map(Number);
     if (at && at.length >= 2 && at.every(Number.isFinite)) {
-      [ pos.x, pos.z ] = at;
-      pos.y = at[2] ?? 0;
-      const startIn = indoors.find((b) => b.contains(pos.x, pos.z) && pos.y < b.height - 0.5);
+      [ body.x, body.z ] = at;
+      body.y = at[2] ?? 0;
+      const startIn = sim.indoors.find((b) => b.contains(body.x, body.z) && body.y < b.height - 0.5);
       if (startIn) {
-        inside = startIn;
-        level = THREE.MathUtils.clamp(Math.round(pos.y / startIn.floorH) + 1, 1, startIn.levels);
+        body.b = startIn.bid;
+        body.l = THREE.MathUtils.clamp(Math.round(body.y / startIn.floorH) + 1, 1, startIn.levels);
+        body.y = startIn.baseY(body.l);
       }
     }
-    let facing = 0;
-    let speedNow = 0; // 걷기↔달리기가 툭 끊기지 않게 부드럽게 따라간다
-    player.root.position.set(pos.x, 0, pos.z);
+    // 예측: 입력 한 걸음(STEP)마다 먼저 움직이고, 서버가 확인해 줄 때까지 입력을 들고 있는다
+    let prev = copyBody(body); // 직전 걸음 — 화면은 prev → body 사이를 보간해 그린다
+    let acc = 0;
+    let seq = 0;
+    const pending:{ seq: number; inp: Input; }[] = [];
+    const err = { x: 0, y: 0, z: 0 }; // 서버 보정으로 생긴 화면상 어긋남 (서서히 0으로)
+    let correction = 0;
+    const pos = { x: body.x, y: body.y, z: body.z }; // 화면에 그리는 위치
+    let facing = body.f;
+    player.root.position.set(pos.x, pos.y, pos.z);
     scene.add(player.root);
+    // 확인용(?debug): 콘솔에서 상태를 들여다볼 수 있게
+    if (new URLSearchParams(window.location.search).has('debug')) Object.assign(window, { y3d: { body, player, pos } });
 
-    // 다중접속: 내 상태를 보내고 다른 사람들을 받아 그린다
-    const net = new GameClient(serverUrl(), myName());
+    // 다중접속: 입력을 보내고, 서버가 확정한 내 상태와 다른 사람들을 받는다 (재접속하면 지금 자리에서 이어서)
+    const net = new GameClient(serverUrl(), myName(), () => ({ x: body.x, y: body.y, z: body.z, b: body.b, l: body.l }));
     const others = new RemotePlayers(scene, tagRef.current!);
 
     // 멀리서도 보이게: 머리 위 ▼ 표식(항상 맨 위에 그림) + 발밑 땅까지 내린 선
@@ -226,7 +226,8 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     let last = performance.now();
     let readySent = false;
     const frame = (now:number) => {
-      const dt = Math.min(0.05, (now - last) / 1000);
+      const raw = Math.min(0.25, (now - last) / 1000);
+      const dt = Math.min(0.05, raw);
       last = now;
       const input = inputRef.current;
 
@@ -241,86 +242,78 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         input.zoom = 1;
       }
 
-      // 높이: 누르는 동안 오르내리고, 놓으면 그 높이에 떠 있는다
+      // 입력 → 고정 간격(STEP) 걸음으로 먼저 움직이고(예측), 같은 입력을 서버에 보낸다
       const mv = readMove(input);
-      const lift = readLift(input);
-      let floor = 0;
-      let cab = -1;
-      if (inside) {
-        // 실내: 날 수 없고, 엘리베이터 칸 안에서만 ▲▼가 층을 바꾼다 (누르고 있으면 0.6초마다 한 층)
-        cab = inside.cabAt(pos.x, pos.z);
-        if (!lift) liftReady = 0;
-        else if (cab >= 0 && now >= liftReady) {
-          level = THREE.MathUtils.clamp(level + lift, 1, inside.levels);
-          liftReady = now + 600;
-        }
-        floor = inside.baseY(level);
-        pos.y = floor;
-      } else {
-        const prevY = pos.y;
-        if (lift) pos.y = Math.min(MAX_ALT, pos.y + lift * (mv.run ? LIFT_RUN : LIFT) * dt);
-        // 빨리 내려오면 한 프레임에 지붕을 지나칠 수 있어 움직이기 전 높이로 바닥을 찾는다
-        floor = collision.floorAt(pos.x, pos.z, Math.max(prevY, pos.y));
-        if (pos.y < floor) pos.y = floor;
-      }
-      const grounded = !inside && floor === 0 && pos.y < 0.05;
-      const flying = !inside && pos.y - floor > 0.5;
-
-      // 이동: 화면 기준 입력을 카메라 방향으로 돌린다
-      const speeds = flying ? [ FLY, FLY_RUN ] : [ WALK, RUN ];
-      const topSpeed = speeds[mv.run ? 1 : 0];
-      const want = mv.amount > 0.05 ? mv.amount * topSpeed : 0;
-      speedNow += (want - speedNow) * (1 - Math.exp(-dt * 6));
-      const speed = speedNow;
-      let actual = 0;
-      if (mv.amount > 0.05) {
-        const fx = -Math.sin(yaw);
-        const fz = -Math.cos(yaw);
-        const rx = Math.cos(yaw);
-        const rz = -Math.sin(yaw);
-        const wx = rx * mv.x - fx * mv.y;
-        const wz = rz * mv.x - fz * mv.y;
-        const len = Math.hypot(wx, wz) || 1;
-        const mx = (wx / len) * speed * dt;
-        const mz = (wz / len) * speed * dt;
-        let next:{ x: number; z: number; };
-        // 바깥 충돌 격자는 1m 칸이라 외벽보다 조금 앞에서 멈춘다 → 문은 1.2m 앞을 보고 판정
-        const ahead = { x: pos.x + (wx / len) * 1.2, z: pos.z + (wz / len) * 1.2 };
-        if (inside) {
-          next = inside.move(pos.x, pos.z, mx, mz, RADIUS);
-          // 문으로 나가면 바깥 세상으로: 바깥 충돌 칸에 걸리지 않을 때까지 밀어 낸다
-          if (inside.isOutside(next.x, next.z)) {
-            inside = null;
-            for (let k = 0; k < 15 && collision.blocked(next.x, next.z, RADIUS); k++) {
-              next = { x: next.x + (wx / len) * 0.2, z: next.z + (wz / len) * 0.2 };
-            }
-          }
+      const fx = -Math.sin(yaw);
+      const fz = -Math.cos(yaw);
+      const rx = Math.cos(yaw);
+      const rz = -Math.sin(yaw);
+      const q = (n:number) => Math.round(n * 1000) / 1000; // 서버와 똑같은 값으로 계산하게 반올림
+      const inp:Input = { mx: q(rx * mv.x - fx * mv.y), mz: q(rz * mv.x - fz * mv.y), run: mv.run, lift: readLift(input) };
+      // 서버 확정 상태가 오면 (이번 걸음들보다 먼저 — 입장 직후 보낸 입력을 버리지 않게): 그 상태에서 서버가 아직 안 본 입력만 다시 돌려 지금 자리를 맞춘다
+      const auth = net.takeAuthority();
+      if (auth) {
+        const before = copyBody(body);
+        Object.assign(body, fromBody(auth.me));
+        if (auth.reset) pending.length = 0;
+        else pending.splice(0, pending.length, ...pending.filter((c) => c.seq > auth.ack));
+        prev = copyBody(body);
+        pending.forEach((c) => {
+          prev = copyBody(body);
+          step(sim, body, c.inp);
+        });
+        correction = Math.hypot(before.x - body.x, before.y - body.y, before.z - body.z);
+        if (!auth.reset && correction < 5 && before.b === body.b && before.l === body.l) {
+          err.x += before.x - body.x;
+          err.y += before.y - body.y;
+          err.z += before.z - body.z;
         } else {
-          const door = grounded ? indoors.find((b) => b.entersAt(ahead.x, ahead.z)) : undefined;
-          if (door) {
-            inside = door;
-            level = 1;
-            next = ahead;
-          } else next = collision.move(pos.x, pos.z, mx, mz, RADIUS, grounded ? 0 : pos.y);
+          err.x = 0;
+          err.y = 0;
+          err.z = 0;
         }
-        actual = Math.min(speed, Math.hypot(next.x - pos.x, next.z - pos.z) / dt);
-        pos.x = next.x;
-        pos.z = next.z;
-        const turn = Math.atan2(wx, wz);
-        let diff = turn - facing;
-        diff = Math.atan2(Math.sin(diff), Math.cos(diff));
-        facing += diff * (1 - Math.exp(-dt * 14));
-      } else speedNow = 0;
+      }
+
+      acc += raw;
+      const out:InputTuple[] = [];
+      while (acc >= STEP) {
+        acc -= STEP;
+        seq++;
+        prev = copyBody(body);
+        step(sim, body, inp);
+        pending.push({ seq, inp });
+        out.push([ seq, inp.mx, inp.mz, inp.run ? 1 : 0, inp.lift ]);
+      }
+      if (pending.length > 150) pending.splice(0, pending.length - 150);
+      if (net.state === 'online') net.sendInputs(out, pending.map((c) => [ c.seq, c.inp.mx, c.inp.mz, c.inp.run ? 1 : 0, c.inp.lift ]));
+      else pending.length = 0; // 서버 없이 혼자 움직이는 중
+
+      // 화면 위치: 직전 걸음과 지금 사이를 보간 + 보정 어긋남을 서서히 지운다
+      const k = acc / STEP;
+      const smooth = prev.b === body.b && prev.l === body.l;
+      const decay = Math.exp(-dt * 12);
+      err.x *= decay;
+      err.y *= decay;
+      err.z *= decay;
+      pos.x = (smooth ? prev.x + (body.x - prev.x) * k : body.x) + err.x;
+      pos.y = (smooth ? prev.y + (body.y - prev.y) * k : body.y) + err.y;
+      pos.z = (smooth ? prev.z + (body.z - prev.z) * k : body.z) + err.z;
+      facing = prev.f + Math.atan2(Math.sin(body.f - prev.f), Math.cos(body.f - prev.f)) * k;
+      const { room, floor, flying, cab } = describe(sim, body);
+      const level = body.l;
+      const inside = room ? views.find((v) => v.bid === room.bid) ?? null : null;
+      const actual = body.a;
+
       // 높이 오를수록 자동으로 멀리 본다 (손으로 맞춘 배율에 곱한다)
       autoZoom += ((inside ? 0.8 : 1 + pos.y / ALT_ZOOM) - autoZoom) * (1 - Math.exp(-dt * 4));
       // 들어간 건물은 현재 층, 가까운 건물은 1층 로비만 (문 너머로 보이게)
-      indoors.forEach((b) => {
-        if (b === inside) b.show(level);
-        else b.show(b.distanceTo(pos.x, pos.z) < 120 ? 1 : 0);
-        b.update(dt, pos.x, pos.z);
+      views.forEach((v) => {
+        if (v === inside) v.show(level);
+        else v.show(v.grid.distanceTo(pos.x, pos.z) < 120 ? 1 : 0);
+        v.update(dt, pos.x, pos.z);
       });
-      SEE.cutBid.value = inside ? inside.bid + 1 : 0;
-      SEE.cutY.value = inside ? inside.baseY(level) + inside.floorH - 0.02 : 0;
+      SEE.cutBid.value = room ? room.bid + 1 : 0;
+      SEE.cutY.value = room ? room.baseY(level) + room.floorH - 0.02 : 0;
       const shown = Math.min(MAX_SHOWN_VIEW, view * autoZoom);
 
       // 축소할수록 캐릭터를 키워 점으로 사라지지 않게
@@ -328,11 +321,9 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       player.root.scale.setScalar(big);
       player.root.position.set(pos.x, pos.y, pos.z);
       player.root.rotation.y = facing;
-      player.animate(dt, flying ? 0 : actual);
-      net.sendState({ x: pos.x, y: pos.y, z: pos.z, f: facing, a: flying ? 0 : actual, b: inside ? inside.bid : -1, l: inside ? level : 1 }, now);
+      player.animate(dt, flying ? 0 : actual, flying ? Math.min(1, body.spd / FLY) : 0);
       // 실외 사람은 늘, 실내 사람은 나와 같은 건물·층일 때만
-      const here = inside;
-      others.update(net.remotes(now), dt, (r) => r.b < 0 || (!!here && r.b === here.bid && r.l === level), big);
+      others.update(net.remotes(now), dt, (r) => r.b < 0 || (r.b === body.b && r.l === body.l), big, (r) => r.b < 0 && r.y - collision.floorAt(r.x, r.z, r.y) > 0.5);
       const tall = 1.72 * big;
       const onScreen = tall * Math.cos(PITCH); // 내려다보니 화면에선 키가 줄어 보인다
       const mk = onScreen * 1.2; // 화면에서 사람보다 살짝 크게
@@ -384,11 +375,10 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       // 플레이어를 가리는 건물·나무에 구멍: 실제로 시선이 막혔을 때만 서서히 켠다
       const toCamX = Math.sin(yaw);
       const toCamZ = Math.cos(yaw);
-      const room = inside;
       const hidden = collision.hidesFrom(pos.x, pos.y, pos.z, tall, toCamX, toCamZ, Math.tan(PITCH), room ? {
         bid: room.bid,
         cutY: SEE.cutY.value,
-        wallAt: (x, y, z) => room.wallAt(x, y, z, level),
+        wallAt: (x, y, z) => room.wallAt(level, x, y, z),
       } : undefined);
       seeFade += ((hidden ? 1 : 0) - seeFade) * (1 - Math.exp(-dt * 8));
       camera.updateMatrixWorld();
@@ -413,9 +403,9 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         running: mv.run,
         alt: pos.y,
         flying,
-        onRoof: !inside && !flying && floor > 1,
-        indoor: inside ? { name: inside.name, level, elevator: cab >= 0 } : null,
-        net: { state: net.state, count: net.count },
+        onRoof: !room && !flying && floor > 1,
+        indoor: room ? { name: room.name, level, elevator: cab >= 0 } : null,
+        net: { state: net.state, count: net.count, error: net.error, correction, pending: pending.length, transport: net.transport },
       };
       if (!readySent) {
         readySent = true;

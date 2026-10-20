@@ -1,0 +1,8 @@
+{
+  "name": "yeouido-sim",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "lib/modules/yeouido-sim/src",
+  "projectType": "library",
+  "tags": [],
+  "targets": {}
+}

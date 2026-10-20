@@ -1,21 +1,11 @@
 /* eslint-disable no-restricted-syntax -- 격자·메시 생성 반복문 */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { AutoDoor, FloorPlan, IndoorGrid, IndoorPlan, inRing, Rect, Stair, toLocal, UV, WALL_T } from 'yeouido-sim';
 
-import { AutoDoor, FloorPlan, IndoorPlan, inRing, makePlan, Rect, ringDist, segDist, Stair, toLocal, UV } from './plan';
 import { propGeometry } from './props';
-import { INDOOR_SPECS, IndoorSpec } from './spec';
 
-import { WorldData } from '../data/world-data';
 import { MAX_DOORS, SEE, seeThrough } from '../world/see-through';
-
-const CELL = 0.2;
-/** 실내 격자 값 */
-const FREE = 0;
-const WALL = 1; // 못 지나가고 시선도 막음
-const OUTSIDE = 2; // 건물 밖 (문으로 나가면 여기)
-const FURNITURE = 3; // 못 지나가지만 시선은 안 막음
-const WALL_T = 0.14;
 
 const mat = (color?:string) => seeThrough(new THREE.MeshLambertMaterial(color ? { color } : { vertexColors: true }));
 
@@ -72,17 +62,12 @@ function stairGeometry(st:Stair, H:number) {
   return out;
 }
 
-/** 들어갈 수 있는 건물 하나: 층별 실내 메시와 실내 충돌, 엘리베이터 */
-export class IndoorBuilding {
+/** 들어갈 수 있는 건물 하나의 실내 그리기 (판정은 공용 IndoorGrid) */
+export class IndoorView {
+
+  readonly grid:IndoorGrid;
 
   readonly plan:IndoorPlan;
-
-  readonly bid:number;
-
-  readonly name:string;
-
-  /** 건물 높이 = 옥상 높이 */
-  readonly height:number;
 
   readonly group = new THREE.Group();
 
@@ -93,31 +78,18 @@ export class IndoorBuilding {
   /** 현재 층 자동문: 두 짝과 열린 정도(0~1) */
   private autoDoors:{ d: AutoDoor; l: THREE.Mesh; r: THREE.Mesh; open: number; }[] = [];
 
-  private grid:Uint8Array = new Uint8Array(0);
-
-  private gw:number;
-
-  private gh:number;
-
-  private u0:number;
-
-  private v0:number;
-
-  constructor(readonly spec:IndoorSpec, bid:number, data:WorldData) {
-    const row = data.buildings[bid];
-    this.bid = bid;
-    this.name = data.buildingNames[bid] ?? '건물';
-    this.plan = makePlan(spec, data.buildingMeta[bid][1], row.slice(4), row[0]);
-    [ this.height ] = row;
+  constructor(grid:IndoorGrid) {
+    this.grid = grid;
+    this.plan = grid.plan;
     const { frame } = this.plan;
     // 지역 좌표(u→x, v→z)를 월드로: y축 회전 θ에서 x축 → (cosθ, -sinθ) = (ux, uz)
     this.group.position.set(frame.ox, 0, frame.oz);
     this.group.rotation.y = Math.atan2(-frame.uz, frame.ux);
-    this.u0 = -frame.L / 2 - 2;
-    this.v0 = -frame.W / 2 - 2;
-    this.gw = Math.ceil((frame.L + 4) / CELL);
-    this.gh = Math.ceil((frame.W + 4) / CELL);
     this.group.add(this.doorFrames());
+  }
+
+  get bid() {
+    return this.grid.bid;
   }
 
   /** 출입문 테두리: 양쪽 기둥과 위 인방 (밖에서 문 자리가 보이게, 늘 표시) */
@@ -141,19 +113,7 @@ export class IndoorBuilding {
     return new THREE.Mesh(mergeGeometries(parts), mat());
   }
 
-  get levels() {
-    return this.plan.levels;
-  }
-
-  get floorH() {
-    return this.plan.floorH;
-  }
-
-  baseY(level:number) {
-    return (level - 1) * this.plan.floorH;
-  }
-
-  /** 이 층을 보여 주고 실내 충돌을 만든다 (0이면 숨김) */
+  /** 이 층을 보여 준다 (0이면 숨김) */
   show(level:number) {
     if (level === this.shownLevel) return;
     this.shownLevel = level;
@@ -168,9 +128,8 @@ export class IndoorBuilding {
     if (!level) return;
     const plan = this.plan.floor(level);
     this.floorGroup = this.buildFloor(plan);
-    this.floorGroup.position.y = this.baseY(level);
+    this.floorGroup.position.y = this.grid.baseY(level);
     this.group.add(this.floorGroup);
-    this.buildGrid(plan);
   }
 
   private buildFloor(plan:FloorPlan) {
@@ -255,33 +214,6 @@ export class IndoorBuilding {
     return g;
   }
 
-  private buildGrid(plan:FloorPlan) {
-    const { ring } = this.plan.frame;
-    const { doors } = this.plan;
-    const grid = new Uint8Array(this.gw * this.gh);
-    const segs = plan.walls.map((w) => ({ a: w.a, b: w.b, t: (w.kind === 'glass' ? 0.08 : WALL_T) / 2 + 0.05 }));
-    for (let j = 0; j < this.gh; j++) {
-      for (let i = 0; i < this.gw; i++) {
-        const u = this.u0 + (i + 0.5) * CELL;
-        const v = this.v0 + (j + 0.5) * CELL;
-        const inside = inRing(u, v, ring);
-        let val = inside ? FREE : OUTSIDE;
-        if (ringDist(u, v, ring) < 0.35) {
-          const inDoor = plan.lobby && doors.some((d) => Math.abs((u - d.u) * d.au + (v - d.v) * d.av) < d.hw - 0.05
-            && Math.abs(-(u - d.u) * d.av + (v - d.v) * d.au) < 1.2);
-          if (!inDoor) val = WALL;
-        }
-        if (val === FREE) {
-          if ([ ...plan.caps, ...plan.stairs ].some((r) => u > r.u0 - 0.05 && u < r.u1 + 0.05 && v > r.v0 - 0.05 && v < r.v1 + 0.05)) val = WALL;
-          else if (segs.some((s) => segDist(u, v, s.a, s.b) < s.t)) val = WALL;
-          else if (plan.blocks.some((r) => u > r.u0 && u < r.u1 && v > r.v0 && v < r.v1)) val = FURNITURE;
-        }
-        grid[j * this.gw + i] = val;
-      }
-    }
-    this.grid = grid;
-  }
-
   /** 자동문: 플레이어가 문 반폭+1.5m 안에 오면 열린다 (p = 플레이어 지역 좌표) */
   private updateDoors(dt:number, p:UV | null) {
     this.autoDoors.forEach((a) => {
@@ -297,76 +229,11 @@ export class IndoorBuilding {
   update(dt:number, x:number, z:number) {
     if (this.autoDoors.length) this.updateDoors(dt, toLocal(this.plan.frame, x, z));
   }
-
-  private cell(x:number, z:number) {
-    const p = toLocal(this.plan.frame, x, z);
-    const i = Math.floor((p.u - this.u0) / CELL);
-    const j = Math.floor((p.v - this.v0) / CELL);
-    if (i < 0 || j < 0 || i >= this.gw || j >= this.gh) return OUTSIDE;
-    return this.grid[j * this.gw + i];
-  }
-
-  private blockedAt(x:number, z:number, r:number) {
-    return [[ 0, 0 ], [ r, 0 ], [ -r, 0 ], [ 0, r ], [ 0, -r ]].some(([ dx, dz ]) => {
-      const c = this.cell(x + dx, z + dz);
-      return c === WALL || c === FURNITURE;
-    });
-  }
-
-  /** 실내 이동 (축별로 나눠 벽 따라 미끄러짐) */
-  move(x:number, z:number, dx:number, dz:number, r:number) {
-    let nx = x;
-    let nz = z;
-    if (!this.blockedAt(x + dx, z, r)) nx = x + dx;
-    if (!this.blockedAt(nx, z + dz, r)) nz = z + dz;
-    return { x: nx, z: nz };
-  }
-
-  isOutside(x:number, z:number) {
-    return this.cell(x, z) === OUTSIDE;
-  }
-
-  /** 외곽선 안인지 (격자 없이) */
-  contains(x:number, z:number) {
-    const p = toLocal(this.plan.frame, x, z);
-    return inRing(p.u, p.v, this.plan.frame.ring);
-  }
-
-  /** 바깥에서 (x,z) → (nx,nz)로 갈 때 1층 문으로 들어가는지 */
-  entersAt(nx:number, nz:number) {
-    const p = toLocal(this.plan.frame, nx, nz);
-    if (!inRing(p.u, p.v, this.plan.frame.ring)) return false;
-    return this.plan.doors.some((d) => Math.abs((p.u - d.u) * d.au + (p.v - d.v) * d.av) < d.hw - 0.3
-      && Math.abs(-(p.u - d.u) * d.av + (p.v - d.v) * d.au) < 1.5);
-  }
-
-  /** 서 있는 엘리베이터 칸 */
-  cabAt(x:number, z:number) {
-    const p = toLocal(this.plan.frame, x, z);
-    return this.plan.floor(1).cabs.findIndex((r) => p.u > r.u0 && p.u < r.u1 && p.v > r.v0 && p.v < r.v1);
-  }
-
-  /** 실내 시선 막힘 (현재 층 벽·코어) */
-  wallAt(x:number, y:number, z:number, level:number) {
-    const base = this.baseY(level);
-    return y > base && y < base + this.plan.floorH && this.cell(x, z) === WALL;
-  }
-
-  distanceTo(x:number, z:number) {
-    const p = toLocal(this.plan.frame, x, z);
-    return Math.max(0, Math.abs(p.u) - this.plan.frame.L / 2, Math.abs(p.v) - this.plan.frame.W / 2);
-  }
-
 }
 
-export function createIndoorBuildings(data:WorldData) {
-  const list:IndoorBuilding[] = [];
-  INDOOR_SPECS.forEach((spec) => {
-    const bid = data.buildingMeta.findIndex((m) => `${m[0] ? 'r' : 'w'}${m[1]}` === spec.key);
-    if (bid < 0) return;
-    list.push(new IndoorBuilding(spec, bid, data));
-  });
-  // 문 구멍은 늘 뚫어 둔다 (밖에서 로비가 보이게)
+/** 실내 판정마다 그리기를 하나씩 붙이고, 문 구멍은 늘 뚫어 둔다 (밖에서 로비가 보이게) */
+export function createIndoorViews(grids:IndoorGrid[]) {
+  const list = grids.map((g) => new IndoorView(g));
   let k = 0;
   list.forEach((b) => b.plan.doors.forEach((d) => {
     if (k >= MAX_DOORS) return;

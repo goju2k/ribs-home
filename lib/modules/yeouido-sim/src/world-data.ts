@@ -1,5 +1,5 @@
 /* eslint-disable no-bitwise -- varint 디코딩 */
-import raw from './yeouido-3d.json';
+import raw from './data/yeouido-3d.json';
 
 /** 미터 단위 좌표 x=동쪽, z=남쪽 (원점 = 영역 중앙). 링은 [x0, z0, x1, z1, ...] */
 export type FlatRing = number[];

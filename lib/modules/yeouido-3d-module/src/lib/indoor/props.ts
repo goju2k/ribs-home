@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-
-import { PropType } from './plan';
+import { PropType } from 'yeouido-sim';
 
 /** 색 입힌 상자 하나 (x=가로, y=높이, z=깊이, 바닥 기준 위치) */
 function box(w:number, h:number, d:number, x:number, y:number, z:number, color:string) {

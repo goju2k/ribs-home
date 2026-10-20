@@ -3,7 +3,7 @@ export interface InputState {
   /** 조이스틱: 화면 기준 x=오른쪽, y=아래, 길이 0~1 */
   joy: { x: number; y: number; };
   keys: Set<string>;
-  /** 달리기 버튼은 누를 때마다 켜고 끈다 */
+  /** 달리기 버튼은 누를 때마다 켜고 끈다 (기본은 달리기) */
   runToggle: boolean;
   /** 높이 버튼을 누르고 있는 중 */
   upHeld: boolean;
@@ -14,7 +14,7 @@ export interface InputState {
   zoom: number;
 }
 
-export const createInput = ():InputState => ({ joy: { x: 0, y: 0 }, keys: new Set(), runToggle: false, upHeld: false, downHeld: false, rotate: 0, zoom: 1 });
+export const createInput = ():InputState => ({ joy: { x: 0, y: 0 }, keys: new Set(), runToggle: true, upHeld: false, downHeld: false, rotate: 0, zoom: 1 });
 
 /** 키보드 + 조이스틱 → 화면 기준 이동 벡터와 달리기 여부 */
 export function readMove(input:InputState) {

@@ -9,8 +9,11 @@ export interface PersonLook {
 
 export interface Person {
   root: THREE.Group;
-  /** 이동 속도(m/s)에 맞춰 팔다리를 흔든다 */
-  animate: (dt:number, speed:number) => void;
+  /**
+   * 이동 속도(m/s)에 맞춰 팔다리를 흔든다.
+   * fly: 날아가는 정도(0~1) — 진행 방향으로 몸을 기울이고 팔다리를 뒤로 뺀다 (날 때도 어디로 가는지 보이게)
+   */
+  animate: (dt:number, speed:number, fly?:number) => void;
 }
 
 // 실제 비율: 키 1.72m, 어깨 폭 0.42m
@@ -69,16 +72,33 @@ export function createPerson(look:PersonLook, silhouette = false):Person {
   const hair = box(HEAD + 0.02, 0.07, HEAD + 0.02, look.hair);
   hair.position.set(0, HEAD / 2, -0.01);
   head.add(hair);
+  // 뒤통수도 머리카락으로 덮어 앞(얼굴)·뒤를 구분한다 — 위에서 내려다보면 둘 다 살색이라 헷갈렸다
+  const hairBack = box(HEAD + 0.02, HEAD * 0.75, 0.05, look.hair);
+  hairBack.position.set(0, HEAD * 0.12, -HEAD / 2 - 0.015);
+  head.add(hairBack);
   // 얼굴 방향 표시(눈)
-  const eyes = box(0.14, 0.03, 0.01, '#222222');
-  eyes.position.set(0, 0.02, HEAD / 2 + 0.005);
+  const eyes = box(0.16, 0.04, 0.01, '#222222');
+  eyes.position.set(0, 0.01, HEAD / 2 + 0.005);
   head.add(eyes);
 
   body.add(legL, legR, torso, armL, armR, head);
   if (silhouette) addSilhouette(root);
 
   let phase = 0;
-  const animate = (dt:number, speed:number) => {
+  let lean = 0;
+  const animate = (dt:number, speed:number, fly = 0) => {
+    lean += (fly - lean) * (1 - Math.exp(-dt * 6));
+    // 몸 전체를 앞으로 기울인다 (발 기준, +z가 앞)
+    body.rotation.x = lean * 0.5;
+    if (lean > 0.02) {
+      // 날 때: 팔은 뒤로 뻗고 다리는 살짝 뒤로
+      legL.rotation.x = lean * 0.3;
+      legR.rotation.x = lean * 0.2;
+      armL.rotation.x = lean * 0.5;
+      armR.rotation.x = lean * 0.5;
+      body.position.y = 0;
+      return;
+    }
     const moving = speed > 0.05;
     phase += moving ? dt * (3 + speed * 2.2) : 0;
     const swing = moving ? Math.min(0.9, 0.35 + speed * 0.12) : 0;
@@ -91,7 +111,7 @@ export function createPerson(look:PersonLook, silhouette = false):Person {
     body.position.y = moving ? Math.abs(Math.cos(phase)) * 0.03 * Math.min(2, speed) : 0;
     if (!moving) {
       [ legL, legR, armL, armR ].forEach((m) => {
-        m.rotation.x *= 0.8; 
+        m.rotation.x *= 0.8;
       });
     }
   };

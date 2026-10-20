@@ -116,5 +116,8 @@
   },
   "nx": {
     "includedScripts": []
+  },
+  "optionalDependencies": {
+    "node-datachannel": "0.26.0"
   }
 }

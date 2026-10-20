@@ -19,6 +19,7 @@
       "yeouido-map-module": ["lib/modules/yeouido-map-module/src/index.ts"],
       "yeouido-3d-module": ["lib/modules/yeouido-3d-module/src/index.ts"],
       "yeouido-net": ["lib/modules/yeouido-net/src/index.ts"],
+      "yeouido-sim": ["lib/modules/yeouido-sim/src/index.ts"],
       "ui-base-pack": ["system-ui/ui-base-pack/src/index.ts"],
       "ui-base-pack/server": ["system-ui/ui-base-pack/src/server.ts"]
     }

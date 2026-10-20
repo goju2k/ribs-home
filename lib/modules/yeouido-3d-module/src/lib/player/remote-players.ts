@@ -37,6 +37,10 @@ interface Shown {
   /** 이름표를 붙일 머리 위 점 (월드) */
   head: THREE.Vector3;
   on: boolean;
+  /** 날 때 기울기용: 지난 위치와 부드럽게 잰 수평 속도 */
+  lx: number;
+  lz: number;
+  speed: number;
 }
 
 /** 서버에서 받은 다른 사람들을 장면에 그린다 */
@@ -64,8 +68,9 @@ export class RemotePlayers {
    * @param list 보간된 다른 사람들
    * @param visible 지금 내 위치에서 보이는 사람인지 (실내 층 구분)
    * @param big 캐릭터 확대 배율
+   * @param flying 날고 있는 사람인지 (날면 진행 방향으로 몸을 기울여 그린다)
    */
-  update(list:Remote[], dt:number, visible:(r:Remote) => boolean, big:number) {
+  update(list:Remote[], dt:number, visible:(r:Remote) => boolean, big:number, flying:(r:Remote) => boolean) {
     const seen = new Set<number>();
     list.forEach((r) => {
       seen.add(r.id);
@@ -76,7 +81,7 @@ export class RemotePlayers {
         const tag = nameTag(r.name || `#${r.id}`);
         this.scene.add(person.root);
         this.layer.appendChild(tag);
-        s = { person, tag, name: r.name, head: new THREE.Vector3(), on: false };
+        s = { person, tag, name: r.name, head: new THREE.Vector3(), on: false, lx: r.x, lz: r.z, speed: 0 };
         this.shown.set(r.id, s);
       }
       s.on = visible(r);
@@ -85,7 +90,11 @@ export class RemotePlayers {
       s.person.root.position.set(r.x, r.y, r.z);
       s.person.root.rotation.y = r.f;
       s.person.root.scale.setScalar(big);
-      s.person.animate(dt, r.a);
+      const v = dt > 0 ? Math.hypot(r.x - s.lx, r.z - s.lz) / dt : 0;
+      s.speed += (Math.min(60, v) - s.speed) * (1 - Math.exp(-dt * 8));
+      s.lx = r.x;
+      s.lz = r.z;
+      s.person.animate(dt, r.a, flying(r) ? Math.min(1, s.speed / 12) : 0);
       s.head.set(r.x, r.y + 1.72 * big, r.z);
     });
     [ ...this.shown.keys() ].filter((id) => !seen.has(id)).forEach((id) => this.remove(id));

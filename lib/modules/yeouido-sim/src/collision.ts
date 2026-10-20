@@ -1,4 +1,4 @@
-import { BLOCK, decodeCollision, WorldData } from '../data/world-data';
+import { BLOCK, decodeCollision, WorldData } from './world-data';
 
 const BUCKET = 50; // 건물 높이 찾기용 공간 격자(m)
 const TREE_BUCKET = 8;

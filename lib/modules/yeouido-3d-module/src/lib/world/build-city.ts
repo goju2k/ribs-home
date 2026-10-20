@@ -1,10 +1,9 @@
 /* eslint-disable no-continue, no-restricted-syntax -- 도형 생성 반복문 */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { FlatRing, toPoints, WorldData } from 'yeouido-sim';
 
 import { seeThrough } from './see-through';
-
-import { FlatRing, toPoints, WorldData } from '../data/world-data';
 
 interface P {
   x: number; z: number;

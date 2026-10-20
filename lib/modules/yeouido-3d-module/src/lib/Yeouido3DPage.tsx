@@ -15,8 +15,12 @@ const place = (s:GameStatus) => {
   return s.onRoof ? '지붕' : '지상';
 };
 
+// ?debug 를 붙이면 서버 보정 크기와 확인 대기 입력 수를 보여 준다
+const DEBUG = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('debug');
+
 const netLabel = (s:GameStatus) => {
-  if (s.net.state === 'online') return `접속 ${s.net.count}명`;
+  if (s.net.error) return s.net.error;
+  if (s.net.state === 'online') return `접속 ${s.net.count}명${DEBUG ? ` (${s.net.transport === 'rtc' ? 'UDP' : 'TCP'}·보정 ${Math.round(s.net.correction * 100)}cm·대기 ${s.net.pending})` : ''}`;
   return s.net.state === 'connecting' ? '접속 중…' : '오프라인';
 };
 
@@ -25,7 +29,7 @@ const isTouch = () => typeof window !== 'undefined' && ('ontouchstart' in window
 export function Yeouido3DPage() {
   useGalmuriFont();
   const inputRef = useRef(createInput());
-  const statusRef = useRef<GameStatus>({ ready: false, buildMs: 0, pixel: 0, x: 0, z: 0, running: false, alt: 0, flying: false, onRoof: false, indoor: null, net: { state: 'connecting', count: 0 } });
+  const statusRef = useRef<GameStatus>({ ready: false, buildMs: 0, pixel: 0, x: 0, z: 0, running: false, alt: 0, flying: false, onRoof: false, indoor: null, net: { state: 'connecting', count: 0, error: '', correction: 0, pending: 0, transport: 'ws' } });
   const [ ready, setReady ] = useState(false);
   const [ touch ] = useState(isTouch);
   const [ status, setStatus ] = useState<GameStatus>(statusRef.current);
@@ -43,24 +47,24 @@ export function Yeouido3DPage() {
       inputRef.current[key] = true;
     },
     onPointerUp: () => {
-      inputRef.current[key] = false; 
+      inputRef.current[key] = false;
     },
     onPointerCancel: () => {
-      inputRef.current[key] = false; 
+      inputRef.current[key] = false;
     },
     onLostPointerCapture: () => {
-      inputRef.current[key] = false; 
+      inputRef.current[key] = false;
     },
     onContextMenu: (e:MouseEvent) => e.preventDefault(),
   });
-  const [ run, setRun ] = useState(false);
+  const [ run, setRun ] = useState(() => inputRef.current.runToggle);
   const toggleRun = () => {
     inputRef.current.runToggle = !inputRef.current.runToggle;
     setRun(inputRef.current.runToggle);
   };
   // 키보드 T로 바꾼 것도 버튼 표시에 반영
   useEffect(() => {
-    setRun(inputRef.current.runToggle); 
+    setRun(inputRef.current.runToggle);
   }, [ status ]);
 
   return (
@@ -77,28 +81,28 @@ export function Yeouido3DPage() {
         <Buttons>
           <PixelButton
             onClick={() => {
-              inputRef.current.rotate -= 1; 
+              inputRef.current.rotate -= 1;
             }}
             aria-label='왼쪽으로 회전'
           >⟲
           </PixelButton>
           <PixelButton
             onClick={() => {
-              inputRef.current.rotate += 1; 
+              inputRef.current.rotate += 1;
             }}
             aria-label='오른쪽으로 회전'
           >⟳
           </PixelButton>
           <PixelButton
             onClick={() => {
-              inputRef.current.zoom *= 0.75; 
+              inputRef.current.zoom *= 0.75;
             }}
             aria-label='확대'
           >＋
           </PixelButton>
           <PixelButton
             onClick={() => {
-              inputRef.current.zoom *= 1.33; 
+              inputRef.current.zoom *= 1.33;
             }}
             aria-label='축소'
           >－
