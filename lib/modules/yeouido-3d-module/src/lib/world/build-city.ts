@@ -164,10 +164,14 @@ function buildBuildings(data:WorldData) {
   const wallNor:number[] = [];
   const wallUv:number[] = [];
   const wallCol:number[] = [];
+  // 건물 번호+1 (0은 건물 아님) — 실내에 들어갔을 때 그 건물만 층 위를 자르고 문을 뚫는 데 쓴다
+  const wallBid:number[] = [];
   const roofGeos:THREE.BufferGeometry[] = [];
   const color = new THREE.Color();
 
+  let bi = -1;
   for (const row of data.buildings) {
+    bi++;
     const [ h, wallHex, roofHex ] = row;
     const ring = toPoints(row, 4);
     if (ring.length < 3) continue;
@@ -200,6 +204,7 @@ function buildBuildings(data:WorldData) {
         wallNor.push(nx, 0, nz);
         wallUv.push(uu, vv);
         wallCol.push(color.r, color.g, color.b);
+        wallBid.push(bi + 1);
       }
       u += len;
     }
@@ -211,6 +216,7 @@ function buildBuildings(data:WorldData) {
       for (let i = 0; i < n; i++) cols.set([ rc.r, rc.g, rc.b ], i * 3);
       roof.setAttribute('color', new THREE.BufferAttribute(cols, 3));
       roof.deleteAttribute('uv');
+      roof.setAttribute('bid', new THREE.BufferAttribute(new Float32Array(n).fill(bi + 1), 1));
       roofGeos.push(roof);
     } catch {
       // 자기 교차 등으로 지붕 삼각분할이 실패하면 지붕만 생략
@@ -222,6 +228,7 @@ function buildBuildings(data:WorldData) {
   walls.setAttribute('normal', new THREE.Float32BufferAttribute(wallNor, 3));
   walls.setAttribute('uv', new THREE.Float32BufferAttribute(wallUv, 2));
   walls.setAttribute('color', new THREE.Float32BufferAttribute(wallCol, 3));
+  walls.setAttribute('bid', new THREE.Float32BufferAttribute(wallBid, 1));
   const wallMesh = new THREE.Mesh(walls, seeThrough(new THREE.MeshLambertMaterial({ vertexColors: true, map: windowTexture() })));
   wallMesh.castShadow = true;
   wallMesh.receiveShadow = true;

@@ -3,6 +3,7 @@ import styled from 'styled-components';
 import * as THREE from 'three';
 
 import { WORLD } from '../data/world-data';
+import { createIndoorBuildings, IndoorBuilding } from '../indoor/indoor-building';
 import { InputState, readLift, readMove } from '../input';
 import { createPerson } from '../player/person';
 import { buildCity } from '../world/build-city';
@@ -36,6 +37,8 @@ export interface GameStatus {
   flying: boolean;
   /** 지붕 위에 서 있음 (물 위에 떠 있는 1m는 제외) */
   onRoof: boolean;
+  /** 실내에 있을 때 건물 이름·층·엘리베이터 안인지 */
+  indoor: { name: string; level: number; elevator: boolean; } | null;
 }
 
 /** 머리 위 ▼ 표식 — 9×9 도트 그림 */
@@ -93,6 +96,12 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     const t0 = performance.now();
     scene.add(buildCity(WORLD));
     const collision = new Collision(WORLD);
+    // 들어갈 수 있는 건물: 문에 닿으면 들어가고, 엘리베이터 칸에서 ▲▼로 층 이동
+    const indoors = createIndoorBuildings(WORLD);
+    indoors.forEach((b) => scene.add(b.group));
+    let inside:IndoorBuilding | null = null;
+    let level = 1;
+    let liftReady = 0; // 다음 층 이동이 가능한 시각(ms) — 프레임 속도와 무관하게
     const buildMs = Math.round(performance.now() - t0);
 
     scene.add(new THREE.HemisphereLight('#e6f4ff', '#8a8573', 1.6));
@@ -110,6 +119,12 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     if (at && at.length >= 2 && at.every(Number.isFinite)) {
       [ pos.x, pos.z ] = at;
       pos.y = at[2] ?? 0;
+    }
+    // ?at= 가 건물 안이면 그 건물 안에서 시작 (높이로 층을 고른다)
+    const startIn = indoors.find((b) => b.contains(pos.x, pos.z));
+    if (startIn) {
+      inside = startIn;
+      level = THREE.MathUtils.clamp(Math.round(pos.y / startIn.floorH) + 1, 1, startIn.levels);
     }
     let facing = 0;
     let speedNow = 0; // 걷기↔달리기가 툭 끊기지 않게 부드럽게 따라간다
@@ -217,13 +232,27 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       // 높이: 누르는 동안 오르내리고, 놓으면 그 높이에 떠 있는다
       const mv = readMove(input);
       const lift = readLift(input);
-      const prevY = pos.y;
-      if (lift) pos.y = Math.min(MAX_ALT, pos.y + lift * (mv.run ? LIFT_RUN : LIFT) * dt);
-      // 빨리 내려오면 한 프레임에 지붕을 지나칠 수 있어 움직이기 전 높이로 바닥을 찾는다
-      const floor = collision.floorAt(pos.x, pos.z, Math.max(prevY, pos.y));
-      if (pos.y < floor) pos.y = floor;
-      const grounded = floor === 0 && pos.y < 0.05;
-      const flying = pos.y - floor > 0.5;
+      let floor = 0;
+      let cab = -1;
+      if (inside) {
+        // 실내: 날 수 없고, 엘리베이터 칸 안에서만 ▲▼가 층을 바꾼다 (누르고 있으면 0.6초마다 한 층)
+        cab = inside.cabAt(pos.x, pos.z);
+        if (!lift) liftReady = 0;
+        else if (cab >= 0 && now >= liftReady) {
+          level = THREE.MathUtils.clamp(level + lift, 1, inside.levels);
+          liftReady = now + 600;
+        }
+        floor = inside.baseY(level);
+        pos.y = floor;
+      } else {
+        const prevY = pos.y;
+        if (lift) pos.y = Math.min(MAX_ALT, pos.y + lift * (mv.run ? LIFT_RUN : LIFT) * dt);
+        // 빨리 내려오면 한 프레임에 지붕을 지나칠 수 있어 움직이기 전 높이로 바닥을 찾는다
+        floor = collision.floorAt(pos.x, pos.z, Math.max(prevY, pos.y));
+        if (pos.y < floor) pos.y = floor;
+      }
+      const grounded = !inside && floor === 0 && pos.y < 0.05;
+      const flying = !inside && pos.y - floor > 0.5;
 
       // 이동: 화면 기준 입력을 카메라 방향으로 돌린다
       const speeds = flying ? [ FLY, FLY_RUN ] : [ WALK, RUN ];
@@ -240,8 +269,29 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         const wx = rx * mv.x - fx * mv.y;
         const wz = rz * mv.x - fz * mv.y;
         const len = Math.hypot(wx, wz) || 1;
-        const next = collision.move(pos.x, pos.z, (wx / len) * speed * dt, (wz / len) * speed * dt, RADIUS, grounded ? 0 : pos.y);
-        actual = Math.hypot(next.x - pos.x, next.z - pos.z) / dt;
+        const mx = (wx / len) * speed * dt;
+        const mz = (wz / len) * speed * dt;
+        let next:{ x: number; z: number; };
+        // 바깥 충돌 격자는 1m 칸이라 외벽보다 조금 앞에서 멈춘다 → 문은 1.2m 앞을 보고 판정
+        const ahead = { x: pos.x + (wx / len) * 1.2, z: pos.z + (wz / len) * 1.2 };
+        if (inside) {
+          next = inside.move(pos.x, pos.z, mx, mz, RADIUS);
+          // 문으로 나가면 바깥 세상으로: 바깥 충돌 칸에 걸리지 않을 때까지 밀어 낸다
+          if (inside.isOutside(next.x, next.z)) {
+            inside = null;
+            for (let k = 0; k < 15 && collision.blocked(next.x, next.z, RADIUS); k++) {
+              next = { x: next.x + (wx / len) * 0.2, z: next.z + (wz / len) * 0.2 };
+            }
+          }
+        } else {
+          const door = grounded ? indoors.find((b) => b.entersAt(ahead.x, ahead.z)) : undefined;
+          if (door) {
+            inside = door;
+            level = 1;
+            next = ahead;
+          } else next = collision.move(pos.x, pos.z, mx, mz, RADIUS, grounded ? 0 : pos.y);
+        }
+        actual = Math.min(speed, Math.hypot(next.x - pos.x, next.z - pos.z) / dt);
         pos.x = next.x;
         pos.z = next.z;
         const turn = Math.atan2(wx, wz);
@@ -250,7 +300,15 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         facing += diff * (1 - Math.exp(-dt * 14));
       } else speedNow = 0;
       // 높이 오를수록 자동으로 멀리 본다 (손으로 맞춘 배율에 곱한다)
-      autoZoom += (1 + pos.y / ALT_ZOOM - autoZoom) * (1 - Math.exp(-dt * 4));
+      autoZoom += ((inside ? 0.8 : 1 + pos.y / ALT_ZOOM) - autoZoom) * (1 - Math.exp(-dt * 4));
+      // 들어간 건물은 현재 층, 가까운 건물은 1층 로비만 (문 너머로 보이게)
+      indoors.forEach((b) => {
+        if (b === inside) b.show(level);
+        else b.show(b.distanceTo(pos.x, pos.z) < 120 ? 1 : 0);
+        b.update(dt, pos.x, pos.z);
+      });
+      SEE.cutBid.value = inside ? inside.bid + 1 : 0;
+      SEE.cutY.value = inside ? inside.baseY(level) + inside.floorH - 0.02 : 0;
       const shown = Math.min(MAX_SHOWN_VIEW, view * autoZoom);
 
       // 축소할수록 캐릭터를 키워 점으로 사라지지 않게
@@ -310,7 +368,12 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       // 플레이어를 가리는 건물·나무에 구멍: 실제로 시선이 막혔을 때만 서서히 켠다
       const toCamX = Math.sin(yaw);
       const toCamZ = Math.cos(yaw);
-      const hidden = collision.hidesFrom(pos.x, pos.y, pos.z, tall, toCamX, toCamZ, Math.tan(PITCH));
+      const room = inside;
+      const hidden = collision.hidesFrom(pos.x, pos.y, pos.z, tall, toCamX, toCamZ, Math.tan(PITCH), room ? {
+        bid: room.bid,
+        cutY: SEE.cutY.value,
+        wallAt: (x, y, z) => room.wallAt(x, y, z, level),
+      } : undefined);
       seeFade += ((hidden ? 1 : 0) - seeFade) * (1 - Math.exp(-dt * 8));
       camera.updateMatrixWorld();
       const ndc = new THREE.Vector3(pos.x, pos.y + tall * 0.5, pos.z).project(camera);
@@ -324,7 +387,18 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
 
       renderer.render(scene, camera);
 
-      statusRef.current = { ready: true, buildMs, pixel: pix, x: pos.x, z: pos.z, running: mv.run, alt: pos.y, flying, onRoof: !flying && floor > 1 };
+      statusRef.current = {
+        ready: true,
+        buildMs,
+        pixel: pix,
+        x: pos.x,
+        z: pos.z,
+        running: mv.run,
+        alt: pos.y,
+        flying,
+        onRoof: !inside && !flying && floor > 1,
+        indoor: inside ? { name: inside.name, level, elevator: cab >= 0 } : null,
+      };
       if (!readySent) {
         readySent = true;
         onReady();

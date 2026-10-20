@@ -4,6 +4,7 @@ const BUCKET = 50; // 건물 높이 찾기용 공간 격자(m)
 const TREE_BUCKET = 8;
 
 interface Footprint {
+  idx: number;
   h: number;
   solid: boolean;
   ring: number[];
@@ -23,6 +24,13 @@ function inside(ring:number[], x:number, z:number) {
     if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) hit = !hit;
   }
   return hit;
+}
+
+/** 실내에 있을 때 시선 검사: 들어간 건물은 현재 층 천장까지만, 실내 벽은 따로 */
+export interface SightIndoor {
+  bid: number;
+  cutY: number;
+  wallAt: (x:number, y:number, z:number) => boolean;
 }
 
 /** 1m 격자 충돌 판정 — 건물·물은 못 들어간다. 날 때는 건물 높이로 판정 */
@@ -68,7 +76,7 @@ export class Collision {
         minZ = Math.min(minZ, ring[i + 1]);
         maxZ = Math.max(maxZ, ring[i + 1]);
       }
-      const idx = this.footprints.push({ h: row[0], solid: row[3] === 1, ring, minX, minZ, maxX, maxZ }) - 1;
+      const idx = this.footprints.push({ idx: this.footprints.length, h: row[0], solid: row[3] === 1, ring, minX, minZ, maxX, maxZ }) - 1;
       for (let bx = Math.floor(minX / BUCKET); bx <= Math.floor(maxX / BUCKET); bx++) {
         for (let bz = Math.floor(minZ / BUCKET); bz <= Math.floor(maxZ / BUCKET); bz++) {
           const key = bx * 100000 + bz;
@@ -104,14 +112,15 @@ export class Collision {
    * 카메라에서 (x, y~y+tall, z)를 보는 시선이 건물·나무에 막히는지.
    * 정사영이라 시선은 평행선: 카메라 쪽 수평 방향 (dx, dz)로 1m 갈 때마다 rise 만큼 오른다.
    */
-  hidesFrom(x:number, y:number, z:number, tall:number, dx:number, dz:number, rise:number) {
+  hidesFrom(x:number, y:number, z:number, tall:number, dx:number, dz:number, rise:number, indoor?:SightIndoor) {
     return [ y + tall * 0.25, y + tall * 0.9 ].some((y0) => {
       for (let s = 0.6; y0 + s * rise < this.maxH + 1; s += 1) {
         const sx = x + dx * s;
         const sz = z + dz * s;
         const sy = y0 + s * rise;
         if (sy < 6 && this.treeHit(sx, sy, sz)) return true;
-        if (this.footprintsAt(sx, sz).some((f) => f.h > sy)) return true;
+        if (this.footprintsAt(sx, sz).some((f) => (indoor && f.idx === indoor.bid ? Math.min(f.h, indoor.cutY) : f.h) > sy)) return true;
+        if (indoor?.wallAt(sx, sy, sz)) return true;
       }
       return false;
     });

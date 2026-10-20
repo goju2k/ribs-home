@@ -10,6 +10,7 @@ import { Panel, PIXEL_FONT, PixelButton } from './ui/pixel';
 import { VirtualJoystick } from './ui/VirtualJoystick';
 
 const place = (s:GameStatus) => {
+  if (s.indoor) return `${s.indoor.name} ${s.indoor.level}F${s.indoor.elevator ? ' · 엘리베이터 ▲▼' : ''}`;
   if (s.flying) return '비행';
   return s.onRoof ? '지붕' : '지상';
 };
@@ -19,7 +20,7 @@ const isTouch = () => typeof window !== 'undefined' && ('ontouchstart' in window
 export function Yeouido3DPage() {
   useGalmuriFont();
   const inputRef = useRef(createInput());
-  const statusRef = useRef<GameStatus>({ ready: false, buildMs: 0, pixel: 0, x: 0, z: 0, running: false, alt: 0, flying: false, onRoof: false });
+  const statusRef = useRef<GameStatus>({ ready: false, buildMs: 0, pixel: 0, x: 0, z: 0, running: false, alt: 0, flying: false, onRoof: false, indoor: null });
   const [ ready, setReady ] = useState(false);
   const [ touch ] = useState(isTouch);
   const [ status, setStatus ] = useState<GameStatus>(statusRef.current);
@@ -65,7 +66,7 @@ export function Yeouido3DPage() {
         <Title>
           <b>여의도 3D</b>
           <Sub>
-            {place(status)} {Math.round(status.alt)}m · {status.running ? '달리기' : '걷기'} · 도트 {status.pixel}px
+            {place(status)}{status.indoor ? '' : ` ${Math.round(status.alt)}m`} · {status.running ? '달리기' : '걷기'} · 도트 {status.pixel}px
           </Sub>
         </Title>
         <Buttons>

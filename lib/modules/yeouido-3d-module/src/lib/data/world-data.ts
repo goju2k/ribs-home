@@ -19,6 +19,10 @@ export interface WorldData {
   rails: number[][];
   /** [높이, 벽색, 지붕색, 막힘, ...xz] */
   buildings: number[][];
+  /** buildings와 같은 순서: [OSM 종류(0 way/1 relation), OSM id, 층수(모르면 0)] */
+  buildingMeta: [number, number, number][];
+  /** 이름 있는 건물만: 인덱스 → 이름 */
+  buildingNames: Record<string, string>;
   /** [x, z, 크기*10, ...] */
   trees: number[];
   collision: { cell: number; w: number; h: number; rle: string; };
