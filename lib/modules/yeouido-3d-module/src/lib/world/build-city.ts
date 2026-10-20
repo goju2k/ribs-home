@@ -2,6 +2,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
+import { seeThrough } from './see-through';
+
 import { FlatRing, toPoints, WorldData } from '../data/world-data';
 
 interface P {
@@ -220,12 +222,12 @@ function buildBuildings(data:WorldData) {
   walls.setAttribute('normal', new THREE.Float32BufferAttribute(wallNor, 3));
   walls.setAttribute('uv', new THREE.Float32BufferAttribute(wallUv, 2));
   walls.setAttribute('color', new THREE.Float32BufferAttribute(wallCol, 3));
-  const wallMesh = new THREE.Mesh(walls, new THREE.MeshLambertMaterial({ vertexColors: true, map: windowTexture() }));
+  const wallMesh = new THREE.Mesh(walls, seeThrough(new THREE.MeshLambertMaterial({ vertexColors: true, map: windowTexture() })));
   wallMesh.castShadow = true;
   wallMesh.receiveShadow = true;
   wallMesh.name = 'walls';
 
-  const roofMesh = new THREE.Mesh(mergeGeometries(roofGeos), new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+  const roofMesh = new THREE.Mesh(mergeGeometries(roofGeos), seeThrough(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide })));
   roofMesh.castShadow = true;
   roofMesh.receiveShadow = true;
   roofMesh.name = 'roofs';
@@ -234,8 +236,8 @@ function buildBuildings(data:WorldData) {
 
 function buildTrees(data:WorldData) {
   const n = data.trees.length / 3;
-  const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.12, 0.18, 2.2, 5).translate(0, 1.1, 0), new THREE.MeshLambertMaterial({ color: '#7a5636' }), n);
-  const crown = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1.5, 0).translate(0, 3.2, 0), new THREE.MeshLambertMaterial({ color: '#ffffff' }), n);
+  const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.12, 0.18, 2.2, 5).translate(0, 1.1, 0), seeThrough(new THREE.MeshLambertMaterial({ color: '#7a5636' })), n);
+  const crown = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1.5, 0).translate(0, 3.2, 0), seeThrough(new THREE.MeshLambertMaterial({ color: '#ffffff' })), n);
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const s = new THREE.Vector3();

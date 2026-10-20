@@ -7,6 +7,7 @@ import { InputState, readLift, readMove } from '../input';
 import { createPerson } from '../player/person';
 import { buildCity } from '../world/build-city';
 import { Collision } from '../world/collision';
+import { SEE } from '../world/see-through';
 
 const WALK = 1.4; // m/s
 const RUN = 9.6; // 임시로 두 배 (원래 4.8)
@@ -102,7 +103,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     scene.add(sun, sun.target);
     const SUN_DIR = new THREE.Vector3(-0.55, 1, 0.45).normalize(); // 남서쪽 높이 뜬 해
 
-    const player = createPerson({ shirt: '#e2574c', pants: '#2f4a7a', skin: '#f1c7a0', hair: '#2a1d14' }, true);
+    const player = createPerson({ shirt: '#e2574c', pants: '#2f4a7a', skin: '#f1c7a0', hair: '#2a1d14' });
     const pos = { x: WORLD.spawn.x, y: 0, z: WORLD.spawn.z };
     // 확인용: 주소에 ?at=x,z,높이 를 주면 그 자리에서 시작
     const at = new URLSearchParams(window.location.search).get('at')?.split(',').map(Number);
@@ -124,6 +125,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     drop.frustumCulled = false;
     scene.add(drop);
     let autoZoom = 1;
+    const bufSize = new THREE.Vector2();
 
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 6000);
     let view = 34; // 화면 세로에 담기는 미터
@@ -303,6 +305,19 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       const ground = new THREE.Vector3(target.x - Math.sin(yaw) * back, 0, target.z - Math.cos(yaw) * back);
       sun.position.copy(ground).addScaledVector(SUN_DIR, 900);
       sun.target.position.copy(ground);
+
+      // 플레이어를 가리는 건물·나무에 구멍: 화면 위치·크기·깊이를 셰이더로 넘긴다
+      camera.updateMatrixWorld();
+      const mid = new THREE.Vector3(pos.x, pos.y + tall * 0.5, pos.z);
+      const viewZ = -mid.clone().applyMatrix4(camera.matrixWorldInverse).z;
+      const ndc = mid.project(camera);
+      renderer.getDrawingBufferSize(bufSize);
+      const personPx = (onScreen / shown) * bufSize.y;
+      SEE.on.value = 1;
+      SEE.center.value.set((ndc.x * 0.5 + 0.5) * bufSize.x, (ndc.y * 0.5 + 0.5) * bufSize.y);
+      SEE.radius.value = THREE.MathUtils.clamp(personPx * 3.2, 16, bufSize.y * 0.25);
+      SEE.depth.value = viewZ;
+      SEE.footY.value = pos.y;
 
       renderer.render(scene, camera);
 
