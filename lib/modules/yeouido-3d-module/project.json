@@ -1,0 +1,9 @@
+{
+  "name": "yeouido-3d-module",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "lib/modules/yeouido-3d-module/src",
+  "projectType": "library",
+  "tags": [],
+  "// targets": "to see all targets run: nx show project yeouido-3d-module --web",
+  "targets": {}
+}
