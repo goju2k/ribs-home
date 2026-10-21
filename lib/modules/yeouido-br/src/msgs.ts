@@ -1,4 +1,5 @@
 import type { CorpseItem, Gear, GroundItem } from './items';
+import type { PropRow } from './props';
 
 /**
  * 배틀로얄 모드 메시지 (엔진의 { t: 'mode', d } 통로 안에 담긴다).
@@ -35,6 +36,14 @@ export type BrServerMsg =
   /** 내 장비 (바뀔 때) */
   | { k: 'gear'; gear: Gear; }
   /** 내가 주움: 종류 번호, 바뀐 단계, 어디서 */
-  | { k: 'got'; kind: number; lv: number; from: 'ground' | 'corpse'; };
+  | { k: 'got'; kind: number; lv: number; from: 'ground' | 'corpse'; }
+  /** 부술 수 있는 물건 전부 (입장·새 판) */
+  | { k: 'props'; list: PropRow[]; }
+  | { k: 'propAdd'; list: PropRow[]; }
+  /** 물건이 맞음: 남은 내구도 0~255 (근처 사람에게만) */
+  | { k: 'propHit'; id: number; hp: number; }
+  | { k: 'propGone'; ids: number[]; }
+  /** 내가 물건을 침 */
+  | { k: 'hitProp'; id: number; dmg: number; };
 
 export const isBrMsg = (d:unknown):d is BrServerMsg => typeof d === 'object' && d !== null && typeof (d as { k?: unknown; }).k === 'string';

@@ -1,11 +1,12 @@
 import {
-  ACT_MELEE, afterPickup, armorCut, BR_MODE, BrServerMsg, Corpse, CorpseItem, emptyGear, Gear, HP_MAX, HURT_MS, hpGauge, insideZone,
+  ACT_MELEE, afterPickup, armorCut, BR_MODE, breakPower, PROP_KINDS, PROP_RADIUS, rollDrops, BrServerMsg, Corpse, CorpseItem, emptyGear, Gear, HP_MAX, HURT_MS, hpGauge, insideZone,
   ITEM_KINDS, makeMatchPlan, MATCH_MS, MatchPlan, meleeReaches, meleeStats, PICK_RANGE, pickSpawn, respawnDelay, rocketMul, shoeMul,
   SPAWN_SHIELD_MS, ST_DEAD, ST_FROZEN, ST_HURT, ST_SHIELD, ST_SWING, zoneAt, zoneDps,
 } from 'yeouido-br';
 import { Body, newBody } from 'yeouido-sim';
 
 import { ItemField } from './br-items';
+import { Prop, PropField, propRow } from './br-props';
 
 import { GameMode, ModeHost, ModePlayer } from '../mode';
 
@@ -17,13 +18,18 @@ const EMPTY_CLOSE_MS = 60_000;
 const MAX_CORPSES = 150;
 /** 전장 밖 피해 간격 (ms) */
 const ZONE_TICK_MS = 1000;
-/** 판 시작 때 섬에 뿌리는 아이템 수, 원이 줄면 원 넓이만큼 줄여 유지 (최소 ITEM_MIN) */
-const ITEM_START = 500;
-const ITEM_MIN = 60;
+/** 판 시작 때 섬에 뿌리는 아이템 수, 원이 줄면 원 넓이만큼 줄여 유지 (최소 ITEM_MIN) — 아이템은 주로 물건을 부숴서 얻는다 */
+const ITEM_START = 50;
+const ITEM_MIN = 5;
 /** 이만큼마다 원 안 아이템을 채운다 (ms) */
 const ITEM_REFILL_MS = 20_000;
 /** 전장 밖 아이템을 치우는 간격 (ms) — 원이 줄면 밖에 남은 아이템은 사라진다 */
 const ITEM_SWEEP_MS = 1000;
+/** 부술 수 있는 물건: 판 시작 수, 최소 유지 수 (원 넓이만큼 유지, 아이템과 같은 주기) */
+const PROP_START = 450;
+const PROP_MIN = 50;
+/** 물건 내구도 알림은 이 거리 안 사람에게만 (m) */
+const PROP_HIT_RANGE = 80;
 /** 줍기·시체 털기 판정은 틱 몇 번에 한 번 (사람×아이템 비용) */
 const PICK_EVERY = 3;
 
@@ -74,6 +80,8 @@ export class BattleRoyale implements GameMode {
 
   private items = new ItemField();
 
+  private props = new PropField();
+
   private refillAt = 0;
 
   private sweepAt = 0;
@@ -113,6 +121,8 @@ export class BattleRoyale implements GameMode {
     this.corpses = [];
     this.items.clear();
     this.items.scatter(this.host.sim, this.match.circles[0], ITEM_START);
+    this.props.clear();
+    this.props.scatter(this.host.sim, this.match.circles[0], PROP_START);
     this.refillAt = this.matchAt + ITEM_REFILL_MS;
     const last = this.match.circles[this.match.circles.length - 1];
     console.log(`[br] match #${id} start (final ${last.cx.toFixed(0)},${last.cz.toFixed(0)} r${last.r})`);
@@ -179,6 +189,7 @@ export class BattleRoyale implements GameMode {
     this.send(p, this.matchMsg());
     this.send(p, { k: 'corpses', list: this.corpses });
     this.send(p, { k: 'items', list: this.items.list() });
+    this.send(p, { k: 'props', list: this.props.list() });
   }
 
   leave(p:ModePlayer) {
@@ -212,7 +223,44 @@ export class BattleRoyale implements GameMode {
       // 갑옷은 근접 피해만 줄인다
       const cut = armorCut(this.fighters.get(t.id)!.gear.armor);
       this.damage(t, Math.max(1, Math.round(w.damage * (1 - cut))), p, now);
+      return;
     }
+    // 닿는 사람이 없으면 물건을 친다 (가장 가까운 것)
+    let prop:Prop | null = null;
+    let propD = Infinity;
+    this.props.near(p.body.x, p.body.z, w.range + 0.5).forEach((o) => {
+      const reach = w.range + PROP_RADIUS[PROP_KINDS[o.kind]];
+      if (!meleeReaches(p.body, o, reach, w.cosArc)) return;
+      const d = Math.hypot(o.x - p.body.x, o.z - p.body.z);
+      if (d < propD) {
+        prop = o;
+        propD = d;
+      }
+    });
+    if (prop) this.hitProp(p, me, prop);
+  }
+
+  /** 물건 치기: 망치가 있으면 세게. 부서지면 드롭 표대로 아이템을 떨어뜨린다 */
+  private hitProp(p:ModePlayer, me:Fighter, o:Prop) {
+    const dmg = breakPower(me.gear);
+    o.hp = Math.max(0, o.hp - dmg);
+    this.send(p, { k: 'hitProp', id: o.id, dmg });
+    if (o.hp > 0) {
+      const row = propRow(o);
+      this.all.forEach((q) => {
+        if (Math.abs(q.body.x - o.x) < PROP_HIT_RANGE && Math.abs(q.body.z - o.z) < PROP_HIT_RANGE) this.send(q, { k: 'propHit', id: o.id, hp: row[2] });
+      });
+      return;
+    }
+    this.props.remove(o.id);
+    this.broadcast({ k: 'propGone', ids: [ o.id ] });
+    const drops = rollDrops(PROP_KINDS[o.kind]).map(([ kind, lv ], i, list) => {
+      // 여러 개면 둘레에 조금씩 떨어뜨린다
+      const a = (i / Math.max(1, list.length)) * Math.PI * 2;
+      const d = list.length > 1 ? 0.6 : 0;
+      return this.items.add(kind, lv, o.x + Math.cos(a) * d, o.y, o.z + Math.sin(a) * d, o.b, o.l);
+    });
+    if (drops.length) this.broadcast({ k: 'itemAdd', list: drops });
   }
 
   private damage(t:ModePlayer, dmg:number, by:ModePlayer | null, now:number) {
@@ -261,6 +309,7 @@ export class BattleRoyale implements GameMode {
       this.broadcast(this.matchMsg());
       this.broadcast({ k: 'corpses', list: [] });
       this.broadcast({ k: 'items', list: this.items.list() });
+      this.broadcast({ k: 'props', list: this.props.list() });
       this.matchSentAt = now;
     } else if (now - this.matchSentAt >= MATCH_EVERY_MS) {
       this.broadcast(this.matchMsg());
@@ -272,6 +321,8 @@ export class BattleRoyale implements GameMode {
       this.sweepAt = now + ITEM_SWEEP_MS;
       const gone = this.items.removeOutside(zone);
       if (gone.length) this.broadcast({ k: 'itemGone', ids: gone });
+      const propsGone = this.props.removeOutside(zone);
+      if (propsGone.length) this.broadcast({ k: 'propGone', ids: propsGone });
     }
     // 원이 줄수록 아이템도 원 넓이만큼 유지 (줄어든 원 안에 채운다)
     if (now >= this.refillAt) {
@@ -279,6 +330,9 @@ export class BattleRoyale implements GameMode {
       const want = Math.max(ITEM_MIN, Math.round(ITEM_START * (zone.r / this.match.circles[0].r) ** 2));
       const lack = Math.min(60, want - this.items.countIn(zone));
       if (lack > 0) this.broadcast({ k: 'itemAdd', list: this.items.scatter(this.host.sim, zone, lack) });
+      const area = (zone.r / this.match.circles[0].r) ** 2;
+      const propLack = Math.min(60, Math.max(PROP_MIN, Math.round(PROP_START * area)) - this.props.countIn(zone));
+      if (propLack > 0) this.broadcast({ k: 'propAdd', list: this.props.scatter(this.host.sim, zone, propLack) });
     }
     const pickNow = this.tickNo++ % PICK_EVERY === 0;
     all.forEach((p) => {
@@ -317,7 +371,7 @@ export class BattleRoyale implements GameMode {
     if (!this.match) return { mode: this.name, match: null };
     const z = this.zone();
     const dead = [ ...this.fighters.values() ].filter((f) => f.respawnAt).length;
-    return { mode: this.name, match: { id: this.match.id, stage: z.stage, r: Math.round(z.r), remainS: Math.round(z.remain / 1000) }, alive: this.fighters.size - dead, dead, corpses: this.corpses.length, items: this.items.size };
+    return { mode: this.name, match: { id: this.match.id, stage: z.stage, r: Math.round(z.r), remainS: Math.round(z.remain / 1000) }, alive: this.fighters.size - dead, dead, corpses: this.corpses.length, items: this.items.size, props: this.props.size };
   }
 
 }

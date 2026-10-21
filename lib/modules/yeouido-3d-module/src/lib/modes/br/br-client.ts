@@ -6,6 +6,7 @@ import {
 } from 'yeouido-br';
 
 import { ITEM_COLORS, ItemMeshes } from './item-meshes';
+import { PropMeshes } from './prop-meshes';
 
 import { createPerson, Person } from '../../player/person';
 import { Look, ModeClient, ModeFrame, ModeHostClient } from '../mode-client';
@@ -81,6 +82,8 @@ export class BrClient implements ModeClient {
 
   private items:ItemMeshes;
 
+  private props:PropMeshes;
+
   private gear:Gear = emptyGear();
 
   private got:{ id: number; text: string; at: number; }[] = [];
@@ -100,6 +103,7 @@ export class BrClient implements ModeClient {
     this.wall.visible = false;
     host.scene.add(this.wall);
     this.items = new ItemMeshes(host.scene);
+    this.props = new PropMeshes(host.scene);
   }
 
   receive(d:unknown, now:number) {
@@ -133,6 +137,16 @@ export class BrClient implements ModeClient {
         sc.c.items = [];
         sc.loot.visible = false;
       }
+    } else if (m.k === 'props') {
+      this.props.clear();
+      m.list.forEach((r) => this.props.add(r));
+    } else if (m.k === 'propAdd') m.list.forEach((r) => this.props.add(r));
+    else if (m.k === 'propHit') this.props.hit(m.id, m.hp, now);
+    else if (m.k === 'propGone') m.ids.forEach((id) => this.props.remove(id));
+    else if (m.k === 'hitProp') {
+      this.props.hit(m.id, -1, now);
+      this.hits.push({ id: ++this.seq, dmg: m.dmg, at: now });
+      if (this.hits.length > 6) this.hits.shift();
     } else if (m.k === 'gear') this.gear = m.gear;
     else if (m.k === 'got') {
       const k = ITEM_KINDS[m.kind];
@@ -189,6 +203,7 @@ export class BrClient implements ModeClient {
       loot.rotation.y = spin;
     });
     this.items.update(f.now, f.me);
+    this.props.update(f.now, f.me);
   }
 
   acted(act:number, now:number) {
@@ -285,6 +300,7 @@ export class BrClient implements ModeClient {
     this.wall.geometry.dispose();
     [ ...this.corpses.keys() ].forEach((id) => this.removeCorpse(id));
     this.items.dispose();
+    this.props.dispose();
     this.lootGeo.dispose();
     this.lootMat.dispose();
   }

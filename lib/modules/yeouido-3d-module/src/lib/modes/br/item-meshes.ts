@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GroundItem, ITEM_KINDS, ItemKind } from 'yeouido-br';
 
 /** 아이템 색 (미니맵 점·HUD 칸도 같은 색) */
-export const ITEM_COLORS:Record<ItemKind, string> = { pipe: '#c9ced6', armor: '#4a8fe0', shoes: '#c98a4a', rocket: '#e2574c' };
+export const ITEM_COLORS:Record<ItemKind, string> = { pipe: '#c9ced6', armor: '#4a8fe0', shoes: '#c98a4a', rocket: '#e2574c', hammer: '#e0b84a' };
 
 /** 이보다 멀면 안 그린다 (m) */
 const SHOW_RANGE = 220;
@@ -14,6 +14,7 @@ function shapes() {
     armor: new THREE.BoxGeometry(0.5, 0.55, 0.18),
     shoes: new THREE.BoxGeometry(0.42, 0.16, 0.3),
     rocket: new THREE.BoxGeometry(0.3, 0.6, 0.3),
+    hammer: new THREE.BoxGeometry(0.45, 0.18, 0.18),
   };
   return g;
 }
