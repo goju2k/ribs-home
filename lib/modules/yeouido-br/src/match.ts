@@ -1,6 +1,5 @@
 /* eslint-disable no-continue -- 무작위 자리 찾기 반복문 */
-import { SimWorld } from './body';
-import { BLOCK } from './world-data';
+import { BLOCK, SimWorld } from 'yeouido-sim';
 
 /**
  * 한 판의 일정과 무작위 시작 위치 (서버가 원을 정하고, 클라이언트는 같은 함수로 지금 원을 계산한다).

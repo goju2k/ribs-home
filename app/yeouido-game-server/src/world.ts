@@ -1,10 +1,12 @@
 import { WebSocket } from 'ws';
 import {
-  ClientMsg, decodeInputs, NO_FACE, encodeSnap, InputTuple, NEAR, PROTOCOL_VERSION, ServerMsg, SIM_HZ, SNAP_HZ, SnapRow, toArrayBuffer, toBody, toRow, validInput,
+  ClientMsg, decodeInputs, NO_FACE, encodeSnap, ST_FROZEN, InputTuple, NEAR, PROTOCOL_VERSION, ServerMsg, SIM_HZ, SNAP_HZ, SnapRow, toArrayBuffer, toBody, toRow, validInput,
   VIEW_DEFAULT, VIEW_MAX, VIEW_MIN,
 } from 'yeouido-net';
-import { Body, createSimWorld, makeMatchPlan, MATCH_MS, MatchPlan, newBody, pickSpawn, SimWorld, step, WORLD, zoneAt } from 'yeouido-sim';
+import { Body, createSimWorld, newBody, SimWorld, step, WORLD } from 'yeouido-sim';
 
+import { GameMode, ModeHost, ModePlayer } from './mode';
+import { BattleRoyale } from './modes/battle-royale';
 import { createRtcLink, rtcAvailable, RtcLink } from './rtc';
 
 /** 입력 예산: 실제 시간만큼만 걸음을 처리한다 (빨리 보내도 더 빨리 못 감 = 스피드핵 방지). 밀린 것은 이만큼까지 몰아서 */
@@ -21,17 +23,12 @@ const cellKey = (cx:number, cz:number) => (cx + 1000) * 4096 + (cz + 1000);
 const KEY = 65536;
 /** 시뮬레이션 몇 틱에 스냅숏 한 번인지 (30Hz / 15Hz = 2) */
 const SPLIT = Math.round(SIM_HZ / SNAP_HZ);
-/** 판 정보를 이만큼마다 다시 보낸다 (시계 맞춤) */
-const MATCH_EVERY_MS = 5000;
-/** 아무도 없이 이만큼 지나면 판을 닫는다 */
-const EMPTY_CLOSE_MS = 60_000;
 
-interface Player {
-  id: number;
-  name: string;
+interface Player extends ModePlayer {
   ws: WebSocket;
-  body: Body;
   queue: InputTuple[];
+  /** 이번 틱에 이 사람에게만 보낼 모드 메시지 (틱 끝에 한 번에) */
+  modeOut: unknown[];
   /** 처리해도 되는 걸음 수 (틱마다 1씩 쌓임) */
   budget: number;
   /** 마지막으로 처리한 입력 순번 */
@@ -42,12 +39,11 @@ interface Player {
   view: number;
   /** 이 사람에게 보낸 스냅숏 수 (먼 사람을 몇 번에 한 번 보낼지 정할 때) */
   sent: number;
-  /** 개발용 접속 (비행 허용) */
-  debug: boolean;
 }
 
 /**
- * 월드 하나 = 여의도 맵 한 판 (서버 권위).
+ * 월드 하나 = 여의도 맵 한 판 (서버 권위). 엔진만 맡는다: 접속·입력·이동·스냅숏.
+ * 게임 규칙(시작 자리, 체력, 전투, 판 진행)은 GameMode(지금은 배틀로얄 PoC)가 정한다.
  * 프로세스 하나가 여러 월드를 돌릴 수 있게 상태를 여기 모은다 (나중에 샤드·시즌·매치로 나눌 때 월드를 더 만든다).
  */
 export class World {
@@ -83,16 +79,11 @@ export class World {
 
   private sentAt = 0;
 
-  /** 지금 판 (없으면 다음 입장 때 만든다) */
-  private match:MatchPlan | null = null;
+  /** 이 월드의 게임 규칙 */
+  private mode:GameMode;
 
-  private matchAt = 0;
-
-  private matchSentAt = 0;
-
-  private emptyAt = 0;
-
-  private nextMatchId = 1;
+  /** 이번 틱에 모두에게 보낼 모드 메시지 */
+  private modeAll:unknown[] = [];
 
   constructor(id:string) {
     this.id = id;
@@ -100,6 +91,19 @@ export class World {
     this.sim = createSimWorld(WORLD);
     this.sim.indoors.forEach((g) => g.prepare());
     console.log(`[${id}] sim ready ${Date.now() - t0}ms (indoor ${this.sim.indoors.length})`);
+    const host:ModeHost = {
+      sim: this.sim,
+      players: () => this.players.values(),
+      get: (pid) => this.players.get(pid),
+      send: (p, d) => {
+        (p as Player).modeOut.push(d);
+      },
+      broadcast: (d, except) => {
+        if (except) this.players.forEach((p) => p !== except && p.modeOut.push(d));
+        else this.modeAll.push(d);
+      },
+    };
+    this.mode = new BattleRoyale(host);
   }
 
   get size() {
@@ -114,40 +118,26 @@ export class World {
     if (this.timer) clearInterval(this.timer);
   }
 
-  /** 상태 확인용: 지금 판 번호·단계·남은 시간(초) */
-  get matchInfo() {
-    if (!this.match) return null;
-    const z = zoneAt(this.match, this.elapsed);
-    return { id: this.match.id, stage: z.stage, r: Math.round(z.r), remainS: Math.round(z.remain / 1000) };
+  /** 상태 확인용: 게임 모드 정보 */
+  get modeInfo() {
+    return this.mode.info();
   }
 
-  /** 판 시작 뒤 흐른 시간 (ms) */
-  private get elapsed() {
-    return Date.now() - this.matchAt;
-  }
-
-  /** 새 판: 원 11개를 정하고 모두에게 알린다 */
-  private newMatch() {
-    const id = this.nextMatchId++;
-    this.match = makeMatchPlan(this.sim, id, (Math.random() * 2 ** 32) >>> 0); // eslint-disable-line no-bitwise
-    this.matchAt = Date.now();
-    const last = this.match.circles[this.match.circles.length - 1];
-    console.log(`[${this.id}] match #${id} start (final ${last.cx.toFixed(0)},${last.cz.toFixed(0)} r${last.r})`);
-  }
-
-  private matchMsg():ServerMsg {
-    const m = this.match!;
-    return { t: 'match', id: m.id, circles: m.circles.map((c) => [ Math.round(c.cx * 10) / 10, Math.round(c.cz * 10) / 10, Math.round(c.r * 10) / 10 ]), elapsed: this.elapsed };
-  }
-
-  /** 시작 자리: 지금 전장 원 안 무작위 (지상·옥상·실내) */
-  private spawnBody(debug:boolean) {
-    const s = pickSpawn(this.sim, zoneAt(this.match!, this.elapsed));
-    const body = newBody(s.x, s.y, s.z);
-    body.b = s.b;
-    body.l = s.l;
-    body.fly = debug ? 1 : 0;
-    return body;
+  /**
+   * 모드 메시지는 틱 끝에 묶어 보낸다: 모두에게 갈 것은 한 번만 직렬화, 개인 것은 사람마다 한 묶음.
+   * (300명이 몰려 싸우면 죽음·맞음 알림이 많아 메시지마다 보내면 이벤트 루프가 밀린다)
+   */
+  private flushMode() {
+    const all = this.modeAll.length ? JSON.stringify({ t: 'mode', ds: this.modeAll } satisfies ServerMsg) : null;
+    this.modeAll = [];
+    this.players.forEach((p) => {
+      if (p.ws.readyState !== WebSocket.OPEN) return;
+      if (all) p.ws.send(all);
+      if (p.modeOut.length) {
+        p.ws.send(JSON.stringify({ t: 'mode', ds: p.modeOut } satisfies ServerMsg));
+        p.modeOut = [];
+      }
+    });
   }
 
   /** 클라이언트가 원한 시작 자리(확인용 ?at=, 재접속)를 받아 줄지 — 지금은 개발 단계라 범위만 본다 */
@@ -190,18 +180,17 @@ export class World {
           ws.close(4001, 'version');
           return;
         }
-        if (!this.match) this.newMatch();
         const debug = msg.debug === true;
-        // 원하는 자리(?at=, 재접속)는 개발용 접속만 받아 준다
-        const body = (debug && msg.spawn && this.acceptSpawn(msg.spawn)) || this.spawnBody(debug);
-        body.fly = debug ? 1 : 0;
-        me = this.join(ws, String(msg.name || '').slice(0, 16) || '시민', body, debug);
+        // 원하는 자리(?at=, 재접속)는 개발용 접속만 — 쓸지는 모드가 정한다
+        const requested = (debug && msg.spawn && this.acceptSpawn(msg.spawn)) || null;
+        me = this.join(ws, String(msg.name || '').slice(0, 16) || '시민', requested, debug);
         return;
       }
       if (msg.t === 'input') World.inputCmds(me, msg.cmds);
       else if (msg.t === 'ping' && typeof msg.c === 'number') ws.send(JSON.stringify({ t: 'pong', c: msg.c } satisfies ServerMsg));
       else if (msg.t === 'view' && typeof msg.r === 'number' && Number.isFinite(msg.r)) me.view = Math.max(VIEW_MIN, Math.min(VIEW_MAX, msg.r));
       else if (msg.t === 'rtc') this.rtcSignal(me, msg);
+      else if (msg.t === 'mode') this.mode.message?.(me, msg.d);
     });
     ws.on('close', () => {
       clearTimeout(hello);
@@ -246,20 +235,23 @@ export class World {
     p.rtc?.signal(msg);
   }
 
-  private join(ws:WebSocket, name:string, body:Body, debug:boolean) {
-    const p:Player = { id: this.nextId++, name, ws, body, queue: [], budget: 0, ack: 0, rtc: null, view: VIEW_DEFAULT, sent: 0, debug };
+  private join(ws:WebSocket, name:string, requested:Body | null, debug:boolean) {
+    const p:Player = { id: this.nextId++, name, ws, body: newBody(0, 0, 0), st: 0, gv: 0, modeOut: [], queue: [], budget: 0, ack: 0, rtc: null, view: VIEW_DEFAULT, sent: 0, debug };
     this.players.set(p.id, p);
+    // 시작 자리·상태는 모드가 정한다
+    this.mode.join(p, requested);
+    const { body } = p;
     this.send(p, {
       t: 'welcome',
       id: p.id,
       world: this.id,
+      mode: this.mode.name,
       v: PROTOCOL_VERSION,
       me: toBody(body),
       ack: 0,
       rtc: rtcAvailable(),
       players: [ ...this.players.values() ].filter((o) => o !== p).map((o) => ({ id: o.id, name: o.name })),
     });
-    this.send(p, this.matchMsg());
     this.broadcast({ t: 'join', id: p.id, name }, p);
     console.log(`[${this.id}] join #${p.id} ${name} (${this.players.size}명)`);
     return p;
@@ -268,6 +260,7 @@ export class World {
   private leave(p:Player) {
     if (!this.players.delete(p.id)) return;
     p.rtc?.close();
+    this.mode.leave(p);
     this.broadcast({ t: 'leave', id: p.id });
     console.log(`[${this.id}] leave #${p.id} ${p.name} (${this.players.size}명)`);
   }
@@ -279,54 +272,26 @@ export class World {
     // Windows 타이머는 15.6ms 단위라 setInterval이 정확히 30Hz로 안 돈다 → 예산은 실제로 흐른 시간만큼 준다
     const gain = this.lastAt ? (t0 - this.lastAt) / (1000 / SIM_HZ) : 1;
     this.lastAt = t0;
+    const now = Date.now();
     this.players.forEach((p) => {
       p.budget = Math.min(MAX_BURST, p.budget + gain);
       while (p.budget >= 1 && p.queue.length) {
-        const [ seq, mx, mz, run, lift, face ] = p.queue.shift()!;
-        step(this.sim, p.body, { mx, mz, run: run === 1, lift, face: face === NO_FACE ? undefined : face });
+        const [ seq, mx, mz, run, lift, face, act ] = p.queue.shift()!;
+        // 움직일 수 없는 상태(모드가 정함: 예 — 죽음)면 입력은 받아 순번만 넘긴다 (클라이언트 예측도 같은 비트를 보고 멈춘다)
+        if (!(p.st & ST_FROZEN)) step(this.sim, p.body, { mx, mz, run: run === 1, lift, face: face === NO_FACE ? undefined : face }); // eslint-disable-line no-bitwise
         p.ack = seq;
         p.budget -= 1;
+        this.mode.act(p, act, now);
       }
     });
-    this.matchTick();
+    this.mode.tick(now);
+    this.flushMode();
     const t1 = performance.now();
     this.lastSimMs = t1 - t0;
     // 받는 사람을 SPLIT 묶음으로 나눠 틱마다 번갈아 보낸다 → 각자 SNAP_HZ, 한 틱의 부담은 1/SPLIT
     if (this.players.size) this.snapshot(this.tick % SPLIT);
     this.lastSnapMs = performance.now() - t1;
     this.lastTickMs = performance.now() - t0;
-  }
-
-  /**
-   * 판 관리: 아무도 없이 1분이면 닫고, 20분이 끝나면 새 판 (보스는 7단계에서 — 지금은 시간이 다 되면 다시 시작).
-   * 판 정보는 5초마다 다시 보낸다
-   */
-  private matchTick() {
-    if (!this.match) return;
-    const now = Date.now();
-    if (!this.players.size) {
-      if (!this.emptyAt) this.emptyAt = now;
-      else if (now - this.emptyAt > EMPTY_CLOSE_MS) {
-        console.log(`[${this.id}] match #${this.match.id} closed (empty)`);
-        this.match = null;
-        this.emptyAt = 0;
-      }
-      return;
-    }
-    this.emptyAt = 0;
-    if (this.elapsed >= MATCH_MS) {
-      this.newMatch();
-      // 새 판: 모두 새 원 안 무작위 자리로 (입력 대기열도 비워 예측과 어긋나지 않게 — 클라이언트는 큰 차이를 순간이동으로 받는다)
-      this.players.forEach((p) => {
-        p.body = this.spawnBody(p.debug);
-        p.queue.length = 0;
-      });
-      this.broadcast(this.matchMsg());
-      this.matchSentAt = now;
-    } else if (now - this.matchSentAt >= MATCH_EVERY_MS) {
-      this.broadcast(this.matchMsg());
-      this.matchSentAt = now;
-    }
   }
 
   /**
@@ -339,7 +304,7 @@ export class World {
     const all = [ ...this.players.values() ];
     const n = all.length;
     if (this.keys.length < n) this.keys = new Float64Array(n * 2);
-    const rows = all.map((o) => toRow(o.id, o.body));
+    const rows = all.map((o) => toRow(o.id, o.body, o.st, o.gv));
     // 공간 격자: 실외는 CELL m 칸, 실내는 "건물:층" 묶음 (번호 목록) — 받는 사람마다 전원을 훑지 않고 근처만 본다
     const cells = new Map<number, number[]>();
     const rooms = new Map<string, number[]>();
@@ -391,7 +356,7 @@ export class World {
         if (d > NEAR) every = Math.max(every, 2);
         if ((p.sent + all[j].id) % every === 0) list.push(rows[j]);
       }
-      const buf = encodeSnap(this.tick, p.ack, toBody(p.body), list);
+      const buf = encodeSnap(this.tick, p.ack, toBody(p.body), p.st, p.gv, list);
       sent += buf.byteLength;
       // 데이터채널이 열려 있으면 그쪽(UDP처럼)으로
       if (p.rtc?.open()) p.rtc.sendBinary(buf);

@@ -1,4 +1,3 @@
-/* eslint-disable no-bitwise -- 마우스 버튼 비트 */
 /** 시점: 내려다보기(정사영) / 3인칭 추적 / 1인칭 */
 export type CamMode = 'top' | 'chase' | 'fp';
 
@@ -10,11 +9,6 @@ export interface InputState {
   mode: CamMode;
   /** 화면 드래그·마우스로 쌓인 보기 회전 요청 (px) — 3인칭·1인칭에서 카메라를 돌린다 */
   look: { dx: number; dy: number; };
-  /**
-   * 게임 화면 위 마우스 버튼 (bit0 왼쪽, bit1 오른쪽) — WoW식 3인칭:
-   * 왼쪽 끌기 = 카메라만, 오른쪽 끌기 = 캐릭터도 카메라 방향, 둘 다 = 앞으로 달리기
-   */
-  mouse: number;
   /** 조이스틱: 화면 기준 x=오른쪽, y=아래, 길이 0~1 */
   joy: { x: number; y: number; };
   keys: Set<string>;
@@ -27,9 +21,13 @@ export interface InputState {
   rotate: number;
   /** 누적된 확대 요청(배율 곱) */
   zoom: number;
+  /** 누르고 있는 행동 비트 (모드 버튼이 켜고 끈다 — 뜻은 게임 모드가 정함) */
+  act: number;
+  /** 한 번만 보낼 행동 비트 (짧은 클릭·탭) */
+  actTap: number;
 }
 
-export const createInput = ():InputState => ({ mode: 'top', look: { dx: 0, dy: 0 }, mouse: 0, joy: { x: 0, y: 0 }, keys: new Set(), runToggle: true, upHeld: false, downHeld: false, rotate: 0, zoom: 1 });
+export const createInput = ():InputState => ({ mode: 'top', look: { dx: 0, dy: 0 }, joy: { x: 0, y: 0 }, keys: new Set(), runToggle: true, upHeld: false, downHeld: false, rotate: 0, zoom: 1, act: 0, actTap: 0 });
 
 /** 다음 시점으로 */
 export const nextMode = (m:CamMode) => CAM_MODES[(CAM_MODES.indexOf(m) + 1) % CAM_MODES.length];
@@ -43,8 +41,6 @@ export function readMove(input:InputState) {
   if (k.has('KeyD') || k.has('ArrowRight')) x += 1;
   if (k.has('KeyW') || k.has('ArrowUp')) y -= 1;
   if (k.has('KeyS') || k.has('ArrowDown')) y += 1;
-  // 마우스 두 버튼을 함께 누르면 앞으로 (WoW)
-  if ((input.mouse & 3) === 3) y -= 1;
   const len = Math.hypot(x, y);
   if (len > 1) {
     x /= len;

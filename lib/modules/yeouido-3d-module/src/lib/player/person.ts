@@ -14,6 +14,15 @@ export interface Person {
    * fly: 날아가는 정도(0~1) — 진행 방향으로 몸을 기울이고 팔다리를 뒤로 뺀다 (날 때도 어디로 가는지 보이게)
    */
   animate: (dt:number, speed:number, fly?:number) => void;
+  /**
+   * animate 뒤에 덮어쓰는 동작 (게임 모드가 정한 모습):
+   * swing 0~1 = 오른팔 앞으로 내지르기 진행, down = 누움, flash = 붉게 번쩍(맞음)
+   */
+  pose: (p:PersonPose) => void;
+}
+
+export interface PersonPose {
+  swing: number; down: boolean; flash: boolean;
 }
 
 // 실제 비율: 키 1.72m, 어깨 폭 0.42m
@@ -116,5 +125,26 @@ export function createPerson(look:PersonLook, silhouette = false):Person {
     }
   };
 
-  return { root, animate };
+  const mats:THREE.MeshLambertMaterial[] = [];
+  body.traverse((o) => {
+    if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshLambertMaterial) mats.push(o.material);
+  });
+  let flashed = false;
+  const pose = (p:PersonPose) => {
+    if (p.swing > 0) {
+      armR.rotation.x = -1.55 * Math.sin(Math.PI * Math.min(1, p.swing));
+      body.rotation.y = 0.35 * Math.sin(Math.PI * Math.min(1, p.swing)); // 허리도 살짝 튼다
+    } else body.rotation.y = 0;
+    if (p.down) {
+      // 발 쪽을 축으로 뒤로 누움 (얼굴이 위로)
+      body.rotation.x = -Math.PI / 2;
+      body.position.y = 0.12;
+    }
+    if (p.flash !== flashed) {
+      flashed = p.flash;
+      mats.forEach((m) => m.emissive.set(p.flash ? '#a01010' : '#000000'));
+    }
+  };
+
+  return { root, animate, pose };
 }

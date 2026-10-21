@@ -1,13 +1,14 @@
 import { MutableRefObject, useEffect, useRef } from 'react';
 import styled from 'styled-components';
 import * as THREE from 'three';
-import { fromBody, InputTuple, NO_FACE } from 'yeouido-net';
+import { fromBody, InputTuple, NO_FACE, ST_FROZEN } from 'yeouido-net';
 import { Body, copyBody, createSimWorld, describe, FLY, Input, newBody, STEP, step, WORLD } from 'yeouido-sim';
 
 import { Minimap } from './minimap';
 
 import { createIndoorViews } from '../indoor/indoor-building';
 import { CamMode, InputState, nextMode, readLift, readMove } from '../input';
+import { MODE_CLIENTS, ModeClient, PLAIN_LOOK } from '../modes';
 import { GameClient, myName, NetState, serverUrl, Transport } from '../net/client';
 import { createPerson } from '../player/person';
 import { RemotePlayers } from '../player/remote-players';
@@ -45,9 +46,14 @@ export interface GameStatus {
   mode: CamMode;
   /** 게임 서버 접속 상태, 접속자 수(나 포함), 오류, 마지막 서버 보정 크기(m)와 확인 대기 입력 수 */
   net: { state: NetState; count: number; error: string; correction: number; pending: number; transport: Transport; rtt: number; jitter: number; };
-  /** 전장: 단계, 줄어드는 중인지, 다음 변화·판 끝까지 남은 초, 원 밖이면 원까지 거리(m) */
-  zone: { stage: number; shrinking: boolean; untilChange: number; remain: number; outside: number; } | null;
+  /** 게임 모드 이름과 그 모드 HUD 상태 (뜻은 모드 HUD만 안다) */
+  gameMode: string | null;
+  game: unknown;
 }
+
+/** 터치: 짧은 탭 = 행동(공격), 이보다 길거나 끌면 카메라 조작 (마우스는 누르는 순간 행동) */
+const TAP_MS = 250;
+const TAP_MOVE = 8;
 
 /** 머리 위 ▼ 표식 — 9×9 도트 그림 */
 function markerTexture() {
@@ -144,7 +150,8 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     let prev = copyBody(body); // 직전 걸음 — 화면은 prev → body 사이를 보간해 그린다
     let acc = 0;
     let seq = 0;
-    const pending:{ seq: number; inp: Input; }[] = [];
+    // frozen: 보낼 때 움직일 수 없는 상태였음 (서버도 이동 없이 순번만 넘긴다 — 다시 돌릴 때도 건너뛴다)
+    const pending:{ seq: number; inp: Input; act: number; frozen: boolean; }[] = [];
     const err = { x: 0, y: 0, z: 0 }; // 서버 보정으로 생긴 화면상 어긋남 (서서히 0으로)
     let correction = 0;
     const pos = { x: body.x, y: body.y, z: body.z }; // 화면에 그리는 위치
@@ -157,6 +164,9 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     // 다중접속: 입력을 보내고, 서버가 확정한 내 상태와 다른 사람들을 받는다 (재접속하면 지금 자리에서 이어서)
     const net = new GameClient(serverUrl(), myName(), () => ({ x: body.x, y: body.y, z: body.z, b: body.b, l: body.l }));
     const others = new RemotePlayers(scene, tagRef.current!);
+    // 게임 모드 화면: 서버가 알려 준 모드 이름으로 고른다 (엔진은 뜻을 모른다)
+    let modeClient:ModeClient | null = null;
+    let modeName:string | null = null;
 
     // 미니맵: 누를 때마다 배율 변경
     const mini = new Minimap(miniRef.current!, WORLD, sim.indoors.map((g) => g.bid));
@@ -175,15 +185,6 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     const drop = new THREE.Line(dropGeo, new THREE.LineBasicMaterial({ color: '#ffd84a', transparent: true, opacity: 0.7 }));
     drop.frustumCulled = false;
     scene.add(drop);
-    // 전장 경계: 반경 1짜리 열린 원통을 원 크기로 늘린다 (안팎 모두 보이게, 안개 없이)
-    const wall = new THREE.Mesh(
-      new THREE.CylinderGeometry(1, 1, 1, 256, 1, true),
-      new THREE.MeshBasicMaterial({ color: '#4aa8ff', transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false, fog: false }),
-    );
-    wall.renderOrder = 10;
-    wall.visible = false;
-    scene.add(wall);
-    const WALL_H = 600;
     let autoZoom = 1;
     const bufSize = new THREE.Vector2();
     let seeFade = 0;
@@ -202,6 +203,35 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     let pix = 2;
     let pinch:{ d: number; } | null = null;
     const pointers = new Map<number, { x: number; y: number; }>();
+    // 터치 탭 판별: 누른 시각·자리·끈 거리
+    const taps = new Map<number, { t: number; x: number; y: number; moved: number; }>();
+    /**
+     * 시점별 조작:
+     * - 위(쿼터뷰): 카메라 조작 없음. 마우스 왼쪽을 누르는 동안 행동 1, 캐릭터는 마우스가 가리키는 땅 쪽을 본다 (터치는 탭한 쪽)
+     * - 뒤·1인칭(FPS·WoW처럼): 마우스 움직임 = 바로 시점 (누를 필요 없음, 커서는 숨김). 누르면 카메라 앞쪽으로 행동.
+     *   화면 가장자리에서 커서가 멈춰 더 못 도는 걸 막으려고, 누를 때 조용히 포인터 잠금을 건다 (안내·별도 상태 없음, Esc로 풀려도 그대로 동작)
+     * - 터치(휴대폰): 뒤·1인칭은 끌어서 둘러보기, 짧은 탭 = 행동
+     */
+    let mouseAct = 0;
+    let aimPt:{ x: number; y: number; } | null = null;
+    let aimTap:{ x: number; y: number; } | null = null;
+    let usedMouse = false;
+    const locked = () => document.pointerLockElement === canvas;
+    const lock = () => {
+      if (locked()) return;
+      try {
+        // 지원하지 않거나 거절돼도 마우스 움직임으로 도는 건 그대로
+        (canvas.requestPointerLock?.() as unknown as Promise<void> | undefined)?.catch?.(() => {});
+      } catch {
+        // 무시
+      }
+    };
+    /** 마우스 움직임 → 시점 (잠기지 않았으면 직전 위치와의 차이) */
+    let lastMouse:{ x: number; y: number; } | null = null;
+    const raycaster = new THREE.Raycaster();
+    const aimPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const aimHit = new THREE.Vector3();
+    const aimNdc = new THREE.Vector2();
 
     const resize = () => {
       const { clientWidth: w, clientHeight: h } = canvas;
@@ -220,24 +250,38 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       inputRef.current.zoom *= Math.exp(e.deltaY * 0.0012);
     };
     const onDown = (e:PointerEvent) => {
-      if (e.pointerType === 'mouse') inputRef.current.mouse = e.buttons;
-      // 1인칭은 마우스를 잠가 움직임만으로 둘러본다 (Esc로 풀림)
-      if (e.pointerType === 'mouse' && inputRef.current.mode === 'fp' && document.pointerLockElement !== canvas) canvas.requestPointerLock?.();
+      if (e.pointerType === 'mouse') {
+        usedMouse = true;
+        const top = inputRef.current.mode === 'top';
+        if (!top) lock();
+        mouseAct |= e.button === 2 ? 2 : e.button === 0 ? 1 : 0; // eslint-disable-line no-bitwise, no-nested-ternary
+        if (top) aimPt = { x: e.clientX, y: e.clientY };
+        return;
+      }
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      taps.set(e.pointerId, { t: performance.now(), x: e.clientX, y: e.clientY, moved: 0 });
       if (pointers.size === 2) {
         const [ a, b ] = [ ...pointers.values() ];
         pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) };
       }
     };
     const onMove = (e:PointerEvent) => {
-      if (e.pointerType === 'mouse') inputRef.current.mouse = e.buttons; // 두 번째 버튼은 pointermove로만 알려 온다
-      if (document.pointerLockElement === canvas) {
-        inputRef.current.look.dx += e.movementX;
-        inputRef.current.look.dy += e.movementY;
+      if (e.pointerType === 'mouse') {
+        usedMouse = true;
+        if (inputRef.current.mode !== 'top') {
+          // 잠겨 있으면 움직임 값, 아니면 직전 위치와의 차이 (일부 브라우저는 movementX가 부정확)
+          const dx = locked() || !lastMouse ? e.movementX : e.clientX - lastMouse.x;
+          const dy = locked() || !lastMouse ? e.movementY : e.clientY - lastMouse.y;
+          inputRef.current.look.dx += dx;
+          inputRef.current.look.dy += dy;
+        } else if (aimPt) aimPt = { x: e.clientX, y: e.clientY };
+        lastMouse = { x: e.clientX, y: e.clientY };
         return;
       }
       const prevPt = pointers.get(e.pointerId);
       if (!prevPt) return;
+      const tap = taps.get(e.pointerId);
+      if (tap) tap.moved = Math.max(tap.moved, Math.hypot(e.clientX - tap.x, e.clientY - tap.y));
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       // 한 손가락(마우스) 드래그 = 3인칭·1인칭에서 둘러보기
       if (pointers.size === 1 && inputRef.current.mode !== 'top') {
@@ -252,11 +296,22 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       }
     };
     const onUp = (e:PointerEvent) => {
-      if (e.pointerType === 'mouse') inputRef.current.mouse = e.buttons;
+      if (e.pointerType === 'mouse') {
+        mouseAct &= ~(e.button === 2 ? 2 : e.button === 0 ? 1 : 0); // eslint-disable-line no-bitwise, no-nested-ternary
+        if (!(mouseAct & 1)) aimPt = null; // eslint-disable-line no-bitwise
+        return;
+      }
+      // 손가락 짧게 = 행동 1 (두 손가락 확대 중엔 아님). 위 시점이면 탭한 쪽을 본다
+      const tap = taps.get(e.pointerId);
+      taps.delete(e.pointerId);
+      if (e.type === 'pointerup' && tap && !pinch && performance.now() - tap.t < TAP_MS && tap.moved < TAP_MOVE) {
+        inputRef.current.actTap |= 1; // eslint-disable-line no-bitwise
+        if (inputRef.current.mode === 'top') aimTap = { x: e.clientX, y: e.clientY };
+      }
       pointers.delete(e.pointerId);
       if (pointers.size < 2) pinch = null;
     };
-    // 오른쪽 버튼은 둘러보기에 쓰므로 메뉴를 막는다
+    // 오른쪽 버튼은 행동 2(원거리)에 쓰므로 메뉴를 막는다
     const noMenu = (e:Event) => e.preventDefault();
     canvas.addEventListener('contextmenu', noMenu);
     canvas.addEventListener('wheel', onWheel, { passive: false });
@@ -270,7 +325,11 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         if (e.code === 'Space') e.preventDefault();
         inputRef.current.keys.add(e.code);
         if (e.code === 'KeyT' && !e.repeat) inputRef.current.runToggle = !inputRef.current.runToggle;
-        if (e.code === 'KeyV' && !e.repeat) inputRef.current.mode = nextMode(inputRef.current.mode);
+        if (e.code === 'KeyV' && !e.repeat) {
+          inputRef.current.mode = nextMode(inputRef.current.mode);
+          // 키 누름은 사용자 동작이라 여기서 바로 조용히 잠글 수 있다 (가장자리에서 안 멈추게)
+          if (inputRef.current.mode !== 'top' && usedMouse) lock();
+        }
         if (e.code === 'KeyQ') inputRef.current.rotate -= 1;
         if (e.code === 'KeyE') inputRef.current.rotate += 1;
         if (e.code === 'Equal' || e.code === 'NumpadAdd') inputRef.current.zoom *= 0.8;
@@ -279,7 +338,8 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     };
     const clearKeys = () => {
       inputRef.current.keys.clear();
-      inputRef.current.mouse = 0;
+      mouseAct = 0;
+      aimPt = null;
     };
     window.addEventListener('keydown', onKey);
     window.addEventListener('keyup', onKey);
@@ -299,7 +359,12 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       if (input.mode !== mode) {
         mode = input.mode;
         if (mode === 'top') yawTarget = Math.round(yawTarget / (Math.PI / 2)) * (Math.PI / 2);
-        if (mode !== 'fp' && document.pointerLockElement === canvas) document.exitPointerLock();
+        if (mode === 'top' && locked()) document.exitPointerLock();
+        // 위 시점은 조준 커서, 뒤·1인칭은 커서 숨김 (마우스 = 시점)
+        canvas.style.cursor = mode === 'top' ? 'crosshair' : 'none';
+        lastMouse = null;
+        mouseAct = 0;
+        aimPt = null;
         scene.fog = mode === 'top' ? null : fog;
       }
       const persp3 = mode !== 'top';
@@ -331,12 +396,29 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       const rx = Math.cos(yaw);
       const rz = -Math.sin(yaw);
       const q = (n:number) => Math.round(n * 1000) / 1000; // 서버와 똑같은 값으로 계산하게 반올림
-      // 1인칭, 그리고 3인칭에서 오른쪽 버튼을 누르고 있으면 몸이 카메라가 보는 쪽을 본다 (옆걸음질)
-      // eslint-disable-next-line no-bitwise -- 마우스 버튼 비트
-      const steer = mode === 'fp' || (mode === 'chase' && (input.mouse & 2) !== 0);
-      // 카메라가 보는 쪽 = 몸이 보는 쪽 (카메라 앞 (-sin yaw, -cos yaw) = 몸 앞 (sin f, cos f) → f = yaw + π)
-      const look = Math.atan2(Math.sin(yaw + Math.PI), Math.cos(yaw + Math.PI));
-      const inp:Input = { mx: q(rx * mv.x - fx * mv.y), mz: q(rz * mv.x - fz * mv.y), run: mv.run, lift: readLift(input), face: steer ? Math.round(look * 10000) / 10000 : undefined };
+      // 행동 비트: 모드 버튼(누르는 동안) + 마우스(누르는 동안) + 탭(한 번)
+      const held = input.act | mouseAct; // eslint-disable-line no-bitwise
+      // 몸이 보는 쪽:
+      // - 1인칭, 마우스로 잠근 3인칭, 3인칭에서 행동 중 → 카메라가 보는 쪽 (카메라 앞 (-sin yaw, -cos yaw) = 몸 앞 (sin f, cos f) → f = yaw + π)
+      // - 위 시점에서 행동 중 → 마우스·탭이 가리키는 땅 쪽
+      let face:number | undefined;
+      if (mode === 'fp' || (mode === 'chase' && (usedMouse || held || input.actTap))) face = Math.atan2(Math.sin(yaw + Math.PI), Math.cos(yaw + Math.PI));
+      const aimAt = mode === 'top' ? (aimTap ?? (held ? aimPt : null)) : null;
+      if (aimAt) {
+        const rect = canvas.getBoundingClientRect();
+        aimNdc.set(((aimAt.x - rect.left) / rect.width) * 2 - 1, -((aimAt.y - rect.top) / rect.height) * 2 + 1);
+        raycaster.setFromCamera(aimNdc, camera);
+        aimPlane.constant = -pos.y;
+        if (raycaster.ray.intersectPlane(aimPlane, aimHit) && Math.hypot(aimHit.x - pos.x, aimHit.z - pos.z) > 0.2) face = Math.atan2(aimHit.x - pos.x, aimHit.z - pos.z);
+      }
+      const inp:Input = { mx: q(rx * mv.x - fx * mv.y), mz: q(rz * mv.x - fz * mv.y), run: mv.run, lift: readLift(input), face: face === undefined ? undefined : Math.round(face * 10000) / 10000 };
+      // 게임 모드 화면: 서버가 알려 준 모드가 바뀌면 새로 만들고, 받은 모드 메시지를 넘긴다
+      if (net.modeName !== modeName) {
+        modeClient?.dispose();
+        modeName = net.modeName;
+        modeClient = modeName && MODE_CLIENTS[modeName] ? MODE_CLIENTS[modeName]({ scene, sim, send: (d) => net.sendMode(d) }) : null;
+      }
+      net.takeModeMessages().forEach((d) => modeClient?.receive(d, now));
       // 서버 확정 상태가 오면 (이번 걸음들보다 먼저 — 입장 직후 보낸 입력을 버리지 않게): 그 상태에서 서버가 아직 안 본 입력만 다시 돌려 지금 자리를 맞춘다
       const auth = net.takeAuthority();
       if (auth) {
@@ -347,7 +429,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         prev = copyBody(body);
         pending.forEach((c) => {
           prev = copyBody(body);
-          step(sim, body, c.inp);
+          if (!c.frozen) step(sim, body, c.inp);
         });
         correction = Math.hypot(before.x - body.x, before.y - body.y, before.z - body.z);
         if (!auth.reset && correction < 5 && before.b === body.b && before.l === body.l) {
@@ -363,16 +445,25 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
 
       acc += raw;
       const out:InputTuple[] = [];
+      // 움직일 수 없는 상태(모드가 정함)면 예측도 멈춘다
+      const frozen = (net.meStatus.s & ST_FROZEN) !== 0; // eslint-disable-line no-bitwise
+      const tuple = (c:{ seq: number; inp: Input; act: number; }):InputTuple => [ c.seq, c.inp.mx, c.inp.mz, c.inp.run ? 1 : 0, c.inp.lift, c.inp.face ?? NO_FACE, c.act ];
       while (acc >= STEP) {
         acc -= STEP;
         seq++;
         prev = copyBody(body);
-        step(sim, body, inp);
-        pending.push({ seq, inp });
-        out.push([ seq, inp.mx, inp.mz, inp.run ? 1 : 0, inp.lift, inp.face ?? NO_FACE ]);
+        if (!frozen) step(sim, body, inp);
+        // 행동: 누르고 있는 것 + 짧게 누른 것(한 걸음에만 싣는다)
+        const act = held | input.actTap; // eslint-disable-line no-bitwise
+        input.actTap = 0;
+        aimTap = null;
+        if (act) modeClient?.acted(act, now);
+        const c = { seq, inp, act, frozen };
+        pending.push(c);
+        out.push(tuple(c));
       }
       if (pending.length > 150) pending.splice(0, pending.length - 150);
-      if (net.state === 'online') net.sendInputs(out, pending.map((c) => [ c.seq, c.inp.mx, c.inp.mz, c.inp.run ? 1 : 0, c.inp.lift, c.inp.face ?? NO_FACE ]));
+      if (net.state === 'online') net.sendInputs(out, pending.map(tuple));
       else pending.length = 0; // 서버 없이 혼자 움직이는 중
 
       // 화면 위치: 직전 걸음과 지금 사이를 보간 + 보정 어긋남을 서서히 지운다
@@ -405,24 +496,27 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
 
       // 내려다보기에서 축소할수록 캐릭터를 키워 점으로 사라지지 않게 (3인칭·1인칭은 실제 크기)
       const big = persp3 ? 1 : THREE.MathUtils.clamp(shown / 60, 1, 5);
-      player.root.visible = mode !== 'fp';
+      // 내 모습: 게임 모드가 상태 비트로 정한다 (죽음 = 숨김, 무적 = 깜빡임, 휘두르기, 맞음)
+      const blinkOff = Math.floor(now / 120) % 2 === 0;
+      const myLook = modeClient?.look(net.meStatus.s, net.meStatus.v, now, true, 0) ?? PLAIN_LOOK;
+      player.root.visible = mode !== 'fp' && !myLook.hidden && !(myLook.blink && blinkOff);
       player.root.scale.setScalar(big);
       player.root.position.set(pos.x, pos.y, pos.z);
       player.root.rotation.y = facing;
       player.animate(dt, flying ? 0 : actual, flying ? Math.min(1, body.spd / FLY) : 0);
+      player.pose(myLook);
       // 실외 사람은 늘, 실내 사람은 나와 같은 건물·층일 때만
       const remotes = net.remotes(now);
       const seen = (r:{ b: number; l: number; }) => r.b < 0 || (r.b === body.b && r.l === body.l);
-      others.update(remotes, dt, seen, big, (r) => r.b < 0 && r.y - collision.floorAt(r.x, r.z, r.y) > 0.5);
-      // 미니맵은 두 프레임에 한 번
-      const zone = net.zone(now);
-      if (miniFrame++ % 2 === 0) mini.draw(pos.x, pos.z, yaw, facing, remotes.filter(seen), zone);
-      wall.visible = !!zone;
-      if (zone) {
-        wall.position.set(zone.cx, WALL_H / 2 - 5, zone.cz);
-        wall.scale.set(zone.r, WALL_H, zone.r);
-      }
-      const outside = zone ? Math.max(0, Math.hypot(pos.x - zone.cx, pos.z - zone.cz) - zone.r) : 0;
+      const looks = new Map(remotes.map((r) => [ r.id, modeClient?.look(r.s, r.v, now, false, r.id) ?? PLAIN_LOOK ]));
+      others.update(remotes, dt, seen, big, (r) => r.b < 0 && r.y - collision.floorAt(r.x, r.z, r.y) > 0.5, (r) => {
+        const lk = looks.get(r.id) ?? PLAIN_LOOK;
+        return lk.blink && blinkOff ? { ...lk, hidden: true } : lk;
+      });
+      modeClient?.frame({ now, dt, persp: persp3, me: { x: pos.x, y: pos.y, z: pos.z, f: facing, b: body.b, l: body.l, st: net.meStatus.s, gv: net.meStatus.v } });
+      // 미니맵은 두 프레임에 한 번 (모드가 위에 그린다: 전장 원 등)
+      const mc = modeClient;
+      if (miniFrame++ % 2 === 0) mini.draw(pos.x, pos.z, yaw, facing, remotes.filter((r) => seen(r) && !looks.get(r.id)?.hidden), mc ? (g, k, dpr) => mc.minimap(g, k, dpr) : undefined);
       const tall = 1.72 * big;
       const onScreen = tall * Math.cos(PITCH); // 내려다보니 화면에선 키가 줄어 보인다
       const mk = onScreen * 1.2; // 화면에서 사람보다 살짝 크게
@@ -545,7 +639,8 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         indoor: room ? { name: room.name, level, elevator: cab >= 0 } : null,
         net: { state: net.state, count: net.count, error: net.error, correction, pending: pending.length, transport: net.transport, rtt: net.rtt, jitter: net.jitter },
         mode,
-        zone: zone ? { stage: zone.stage, shrinking: zone.shrinking, untilChange: Math.ceil(zone.untilChange / 1000), remain: Math.ceil(zone.remain / 1000), outside } : null,
+        gameMode: modeName,
+        game: modeClient?.hud(now) ?? null,
       };
       if (!readySent) {
         readySent = true;
@@ -557,6 +652,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
 
     return () => {
       cancelAnimationFrame(raf);
+      modeClient?.dispose();
       net.close();
       miniRef.current?.removeEventListener('pointerdown', onMini);
       others.dispose();

@@ -3,9 +3,19 @@
  * 서버 권위: 클라이언트는 입력만 보내고, 서버가 공용 시뮬레이션(yeouido-sim)으로 위치를 확정한다.
  * 스냅숏·입력은 바이너리(binary.ts), 나머지(입장·퇴장·신호)는 JSON.
  * 스냅숏에는 받는 사람 주변(보이는 범위)·같은 공간의 사람만 담는다.
+ *
+ * 엔진/게임 모드 구분: 이 파일은 장르와 무관한 엔진 프로토콜이다. 게임 규칙(배틀로얄 등)은
+ * - 입력의 행동 비트(act), 사람마다 상태 비트(s)·게이지(v)에 뜻을 붙이고
+ * - 자기 메시지는 { t: 'mode' } 통로로만 주고받는다 (형식은 모드 모듈이 정한다).
  */
 
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
+
+/** 상태 비트 중 엔진이 쓰는 것: 움직일 수 없음 (입력은 받되 이동하지 않는다 — 클라이언트 예측도 멈춘다). 나머지 비트는 모드가 쓴다 */
+export const ST_FROZEN = 0x80;
+
+/** 행동 비트(입력 act): 엔진은 뜻을 모르고 모드에 넘긴다. 0~7 (3비트) */
+export const ACT_MAX = 7;
 
 /** 입력의 보는 방향이 없다는 표시 */
 export const NO_FACE = 99;
@@ -33,8 +43,8 @@ export const OUTDOOR = -1;
 /** 내 시뮬레이션 상태 전부: [x, y, z, f, spd, a, b, l, lw, fly, vy] (yeouido-sim Body와 같은 순서) */
 export type BodyTuple = [number, number, number, number, number, number, number, number, number, number, number];
 
-/** 입력 한 걸음: [순번, mx, mz, 달리기(0/1), 높이(-1/0/1), 보는 방향(라디안, 없으면 NO_FACE)] */
-export type InputTuple = [number, number, number, number, number, number];
+/** 입력 한 걸음: [순번, mx, mz, 달리기(0/1), 높이(-1/0/1), 보는 방향(라디안, 없으면 NO_FACE), 행동 비트(0~7)] */
+export type InputTuple = [number, number, number, number, number, number, number];
 
 /** 다른 사람에게 보이는 상태 */
 export interface PlayerState {
@@ -48,6 +58,9 @@ export interface PlayerState {
   /** 건물 번호(실외 -1)와 층 */
   b: number;
   l: number;
+  /** 상태 비트(모드가 정함, ST_FROZEN만 엔진)와 게이지(0~255, 모드가 정함 — 예: 체력) */
+  s: number;
+  v: number;
 }
 
 /** 클라이언트 → 서버 */
@@ -60,6 +73,8 @@ export type ClientMsg =
   | { t: 'view'; r: number; }
   /** 왕복 시간 재기: 보낸 시각(클라이언트 시계)을 서버가 그대로 돌려준다 */
   | { t: 'ping'; c: number; }
+  /** 게임 모드 전용 요청 (형식은 모드 모듈이 정한다) */
+  | { t: 'mode'; d: unknown; }
   /** WebRTC 신호 (offer 또는 ICE 후보) */
   | ({ t: 'rtc'; } & RtcSignal);
 
@@ -68,31 +83,29 @@ export interface RtcSignal {
   sdp?: string; type?: string; c?: string; mid?: string;
 }
 
-/** 스냅숏 한 줄: [id, x, y, z, f, a, b, l] */
-export type SnapRow = [number, number, number, number, number, number, number, number];
+/** 스냅숏 한 줄: [id, x, y, z, f, a, b, l, s, v] */
+export type SnapRow = [number, number, number, number, number, number, number, number, number, number];
 
 /** 서버 → 클라이언트 */
 export type ServerMsg =
   /** rtc: 서버가 WebRTC 데이터채널을 받을 수 있으면 true (클라이언트가 offer를 보낸다) */
-  | { t: 'welcome'; id: number; world: string; v: number; players: { id: number; name: string; }[]; me: BodyTuple; ack: number; rtc: boolean; }
+  /** mode: 이 월드에서 돌아가는 게임 모드 이름 (클라이언트가 맞는 화면을 고른다) */
+  | { t: 'welcome'; id: number; world: string; mode: string; v: number; players: { id: number; name: string; }[]; me: BodyTuple; ack: number; rtc: boolean; }
   | ({ t: 'rtc'; } & RtcSignal)
   | { t: 'join'; id: number; name: string; }
   | { t: 'leave'; id: number; }
-  /** ack: 이 상태까지 반영한 내 입력 순번, me: 그 시점 내 상태 (정밀값) */
-  | { t: 'snap'; tick: number; ack: number; me: BodyTuple; ps: SnapRow[]; }
+  /** ack: 이 상태까지 반영한 내 입력 순번, me: 그 시점 내 상태 (정밀값), ms·mv: 내 상태 비트·게이지 */
+  | { t: 'snap'; tick: number; ack: number; me: BodyTuple; ms: number; mv: number; ps: SnapRow[]; }
   | { t: 'error'; msg: string; }
   | { t: 'pong'; c: number; }
-  /**
-   * 판 정보: 원 11개([cx, cz, r]: 0번 처음 원, k번 k단계 끝 원)와 판이 시작된 뒤 흐른 시간(ms).
-   * 클라이언트는 yeouido-sim zoneAt으로 지금 원을 계산한다. 새 판이면 id가 바뀐다
-   */
-  | { t: 'match'; id: number; circles: [number, number, number][]; elapsed: number; };
+  /** 게임 모드 전용 알림 묶음 (한 틱 동안 모은 것, 형식은 모드 모듈이 정한다) */
+  | { t: 'mode'; ds: unknown[]; };
 
 const round = (n:number, k = 100) => Math.round(n * k) / k;
 
-export const toRow = (id:number, s:PlayerState):SnapRow => [ id, round(s.x), round(s.y), round(s.z), round(s.f), round(s.a, 10), s.b, s.l ];
+export const toRow = (id:number, p:Omit<PlayerState, 's' | 'v'>, s:number, v:number):SnapRow => [ id, round(p.x), round(p.y), round(p.z), round(p.f), round(p.a, 10), p.b, p.l, s, v ];
 
-export const fromRow = (r:SnapRow):{ id: number; } & PlayerState => ({ id: r[0], x: r[1], y: r[2], z: r[3], f: r[4], a: r[5], b: r[6], l: r[7] });
+export const fromRow = (r:SnapRow):{ id: number; } & PlayerState => ({ id: r[0], x: r[1], y: r[2], z: r[3], f: r[4], a: r[5], b: r[6], l: r[7], s: r[8], v: r[9] });
 
 export interface BodyLike {
   x: number; y: number; z: number; f: number; spd: number; a: number; b: number; l: number; lw: number; fly: number; vy: number;
@@ -106,7 +119,8 @@ const num = (v:unknown, lim:number) => typeof v === 'number' && Number.isFinite(
 
 /** 받은 입력 한 줄이 쓸 만한지 */
 export function validInput(c:unknown):c is InputTuple {
-  return Array.isArray(c) && c.length === 6 && num(c[0], 1e9) && num(c[1], 1.01) && num(c[2], 1.01) && num(c[3], 1) && num(c[4], 1) && num(c[5], NO_FACE);
+  return Array.isArray(c) && c.length === 7 && num(c[0], 1e9) && num(c[1], 1.01) && num(c[2], 1.01) && num(c[3], 1) && num(c[4], 1) && num(c[5], NO_FACE)
+    && Number.isInteger(c[6]) && c[6] >= 0 && c[6] <= ACT_MAX;
 }
 
 export * from './binary';

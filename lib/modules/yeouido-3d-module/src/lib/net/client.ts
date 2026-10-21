@@ -1,5 +1,4 @@
 import { BodyTuple, ClientMsg, decodeSnap, encodeInputs, fromRow, INTERP_DELAY_MS, InputTuple, PlayerState, PROTOCOL_VERSION, ServerMsg, VIEW_MAX, VIEW_MIN } from 'yeouido-net';
-import { MatchPlan, zoneAt, ZoneNow } from 'yeouido-sim';
 
 /**
  * 게임 서버 접속 (서버 권위): 자동 재접속, 내 입력 보내기, 서버가 확정한 내 상태 받기, 다른 사람 위치 보간.
@@ -43,6 +42,8 @@ export type NetState = 'connecting' | 'online' | 'offline';
 /** 서버가 확정한 내 상태: ack 순번까지의 입력을 반영한 결과 */
 export interface Authority {
   ack: number; me: BodyTuple; reset: boolean;
+  /** 내 상태 비트·게이지 (모드가 정함, ST_FROZEN만 엔진) */
+  ms: number; mv: number;
 }
 
 /** 접속(재접속)할 때 이어서 시작할 자리 */
@@ -104,11 +105,14 @@ export class GameClient {
 
   private spawn:SpawnFn;
 
-  /** 지금 판: 원과, 판이 시작된 시각(이 브라우저 시계) */
-  match:{ plan:MatchPlan; startAt:number; } | null = null;
+  /** 이 월드의 게임 모드 이름 (welcome에서) */
+  modeName:string | null = null;
 
-  /** 판이 바뀌었다 (새 판 → 서버가 자리를 옮겼으니 예측을 버린다) */
-  private matchChanged = false;
+  /** 아직 가져가지 않은 모드 메시지 */
+  private modeInbox:unknown[] = [];
+
+  /** 내 상태 비트·게이지 (가장 최근 스냅숏) */
+  meStatus = { s: 0, v: 0 };
 
   constructor(url:string, name:string, spawn:SpawnFn) {
     this.url = url;
@@ -180,17 +184,16 @@ export class GameClient {
       this.startPing();
       this.myId = msg.id;
       msg.players.forEach((p) => this.names.set(p.id, p.name));
-      this.auth = { ack: msg.ack, me: msg.me, reset: true };
+      this.auth = { ack: msg.ack, me: msg.me, ms: 0, mv: 0, reset: true };
+      if (this.modeName !== msg.mode) this.modeInbox = this.modeInbox.slice(-50);
+      this.modeName = msg.mode;
       if (msg.rtc && !new URLSearchParams(window.location.search).has('nortc')) this.startRtc();
     } else if (msg.t === 'rtc') this.rtcSignal(msg);
     else if (msg.t === 'error') this.error = msg.msg;
     else if (msg.t === 'pong') this.pong(msg.c);
-    else if (msg.t === 'match') {
-      const startAt = now - msg.elapsed;
-      if (this.match && this.match.plan.id !== msg.id) this.matchChanged = true;
-      // 같은 판이면 시계만 살짝 맞춘다 (받는 지연만큼 흔들리지 않게 큰 차이만)
-      if (this.match?.plan.id === msg.id && Math.abs(this.match.startAt - startAt) < 300) return;
-      this.match = { plan: { id: msg.id, circles: msg.circles.map(([ cx, cz, r ]) => ({ cx, cz, r })) }, startAt };
+    else if (msg.t === 'mode') {
+      this.modeInbox.push(...msg.ds);
+      if (this.modeInbox.length > 500) this.modeInbox.shift();
     } else if (msg.t === 'join') this.names.set(msg.id, msg.name);
     else if (msg.t === 'leave') {
       this.names.delete(msg.id);
@@ -198,7 +201,8 @@ export class GameClient {
     } else if (msg.t === 'snap') {
       if (msg.tick <= this.lastTick) return;
       this.lastTick = msg.tick;
-      this.auth = { ack: msg.ack, me: msg.me, reset: this.auth?.reset ?? false };
+      this.auth = { ack: msg.ack, me: msg.me, ms: msg.ms, mv: msg.mv, reset: this.auth?.reset ?? false };
+      this.meStatus = { s: msg.ms, v: msg.mv };
       msg.ps.forEach((row) => {
         const { id, ...s } = fromRow(row);
         if (id === this.myId) return;
@@ -218,7 +222,7 @@ export class GameClient {
   /** 바이너리 스냅숏 → 같은 처리 */
   private binary(buf:ArrayBuffer) {
     const snap = decodeSnap(buf);
-    if (snap) this.receive({ t: 'snap', tick: snap.tick, ack: snap.ack, me: snap.me, ps: snap.rows });
+    if (snap) this.receive({ t: 'snap', tick: snap.tick, ack: snap.ack, me: snap.me, ms: snap.ms, mv: snap.mv, ps: snap.rows });
   }
 
   /** 화면에 보이는 반경(m)을 알려 준다 (15% 넘게 바뀔 때만) — 서버는 이 안의 사람만 보낸다 */
@@ -315,16 +319,19 @@ export class GameClient {
   takeAuthority() {
     const a = this.auth;
     this.auth = null;
-    if (a && this.matchChanged) {
-      a.reset = true;
-      this.matchChanged = false;
-    }
     return a;
   }
 
-  /** 지금 전장 원 (판 정보를 아직 못 받았으면 null) */
-  zone(now:number):ZoneNow | null {
-    return this.match ? zoneAt(this.match.plan, now - this.match.startAt) : null;
+  /** 받은 모드 메시지를 꺼낸다 (모드 화면이 매 프레임 가져간다) */
+  takeModeMessages() {
+    const list = this.modeInbox;
+    this.modeInbox = [];
+    return list;
+  }
+
+  /** 모드 요청 보내기 */
+  sendMode(d:unknown) {
+    this.send({ t: 'mode', d });
   }
 
   /**
@@ -353,6 +360,8 @@ export class GameClient {
             a: a.s.a + (b.s.a - a.s.a) * k,
             b: b.s.b,
             l: b.s.l,
+            s: b.s.s,
+            v: b.s.v,
           };
           break;
         }

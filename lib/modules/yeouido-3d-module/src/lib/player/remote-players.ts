@@ -2,8 +2,14 @@ import * as THREE from 'three';
 
 import { createPerson, Person } from './person';
 
+import { Look, PLAIN_LOOK } from '../modes/mode-client';
 import { Remote } from '../net/client';
 import { PIXEL_FONT } from '../ui/pixel';
+
+const barColor = (v:number) => {
+  if (v > 0.5) return '#5fd35f';
+  return v > 0.25 ? '#ffd84a' : '#ff5a4a';
+};
 
 const SHIRTS = [ '#3f8fd2', '#43a56b', '#d9a13b', '#8a5cc7', '#2fb3b0', '#c75c8f', '#6d7f3a', '#e07a3f' ];
 const PANTS = [ '#2f3a4a', '#4a3a2f', '#33473a', '#3d3550' ];
@@ -26,13 +32,25 @@ function nameTag(name:string) {
     whiteSpace: 'nowrap',
     pointerEvents: 'none',
     willChange: 'transform',
+    textAlign: 'center',
   });
-  return el;
+  // 이름표 아래 막대 (게임 모드가 정함 — 예: 체력)
+  const bar = document.createElement('div');
+  Object.assign(bar.style, { height: '3px', marginTop: '1px', background: '#0b0e22', display: 'none' });
+  const fill = document.createElement('div');
+  Object.assign(fill.style, { height: '100%', width: '100%', background: '#5fd35f' });
+  bar.appendChild(fill);
+  el.appendChild(bar);
+  return { el, bar, fill };
 }
 
 interface Shown {
   person: Person;
   tag: HTMLDivElement;
+  bar: HTMLDivElement;
+  fill: HTMLDivElement;
+  /** 지금 막대 값 (바뀔 때만 DOM을 고친다) */
+  barV: number | null;
   name: string;
   /** 이름표를 붙일 머리 위 점 (월드) */
   head: THREE.Vector3;
@@ -69,8 +87,9 @@ export class RemotePlayers {
    * @param visible 지금 내 위치에서 보이는 사람인지 (실내 층 구분)
    * @param big 캐릭터 확대 배율
    * @param flying 날고 있는 사람인지 (날면 진행 방향으로 몸을 기울여 그린다)
+   * @param look 게임 모드가 정한 모습 (숨김·동작·막대)
    */
-  update(list:Remote[], dt:number, visible:(r:Remote) => boolean, big:number, flying:(r:Remote) => boolean) {
+  update(list:Remote[], dt:number, visible:(r:Remote) => boolean, big:number, flying:(r:Remote) => boolean, look:(r:Remote) => Look = () => PLAIN_LOOK) {
     const seen = new Set<number>();
     list.forEach((r) => {
       seen.add(r.id);
@@ -78,15 +97,24 @@ export class RemotePlayers {
       if (!s || s.name !== r.name) {
         if (s) this.remove(r.id);
         const person = createPerson({ shirt: SHIRTS[r.id % SHIRTS.length], pants: PANTS[r.id % PANTS.length], skin: '#f1c7a0', hair: '#2a1d14' });
-        const tag = nameTag(r.name || `#${r.id}`);
+        const { el: tag, bar, fill } = nameTag(r.name || `#${r.id}`);
         this.scene.add(person.root);
         this.layer.appendChild(tag);
-        s = { person, tag, name: r.name, head: new THREE.Vector3(), on: false, lx: r.x, lz: r.z, speed: 0 };
+        s = { person, tag, bar, fill, barV: null, name: r.name, head: new THREE.Vector3(), on: false, lx: r.x, lz: r.z, speed: 0 };
         this.shown.set(r.id, s);
       }
-      s.on = visible(r);
+      const lk = look(r);
+      s.on = visible(r) && !lk.hidden;
       s.person.root.visible = s.on;
       if (!s.on) return;
+      if (lk.bar !== s.barV) {
+        s.barV = lk.bar;
+        s.bar.style.display = lk.bar === null ? 'none' : 'block';
+        if (lk.bar !== null) {
+          s.fill.style.width = `${Math.round(lk.bar * 100)}%`;
+          s.fill.style.background = barColor(lk.bar);
+        }
+      }
       s.person.root.position.set(r.x, r.y, r.z);
       s.person.root.rotation.y = r.f;
       s.person.root.scale.setScalar(big);
@@ -95,6 +123,7 @@ export class RemotePlayers {
       s.lx = r.x;
       s.lz = r.z;
       s.person.animate(dt, r.a, flying(r) ? Math.min(1, s.speed / 12) : 0);
+      s.person.pose(lk);
       s.head.set(r.x, r.y + 1.72 * big, r.z);
     });
     [ ...this.shown.keys() ].filter((id) => !seen.has(id)).forEach((id) => this.remove(id));

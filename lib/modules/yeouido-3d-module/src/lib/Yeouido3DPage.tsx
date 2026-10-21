@@ -5,6 +5,7 @@ import styled from 'styled-components';
 
 import { useGalmuriFont } from './hooks/use-galmuri-font';
 import { CamMode, capturePointer, createInput, nextMode } from './input';
+import { MODE_HUDS } from './modes/huds';
 import { GameCanvas, GameStatus } from './ui/GameCanvas';
 import { Panel, PIXEL_FONT, PixelButton } from './ui/pixel';
 import { VirtualJoystick } from './ui/VirtualJoystick';
@@ -27,13 +28,6 @@ const netLabel = (s:GameStatus) => {
   return s.net.state === 'connecting' ? '접속 중…' : '오프라인';
 };
 
-const clock = (s:number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-
-const zoneLabel = (z:NonNullable<GameStatus['zone']>) => {
-  if (z.stage > 10) return '최종 원 · 시간 종료';
-  return `전장 ${z.stage}/10 · ${z.shrinking ? '줄어드는 중' : '다음 축소'} ${clock(z.untilChange)} · 남은 시간 ${clock(z.remain)}`;
-};
-
 const MODE_LABEL:Record<CamMode, string> = { top: '위', chase: '뒤', fp: '1인칭' };
 
 const isTouch = () => typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
@@ -41,7 +35,7 @@ const isTouch = () => typeof window !== 'undefined' && ('ontouchstart' in window
 export function Yeouido3DPage() {
   useGalmuriFont();
   const inputRef = useRef(createInput());
-  const statusRef = useRef<GameStatus>({ ready: false, buildMs: 0, pixel: 0, x: 0, z: 0, running: false, alt: 0, flying: false, onRoof: false, indoor: null, net: { state: 'connecting', count: 0, error: '', correction: 0, pending: 0, transport: 'ws', rtt: 0, jitter: 0 }, mode: 'top', zone: null });
+  const statusRef = useRef<GameStatus>({ ready: false, buildMs: 0, pixel: 0, x: 0, z: 0, running: false, alt: 0, flying: false, onRoof: false, indoor: null, net: { state: 'connecting', count: 0, error: '', correction: 0, pending: 0, transport: 'ws', rtt: 0, jitter: 0 }, mode: 'top', gameMode: null, game: null });
   const [ ready, setReady ] = useState(false);
   const [ touch ] = useState(isTouch);
   const [ status, setStatus ] = useState<GameStatus>(statusRef.current);
@@ -141,12 +135,8 @@ export function Yeouido3DPage() {
         </Buttons>
       </TopBar>
 
-      {status.zone && (
-        <ZoneBar $warn={status.zone.outside > 0}>
-          {zoneLabel(status.zone)}
-          {status.zone.outside > 0 && <b>전장 밖! 원 안으로 {Math.ceil(status.zone.outside)}m</b>}
-        </ZoneBar>
-      )}
+      {/* 게임 모드 HUD (지금은 배틀로얄 PoC — 모드가 바뀌면 화면도 바뀐다) */}
+      {status.gameMode && status.game ? MODE_HUDS[status.gameMode]?.({ state: status.game, inputRef, touch }) ?? null : null}
 
       {touch && <VirtualJoystick inputRef={inputRef} />}
       <SideButtons>
@@ -156,7 +146,7 @@ export function Yeouido3DPage() {
           {run ? '달리기' : '걷기'}
         </RunButton>
       </SideButtons>
-      {!touch && <KeyHint>이동 WASD/방향키 · 달리기 T(전환)/Shift · 높이 Space·R / C·F · 시점 V(뒤·1인칭은 드래그로 둘러보기) · 회전 Q/E · 확대 휠/+/-</KeyHint>}
+      {!touch && <KeyHint>이동 WASD/방향키 · 달리기 T(전환)/Shift · 높이 Space·R / C·F · 시점 V(뒤·1인칭은 마우스 움직임 = 시점) · 회전 Q/E · 확대 휠/+/-</KeyHint>}
 
       {!ready && <Loading>여의도를 세우는 중…</Loading>}
       <Attribution href='https://www.openstreetmap.org/copyright' target='_blank' rel='noreferrer'>
@@ -197,21 +187,6 @@ const Title = styled.div({
 });
 
 const Sub = styled.span({ color: '#b9bfe0' });
-
-const ZoneBar = styled(Panel)<{ $warn: boolean; }>(({ $warn }) => ({
-  position: 'absolute',
-  top: 74,
-  left: 10,
-  maxWidth: 'calc(100% - 190px)',
-  padding: '6px 10px',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 2,
-  color: '#f4f4f8',
-  b: { fontWeight: 'normal', color: '#ff7a6b', animation: $warn ? 'zoneBlink 0.8s steps(2) infinite' : 'none' },
-  '@keyframes zoneBlink': { '50%': { opacity: 0.35 } },
-  '@media (max-width: 560px)': { top: 126 },
-}));
 
 const Buttons = styled.div({ display: 'flex', gap: 6 });
 
