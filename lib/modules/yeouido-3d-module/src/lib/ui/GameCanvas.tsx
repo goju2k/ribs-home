@@ -535,7 +535,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       }
       lamp.intensity = (1 - day) * 3;
       lamp.position.set(pos.x, pos.y + 3, pos.z);
-      modeClient?.frame({ now, dt, persp: persp3, me: { x: pos.x, y: pos.y, z: pos.z, f: facing, b: body.b, l: body.l, st: net.meStatus.s, gv: net.meStatus.v } });
+      modeClient?.frame({ now, dt, persp: persp3, me: { x: pos.x, y: pos.y, z: pos.z, f: facing, b: body.b, l: body.l, st: net.meStatus.s, gv: net.meStatus.v }, others: remotes });
       // 미니맵은 두 프레임에 한 번 (모드가 위에 그린다: 전장 원 등)
       const mc = modeClient;
       if (miniFrame++ % 2 === 0) mini.draw(pos.x, pos.z, yaw, facing, remotes.filter((r) => seen(r) && !looks.get(r.id)?.hidden), mc ? (g, k, dpr) => mc.minimap(g, k, dpr) : undefined);

@@ -24,6 +24,9 @@ export const PLAIN_LOOK:Look = { hidden: false, blink: false, bar: null, swing: 
 /** NPC 모습 (모습 종류 k마다): 옷·피부색과 이름표를 달지 */
 export interface Appearance {
   look: PersonLook; tag: boolean;
+  /** 이름표에 쓸 이름 (NPC는 이름이 없다), 몸 크기 배율 */
+  name?: string;
+  scale?: number;
 }
 
 export interface ModeFrame {
@@ -31,6 +34,8 @@ export interface ModeFrame {
   dt: number;
   /** 내 화면 위치·상태 */
   me: { x: number; y: number; z: number; f: number; b: number; l: number; st: number; gv: number; };
+  /** 지금 보이는 다른 사람·NPC (보간된 자리, 상태 비트, 모습 종류) */
+  others: { id: number; x: number; y: number; z: number; s: number; k: number; }[];
   /** 지금 시점이 원근(3인칭·1인칭)인지 */
   persp: boolean;
 }

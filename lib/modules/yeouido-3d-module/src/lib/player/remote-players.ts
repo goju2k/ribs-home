@@ -51,8 +51,9 @@ interface Shown {
   fill: HTMLDivElement;
   /** 지금 막대 값 (바뀔 때만 DOM을 고친다) */
   barV: number | null;
-  /** 모습 종류 (바뀌면 다시 만든다) */
+  /** 모습 종류 (바뀌면 다시 만든다), 몸 크기 배율 */
   k: number;
+  scale: number;
   name: string;
   /** 이름표를 붙일 머리 위 점 (월드) */
   head: THREE.Vector3;
@@ -104,9 +105,10 @@ export class RemotePlayers {
         const { el: tag, bar, fill } = nameTag(r.name || (r.k ? '' : `#${r.id}`));
         // NPC는 이름표 대신 막대만 (모드가 이름표를 원하면 이름 칸을 쓴다)
         if (app && !app.tag) tag.firstChild!.textContent = '';
+        else if (app?.name) tag.firstChild!.textContent = app.name;
         this.scene.add(person.root);
         this.layer.appendChild(tag);
-        s = { person, tag, bar, fill, barV: null, k: r.k, name: r.name, head: new THREE.Vector3(), on: false, lx: r.x, lz: r.z, speed: 0 };
+        s = { person, tag, bar, fill, barV: null, k: r.k, scale: app?.scale ?? 1, name: r.name, head: new THREE.Vector3(), on: false, lx: r.x, lz: r.z, speed: 0 };
         this.shown.set(r.id, s);
       }
       const lk = look(r);
@@ -127,14 +129,14 @@ export class RemotePlayers {
       }
       s.person.root.position.set(r.x, r.y, r.z);
       s.person.root.rotation.y = r.f;
-      s.person.root.scale.setScalar(big);
+      s.person.root.scale.setScalar(big * s.scale);
       const v = dt > 0 ? Math.hypot(r.x - s.lx, r.z - s.lz) / dt : 0;
       s.speed += (Math.min(60, v) - s.speed) * (1 - Math.exp(-dt * 8));
       s.lx = r.x;
       s.lz = r.z;
       s.person.animate(dt, r.a, flying(r) ? Math.min(1, s.speed / 12) : 0);
       s.person.pose(lk);
-      s.head.set(r.x, r.y + 1.72 * big, r.z);
+      s.head.set(r.x, r.y + 1.72 * big * s.scale, r.z);
     });
     [ ...this.shown.keys() ].filter((id) => !seen.has(id)).forEach((id) => this.remove(id));
   }

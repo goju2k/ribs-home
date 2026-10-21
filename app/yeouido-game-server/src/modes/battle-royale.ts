@@ -1,11 +1,12 @@
 import {
-  ACT_MELEE, ACT_RANGED, afterPickup, heldRanged, RANGED_KINDS, rangedStats, armorCut, BR_MODE, dayNight, breakPower, PROP_KINDS, PROP_RADIUS, rollDrops, BrServerMsg, Corpse, CorpseItem, emptyGear, Gear, HP_MAX, HURT_MS, hpGauge, insideZone,
+  ACT_MELEE, ACT_RANGED, BOSS_LIMIT_MS, Difficulty, DIFFICULTY, RESULT_MS, afterPickup, heldRanged, RANGED_KINDS, rangedStats, armorCut, BR_MODE, dayNight, breakPower, PROP_KINDS, PROP_RADIUS, rollDrops, BrServerMsg, Corpse, CorpseItem, emptyGear, Gear, HP_MAX, HURT_MS, hpGauge, insideZone,
   ITEM_KINDS, makeMatchPlan, MATCH_MS, MatchPlan, meleeReaches, meleeStats, PICK_RANGE, pickSpawn, respawnDelay, rocketMul, shoeMul,
   SPAWN_SHIELD_MS, ST_DEAD, ST_FROZEN, ST_HURT, ST_SHIELD, ST_SWING, zoneAt, zoneDps,
 } from 'yeouido-br';
 import { SIM_HZ } from 'yeouido-net';
 import { Body, newBody } from 'yeouido-sim';
 
+import { Boss } from './br-boss';
 import { ItemField } from './br-items';
 import { Prop, PropField, propRow } from './br-props';
 import { aimDir, Arrow, at3, hitscan, MUZZLE_Y, ShotTarget } from './br-shots';
@@ -17,6 +18,12 @@ import { Aim, GameMode, ModeHost, ModePlayer } from '../mode';
 const DAY_OFFSET = Number(process.env.BR_DAY_OFFSET_MS) || 0;
 /** 개발용: 개발용 접속(?debug)은 이 장비로 시작 (예: BR_DEBUG_GEAR=pistol:3,shoes:2) */
 const DEBUG_GEAR = (process.env.BR_DEBUG_GEAR ?? '').split(',').map((s) => s.split(':')).filter(([ k, v ]) => k && Number(v) > 0);
+/** 개발용: 판 시계를 당겨 시작 (예: BR_TIME_OFFSET_MS=1190000 → 10초 뒤 보스) */
+const TIME_OFFSET = Number(process.env.BR_TIME_OFFSET_MS) || 0;
+/** 난이도 (보스 체력·피해 배율): easy·normal·hard */
+const DIFF:Difficulty = Object.keys(DIFFICULTY).includes(process.env.BR_DIFFICULTY ?? '') ? process.env.BR_DIFFICULTY as Difficulty : 'normal';
+/** 보스 상태 알림 간격 (ms) */
+const BOSS_EVERY_MS = 500;
 /** 판 정보를 이만큼마다 다시 보낸다 (시계 맞춤) */
 const MATCH_EVERY_MS = 5000;
 /** 아무도 없이 이만큼 지나면 판을 닫는다 */
@@ -95,6 +102,15 @@ export class BattleRoyale implements GameMode {
 
   private horde:Horde;
 
+  private boss:Boss;
+
+  /** 판 단계: 진행 → 보스 → 끝(결과 보여 주는 중) */
+  private phase:'play' | 'boss' | 'end' = 'play';
+
+  private endAt = 0;
+
+  private bossSentAt = 0;
+
   private arrows:Arrow[] = [];
 
   private nextArrowId = 1;
@@ -121,6 +137,18 @@ export class BattleRoyale implements GameMode {
         if (!f || now < f.shieldUntil) return;
         this.damage(p, Math.max(1, Math.round(dmg * (1 - armorCut(f.gear.armor)))), null, now, '좀비');
       },
+    });
+    this.boss = new Boss(host, {
+      alive: (p) => {
+        const f = this.fighters.get(p.id);
+        return !!f && !f.respawnAt;
+      },
+      hurt: (p, dmg, now) => {
+        const f = this.fighters.get(p.id);
+        if (!f || now < f.shieldUntil) return;
+        this.damage(p, Math.max(1, Math.round(dmg * DIFFICULTY[DIFF] * (1 - armorCut(f.gear.armor)))), null, now, '최종 보스');
+      },
+      summon: (x, z, n, now) => this.horde.summon(x, z, n, now),
     });
   }
 
@@ -149,7 +177,9 @@ export class BattleRoyale implements GameMode {
   private newMatch() {
     const id = this.nextMatchId++;
     this.match = makeMatchPlan(this.host.sim, id, (Math.random() * 2 ** 32) >>> 0); // eslint-disable-line no-bitwise
-    this.matchAt = Date.now();
+    this.matchAt = Date.now() - TIME_OFFSET;
+    this.phase = 'play';
+    this.boss.clear();
     this.corpses = [];
     this.horde.clear();
     this.items.clear();
@@ -234,8 +264,18 @@ export class BattleRoyale implements GameMode {
         hit: (dmg, by) => this.damage(o, Math.max(1, Math.round(dmg * (1 - armorCut(f.gear.armor)))), by, now),
       });
     });
-    // 사람은 damage()가 쏜 사람에게 맞힘 알림을 보내고, 좀비는 여기서
-    return out.concat(this.horde.shotTargets(now, (by, id, dmg) => this.send(by, { k: 'hit', target: id, dmg }), pos));
+    // 사람은 damage()가 쏜 사람에게 맞힘 알림을 보내고, 좀비·보스는 여기서
+    const zeds = this.horde.shotTargets(now, (by, id, dmg) => this.send(by, { k: 'hit', target: id, dmg }), pos);
+    const boss = this.boss.shotTarget(() => {}, pos, now);
+    if (boss) {
+      const { hit } = boss;
+      boss.hit = (dmg, by) => {
+        hit(dmg, by);
+        this.send(by, { k: 'hit', target: boss.id, dmg });
+      };
+      out.push(boss);
+    }
+    return out.concat(zeds);
   }
 
   /** 원거리 발사: 총은 바로 판정(지연 보정), 활은 화살을 날린다 */
@@ -362,6 +402,12 @@ export class BattleRoyale implements GameMode {
         bestD = d;
       }
     });
+    // 보스가 닿으면 보스 먼저 (몸이 커서 사거리에 반지름을 더한다)
+    if (this.boss.reaches(p.body, w.range, w.cosArc)) {
+      this.boss.hit(w.damage, p, now);
+      this.send(p, { k: 'hit', target: this.boss.npc!.id, dmg: w.damage });
+      return;
+    }
     // 좀비가 더 가까우면 좀비를 친다
     const zed = this.horde.nearest(p.body, (b) => meleeReaches(p.body, b, w.range, w.cosArc));
     if (zed && Math.hypot(zed.npc.body.x - p.body.x, zed.npc.body.z - p.body.z) < bestD) {
@@ -417,7 +463,7 @@ export class BattleRoyale implements GameMode {
   /** 사람이 피해를 입음. by = 때린 사람, 아니면 byName(예: 좀비), 둘 다 없으면 전장 밖 */
   private damage(t:ModePlayer, dmg:number, by:ModePlayer | null, now:number, byName:string | null = null) {
     const f = this.fighters.get(t.id);
-    if (!f || f.respawnAt) return;
+    if (!f || f.respawnAt || !Number.isFinite(dmg)) return;
     f.hp = Math.max(0, f.hp - dmg);
     f.hurtUntil = now + HURT_MS;
     this.send(t, { k: 'hurt', dmg, from: by?.name ?? byName });
@@ -454,8 +500,24 @@ export class BattleRoyale implements GameMode {
       return;
     }
     this.emptyAt = 0;
-    if (this.elapsed >= MATCH_MS) {
-      // 시간 끝 → 새 판 (보스·승리는 7단계): 모두 새 원 안에서 살아난다
+    // 20분: 최종 원 가운데에 보스
+    if (this.phase === 'play' && this.elapsed >= MATCH_MS) {
+      this.phase = 'boss';
+      const alive = all.filter((p) => !this.fighters.get(p.id)?.respawnAt).length;
+      this.boss.spawn(this.match.circles[this.match.circles.length - 1], alive, DIFF, now);
+      this.broadcast({ k: 'kill', killer: null, victim: '최종 보스가 나타났다!' });
+    }
+    if (this.phase === 'boss') {
+      this.boss.tick(now, all);
+      if (now - this.bossSentAt >= BOSS_EVERY_MS && this.boss.npc) {
+        this.bossSentAt = now;
+        this.broadcast({ k: 'boss', id: this.boss.npc.id, hp: Math.ceil(this.boss.hp), max: this.boss.max, remain: Math.max(0, BOSS_LIMIT_MS - (now - this.boss.spawnedAt)) });
+      }
+      if (!this.boss.alive) this.finish('win', now);
+      else if (now - this.boss.spawnedAt > BOSS_LIMIT_MS) this.finish('lose', now);
+    }
+    // 결과를 보여 준 뒤 새 판: 모두 새 원 안에서 살아난다
+    if (this.phase === 'end' && now >= this.endAt) {
       this.newMatch();
       all.forEach((p) => this.revive(p, this.spawnBody(), now));
       this.broadcast(this.matchMsg());
@@ -524,11 +586,24 @@ export class BattleRoyale implements GameMode {
     });
   }
 
+  /** 판 끝: 결과(마지막 일격·보스 피해 순위)를 알리고 RESULT_MS 뒤 새 판 */
+  private finish(result:'win' | 'lose', now:number) {
+    const top = [ ...this.boss.dmgBy.entries() ].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([ n, d ]):[string, number] => [ n, Math.round(d) ]);
+    this.broadcast({ k: 'boss', id: this.boss.npc?.id ?? 0, hp: 0, max: this.boss.max, remain: 0 });
+    this.broadcast({ k: 'end', result, killer: this.boss.killer, top, next: RESULT_MS });
+    console.log(`[br] match #${this.match?.id} ${result} (killer ${this.boss.killer})`);
+    this.phase = 'end';
+    this.endAt = now + RESULT_MS;
+    // 쓰러진 보스는 잠깐 누워 있다 사라지게 상태만 두고, 판이 바뀔 때 치운다
+    if (result === 'lose') this.boss.clear();
+    this.horde.clear();
+  }
+
   info() {
     if (!this.match) return { mode: this.name, match: null };
     const z = this.zone();
     const dead = [ ...this.fighters.values() ].filter((f) => f.respawnAt).length;
-    return { mode: this.name, match: { id: this.match.id, stage: z.stage, r: Math.round(z.r), remainS: Math.round(z.remain / 1000) }, alive: this.fighters.size - dead, dead, corpses: this.corpses.length, items: this.items.size, props: this.props.size, night: dayNight(this.elapsed + DAY_OFFSET).night, zombies: this.horde.size, arrows: this.arrows.length, arrowMs: Math.round(this.arrowMs * 100) / 100 };
+    return { mode: this.name, match: { id: this.match.id, stage: z.stage, r: Math.round(z.r), remainS: Math.round(z.remain / 1000) }, alive: this.fighters.size - dead, dead, corpses: this.corpses.length, items: this.items.size, props: this.props.size, night: dayNight(this.elapsed + DAY_OFFSET).night, zombies: this.horde.size, phase: this.phase, boss: this.boss.alive ? { hp: Math.ceil(this.boss.hp), max: this.boss.max } : null, arrows: this.arrows.length, arrowMs: Math.round(this.arrowMs * 100) / 100 };
   }
 
 }

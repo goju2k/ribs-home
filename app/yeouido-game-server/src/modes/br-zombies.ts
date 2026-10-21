@@ -258,6 +258,22 @@ export class Horde {
     });
   }
 
+  /** (x, z) 둘레 4~10m 땅에 n마리 (보스가 부름) */
+  summon(x:number, z:number, n:number, now:number) {
+    const { collision } = this.host.sim;
+    let made = 0;
+    for (let i = 0; i < n * 10 && made < n && this.zeds.size < MAX_ZOMBIES; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const d = 4 + Math.random() * 6;
+      const px = x + Math.cos(a) * d;
+      const pz = z + Math.sin(a) * d;
+      if (collision.floorAt(px, pz, 1e4) === 0 && collision.at(px, pz) !== BLOCK.WATER && !collision.blocked(px, pz, 0.4)) {
+        this.add(newBody(px, 0, pz), now);
+        made++;
+      }
+    }
+  }
+
   private add(body:Body, now:number) {
     const k = Math.random() < RUNNER_RATE ? Z_RUNNER : Z_WALKER;
     body.f = Math.random() * Math.PI * 2;

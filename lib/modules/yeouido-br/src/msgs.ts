@@ -53,6 +53,10 @@ export type BrServerMsg =
   /** 화살이 멈춤 (맞음·벽) */
   | { k: 'arrowEnd'; id: number; at: [number, number, number]; }
   /** 내가 쐈다 (재장전 표시용) */
-  | { k: 'fired'; reloadMs: number; };
+  | { k: 'fired'; reloadMs: number; }
+  /** 보스 상태 (나타나 있는 동안 0.5초마다): 체력·최대, 남은 시간(ms) */
+  | { k: 'boss'; id: number; hp: number; max: number; remain: number; }
+  /** 판 끝: 승리(보스 쓰러짐)·패배(시간 초과), 마지막 일격, 보스에게 준 피해 순위, 새 판까지(ms) */
+  | { k: 'end'; result: 'win' | 'lose'; killer: string | null; top: [string, number][]; next: number; };
 
 export const isBrMsg = (d:unknown):d is BrServerMsg => typeof d === 'object' && d !== null && typeof (d as { k?: unknown; }).k === 'string';

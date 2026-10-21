@@ -1,7 +1,7 @@
 /* eslint-disable no-bitwise -- 상태·행동 비트 */
 import * as THREE from 'three';
 import {
-  ACT_MELEE, BrServerMsg, dayNight, ST_BURN, Z_RUNNER, Z_WALKER, Corpse, emptyGear, gaugeHp, Gear, isBrMsg, ITEM_KINDS, ITEM_NAMES, MatchPlan, meleeStats, ST_DEAD, ST_HURT, ST_SHIELD, ST_SWING,
+  ACT_MELEE, BOSS, BrServerMsg, dayNight, ST_BURN, ST_SLAM, Z_BOSS, Z_RUNNER, Z_WALKER, Corpse, emptyGear, gaugeHp, Gear, isBrMsg, ITEM_KINDS, ITEM_NAMES, MatchPlan, meleeStats, ST_DEAD, ST_HURT, ST_SHIELD, ST_SWING,
   zoneAt, ZoneNow,
 } from 'yeouido-br';
 
@@ -43,6 +43,10 @@ export interface BrHudState {
   got: { id: number; text: string; }[];
   /** 원거리 재장전 진행 0~1 (1 = 쏠 수 있음), 원거리 무기가 없으면 null */
   reload: number | null;
+  /** 보스: 체력 비율 0~1·체력·남은 초 (안 나왔으면 null) */
+  boss: { ratio: number; hp: number; remain: number; } | null;
+  /** 판 끝 결과 (새 판까지 남은 초) */
+  end: { result: 'win' | 'lose'; killer: string | null; top: [string, number][]; next: number; } | null;
 }
 
 interface ShownCorpse {
@@ -91,6 +95,13 @@ export class BrClient implements ModeClient {
 
   private shots:ShotFx;
 
+  private bossInfo:{ hp: number; max: number; remain: number; at: number; } | null = null;
+
+  private endInfo:{ result: 'win' | 'lose'; killer: string | null; top: [string, number][]; until: number; } | null = null;
+
+  /** 땅 울리기 경고 원 */
+  private slamRing:THREE.Mesh;
+
   /** 원거리 재장전: 쏜 시각과 걸리는 시간 */
   private reloadAt = 0;
 
@@ -117,6 +128,12 @@ export class BrClient implements ModeClient {
     this.items = new ItemMeshes(host.scene);
     this.props = new PropMeshes(host.scene);
     this.shots = new ShotFx(host.scene);
+    this.slamRing = new THREE.Mesh(
+      new THREE.CircleGeometry(BOSS.slamRange, 48).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: '#ff3b30', transparent: true, opacity: 0.25, depthWrite: false }),
+    );
+    this.slamRing.visible = false;
+    host.scene.add(this.slamRing);
   }
 
   receive(d:unknown, now:number) {
@@ -126,6 +143,11 @@ export class BrClient implements ModeClient {
       const startAt = now - m.elapsed;
       // 같은 판이면 시계는 큰 차이만 맞춘다 (받는 지연만큼 흔들리지 않게)
       if (this.match?.plan.id === m.id && Math.abs(this.match.startAt - startAt) < 300) return;
+      // 새 판이면 지난 판 결과·보스 표시를 지운다
+      if (this.match?.plan.id !== m.id) {
+        this.endInfo = null;
+        this.bossInfo = null;
+      }
       this.match = { plan: { id: m.id, circles: m.circles.map(([ cx, cz, r ]) => ({ cx, cz, r })) }, startAt, dayOffset: m.dayOffset ?? 0 };
     } else if (m.k === 'corpses') {
       [ ...this.corpses.keys() ].forEach((id) => this.removeCorpse(id));
@@ -160,6 +182,10 @@ export class BrClient implements ModeClient {
       this.props.hit(m.id, -1, now);
       this.hits.push({ id: ++this.seq, dmg: m.dmg, at: now });
       if (this.hits.length > 6) this.hits.shift();
+    } else if (m.k === 'boss') this.bossInfo = m.hp > 0 ? { hp: m.hp, max: m.max, remain: m.remain, at: now } : null;
+    else if (m.k === 'end') {
+      this.endInfo = { result: m.result, killer: m.killer, top: m.top, until: now + m.next };
+      this.bossInfo = null;
     } else if (m.k === 'shot') this.shots.tracer(m.o, m.e, now);
     else if (m.k === 'arrow') this.shots.arrow(m.id, m.o, m.d, m.v, m.range, now);
     else if (m.k === 'arrowEnd') this.shots.arrowEnd(m.id, m.at, now);
@@ -224,6 +250,10 @@ export class BrClient implements ModeClient {
     this.items.update(f.now, f.me);
     this.props.update(f.now, f.me);
     this.shots.update(f.now);
+    // 보스가 땅을 울리려 하면 바닥에 붉은 경고 원 (깜빡임)
+    const boss = f.others.find((o) => o.k === Z_BOSS && (o.s & ST_SLAM));
+    this.slamRing.visible = !!boss && Math.floor(f.now / 120) % 2 === 0;
+    if (boss) this.slamRing.position.set(boss.x, boss.y + 0.05, boss.z);
   }
 
   acted(act:number, now:number) {
@@ -250,13 +280,15 @@ export class BrClient implements ModeClient {
       swing,
       down: false,
       // 불탐(새벽 좀비) 주황, 맞음 빨강
-      glow: (st & ST_BURN) ? '#ff7a1a' : (st & ST_HURT) ? '#a01010' : null, // eslint-disable-line no-nested-ternary
+      // 불탐(새벽 좀비) 주황, 땅 울리기 준비(보스) 빨강, 맞음 빨강
+      glow: (st & (ST_BURN | ST_SLAM)) ? (st & ST_BURN ? '#ff7a1a' : '#ff2010') : (st & ST_HURT) ? '#a01010' : null, // eslint-disable-line no-nested-ternary
     };
   }
 
   /** 좀비 모습: 푸르스름한 피부, 해진 옷 (뛰는 좀비는 붉은 옷) — 이름표 없이 체력 막대만 */
   appearance(k:number):Appearance | null {
     if (k === Z_WALKER) return { look: { shirt: '#5b6b4f', pants: '#3b3b30', skin: '#8fae7a', hair: '#2a2a20', glow: '#1c3312' }, tag: false };
+    if (k === Z_BOSS) return { look: { shirt: '#3b1d4a', pants: '#1a1020', skin: '#7a5a8a', hair: '#0b0610', glow: '#2a0820' }, tag: true, name: '최종 보스', scale: BOSS.scale };
     if (k === Z_RUNNER) return { look: { shirt: '#8a3434', pants: '#33302a', skin: '#9fbf7f', hair: '#1a1a14', glow: '#3a1410' }, tag: false };
     return null;
   }
@@ -328,6 +360,8 @@ export class BrClient implements ModeClient {
       hurt: Math.max(0, 1 - (now - this.hurtAt) / 400),
       gear: this.gear,
       got: this.got.map(({ id, text }) => ({ id, text })),
+      boss: this.bossInfo ? { ratio: this.bossInfo.hp / this.bossInfo.max, hp: this.bossInfo.hp, remain: Math.ceil(Math.max(0, this.bossInfo.remain - (now - this.bossInfo.at)) / 1000) } : null,
+      end: this.endInfo ? { result: this.endInfo.result, killer: this.endInfo.killer, top: this.endInfo.top, next: Math.max(0, Math.ceil((this.endInfo.until - now) / 1000)) } : null,
       reload: this.gear.pistol || this.gear.bow ? Math.min(1, this.reloadMs ? (now - this.reloadAt) / this.reloadMs : 1) : null,
     };
   }
@@ -339,6 +373,8 @@ export class BrClient implements ModeClient {
     this.items.dispose();
     this.props.dispose();
     this.shots.dispose();
+    this.host.scene.remove(this.slamRing);
+    this.slamRing.geometry.dispose();
     this.lootGeo.dispose();
     this.lootMat.dispose();
   }

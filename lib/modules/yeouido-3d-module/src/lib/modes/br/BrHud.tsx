@@ -23,7 +23,7 @@ const hpColor = (hp:number) => {
 const clock = (s:number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
 const zoneLabel = (z:NonNullable<BrHudState['zone']>) => {
-  if (z.stage > STAGES) return '최종 원 · 시간 종료';
+  if (z.stage > STAGES) return '최종 원 · 최종 보스';
   return `전장 ${z.stage}/${STAGES} · ${z.shrinking ? '줄어드는 중' : '다음 축소'} ${clock(z.untilChange)} · 남은 시간 ${clock(z.remain)}`;
 };
 
@@ -97,7 +97,28 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
         <HitNum key={h.id} style={{ transform: `translate(-50%, ${-30 - h.age * 40}px)`, opacity: 1 - h.age }}>-{h.dmg}</HitNum>
       ))}
 
-      {state.dead && (
+      {state.boss && (
+        <BossBar>
+          <span>최종 보스 · 남은 시간 {clock(state.boss.remain)}</span>
+          <HpBar style={{ width: '100%', height: 10 }}><HpFill style={{ width: `${Math.round(state.boss.ratio * 100)}%`, background: '#c04ad9' }} /></HpBar>
+          <span>{state.boss.hp.toLocaleString()}</span>
+        </BossBar>
+      )}
+
+      {state.end && (
+        <End $win={state.end.result === 'win'}>
+          <b>{state.end.result === 'win' ? '승리! 최종 보스를 쓰러뜨렸다' : '패배… 시간 안에 보스를 쓰러뜨리지 못했다'}</b>
+          {state.end.killer && <span>마지막 일격: {state.end.killer}</span>}
+          {state.end.top.length > 0 && (
+            <ol>
+              {state.end.top.map(([ n, d ]) => <li key={n}>{n} · 보스 피해 {d.toLocaleString()}</li>)}
+            </ol>
+          )}
+          <span>{state.end.next}초 뒤 새 판</span>
+        </End>
+      )}
+
+      {state.dead && !state.end && (
         <Dead>
           <b>쓰러졌다</b>
           <span>{state.dead.by ? `${state.dead.by}에게 당함` : '전장 밖에서 버티지 못함'}</span>
@@ -246,6 +267,37 @@ const ShootButton = styled(AttackButton)({
   background: '#4a6fe2',
   '&:active': { transform: 'translateY(1px)', background: '#3a58b8' },
 });
+
+const BossBar = styled(Panel)({
+  position: 'absolute',
+  left: '50%',
+  top: 74,
+  transform: 'translateX(-50%)',
+  width: 'min(60vw, 420px)',
+  padding: '6px 10px',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+  color: '#e9c8ff',
+  pointerEvents: 'none',
+  '@media (max-width: 560px)': { top: 170 },
+});
+
+const End = styled(Panel)<{ $win: boolean; }>(({ $win }) => ({
+  position: 'absolute',
+  left: '50%',
+  top: '42%',
+  transform: 'translate(-50%, -50%)',
+  padding: '16px 22px',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  gap: 6,
+  fontSize: 12,
+  pointerEvents: 'none',
+  b: { fontFamily: 'Galmuri14, sans-serif', fontWeight: 'normal', fontSize: 20, color: $win ? '#ffd84a' : '#ff7a6b' },
+  ol: { margin: 0, paddingLeft: 18, color: '#d6dbf5' },
+}));
 
 const Hint = styled(Panel)({
   position: 'absolute',
