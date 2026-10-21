@@ -1,7 +1,7 @@
 import {
-  ACT_MELEE, ACT_RANGED, BOSS_LIMIT_MS, Difficulty, DIFFICULTY, RESULT_MS, afterPickup, heldRanged, RANGED_KINDS, rangedStats, armorCut, BR_MODE, dayNight, breakPower, PROP_KINDS, PROP_RADIUS, rollDrops, BrServerMsg, Corpse, CorpseItem, emptyGear, Gear, HP_MAX, HURT_MS, hpGauge, insideZone,
+  ACT_MELEE, ACT_RANGED, BOSS_LIMIT_MS, BrClientMsg, Difficulty, DIFFICULTY, RESULT_MS, afterPickup, heldRanged, RANGED_KINDS, rangedStats, armorCut, BR_MODE, dayNight, breakPower, PROP_KINDS, PROP_RADIUS, rollDrops, BrServerMsg, Corpse, CorpseItem, emptyGear, Gear, HP_MAX, HURT_MS, hpGauge, insideZone,
   ITEM_KINDS, makeMatchPlan, MATCH_MS, MatchPlan, meleeReaches, meleeStats, PICK_RANGE, pickSpawn, respawnDelay, rocketMul, shoeMul,
-  SPAWN_SHIELD_MS, ST_DEAD, ST_FROZEN, ST_HURT, ST_SHIELD, ST_SWING, zoneAt, zoneDps,
+  SPAWN_SHIELD_MS, ST_DEAD, ST_FROZEN, ST_HIDDEN, ST_HURT, ST_SHIELD, ST_SWING, zoneAt, zoneDps,
 } from 'yeouido-br';
 import { SIM_HZ } from 'yeouido-net';
 import { Body, newBody } from 'yeouido-sim';
@@ -18,6 +18,8 @@ import { Aim, GameMode, ModeHost, ModePlayer } from '../mode';
 const DAY_OFFSET = Number(process.env.BR_DAY_OFFSET_MS) || 0;
 /** 개발용: 개발용 접속(?debug)은 이 장비로 시작 (예: BR_DEBUG_GEAR=pistol:3,shoes:2) */
 const DEBUG_GEAR = (process.env.BR_DEBUG_GEAR ?? '').split(',').map((s) => s.split(':')).filter(([ k, v ]) => k && Number(v) > 0);
+/** 보스전 중에 쓰러지면 이만큼 누워 있다가 관전으로 바뀐다 (ms) */
+const SPECTATE_AFTER_MS = 3000;
 /** 개발용: 판 시계를 당겨 시작 (예: BR_TIME_OFFSET_MS=1190000 → 10초 뒤 보스) */
 const TIME_OFFSET = Number(process.env.BR_TIME_OFFSET_MS) || 0;
 /** 난이도 (보스 체력·피해 배율): easy·normal·hard */
@@ -62,6 +64,15 @@ interface Fighter {
   gear: Gear;
   /** 다음 원거리 발사 가능 시각 */
   nextShotAt: number;
+  /**
+   * 관전: 이번 판은 다시 시작 못 함 (보스전 중 쓰러짐·늦게 들어옴). respawnAt = Infinity로 두어 '살아 있지 않음'으로 취급되고,
+   * specFrom부터 산 사람(없으면 보스)을 따라간다. 다음 판에 다시 참여
+   */
+  spectator: 'dead' | 'late' | null;
+  specFrom: number;
+  /** 보고 있는 사람 번호 (0 = 없음 — 보스를 본다), 그 대상을 알렸는지 */
+  watch: number;
+  watchSent: boolean;
 }
 
 /** 같은 공간인지 (실외끼리 높이 차 1.6m 안, 실내는 같은 건물·층) */
@@ -204,7 +215,7 @@ export class BattleRoyale implements GameMode {
   private revive(p:ModePlayer, body:Body, now:number) {
     p.body = body;
     p.queue.length = 0;
-    const f:Fighter = { hp: HP_MAX, respawnAt: 0, shieldUntil: now + SPAWN_SHIELD_MS, nextAttackAt: 0, nextShotAt: 0, swingUntil: 0, hurtUntil: 0, zoneAt: 0, gear: emptyGear() };
+    const f:Fighter = { hp: HP_MAX, respawnAt: 0, shieldUntil: now + SPAWN_SHIELD_MS, nextAttackAt: 0, nextShotAt: 0, swingUntil: 0, hurtUntil: 0, zoneAt: 0, gear: emptyGear(), spectator: null, specFrom: 0, watch: 0, watchSent: false };
     this.fighters.set(p.id, f);
     if (p.debug) {
       DEBUG_GEAR.forEach(([ k, v ]) => {
@@ -367,7 +378,10 @@ export class BattleRoyale implements GameMode {
 
   join(p:ModePlayer, requested:Body | null) {
     if (!this.match) this.newMatch();
-    this.revive(p, requested ?? this.spawnBody(), Date.now());
+    const now = Date.now();
+    this.revive(p, requested ?? this.spawnBody(), now);
+    // 보스전·결과 중에 들어오면 이번 판은 관전, 다음 판에 참여
+    if (this.phase !== 'play') this.spectate(p, this.fighters.get(p.id)!, 'late', now);
     this.send(p, this.matchMsg());
     this.send(p, { k: 'corpses', list: this.corpses });
     this.send(p, { k: 'items', list: this.items.list() });
@@ -376,6 +390,57 @@ export class BattleRoyale implements GameMode {
 
   leave(p:ModePlayer) {
     this.fighters.delete(p.id);
+  }
+
+  /** 관전으로: 다시 시작 못 함 (dead면 잠깐 누워 있다가, late면 바로) */
+  private spectate(p:ModePlayer, f:Fighter, reason:'dead' | 'late', now:number) {
+    f.respawnAt = Infinity;
+    f.spectator = reason;
+    f.specFrom = reason === 'dead' ? now + SPECTATE_AFTER_MS : now;
+    f.watch = 0;
+    f.watchSent = false;
+    p.queue.length = 0;
+  }
+
+  /** 관전 대상: 산 사람(번호 순), 없으면 0 (보스를 본다) */
+  private watchable() {
+    return this.all.filter((o) => {
+      const f = this.fighters.get(o.id);
+      return f && !f.respawnAt;
+    }).map((o) => o.id).sort((a, b) => a - b);
+  }
+
+  /** 관전자: 보는 사람(없으면 보스) 자리로 몸을 옮긴다 — 그 둘레가 스냅숏으로 오고, 화면은 내 몸을 따라가니 그 사람을 따라 보게 된다 */
+  private follow(p:ModePlayer, f:Fighter) {
+    const list = this.watchable();
+    // 보던 사람이 쓰러지면 다음 사람으로 (아무도 없으면 보스) — 바뀔 때만 알린다
+    const want = list.includes(f.watch) ? f.watch : list[0] ?? 0;
+    if (want !== f.watch || !f.watchSent) {
+      f.watch = want;
+      f.watchSent = true;
+      const name = f.watch ? this.host.get(f.watch)?.name ?? null : null;
+      this.send(p, { k: 'spectate', target: name, reason: f.spectator ?? 'late' });
+    }
+    const t = f.watch ? this.host.get(f.watch)?.body : this.boss.npc?.body;
+    if (!t) return;
+    const { body } = p;
+    body.x = t.x;
+    body.y = t.y;
+    body.z = t.z;
+    body.b = t.b;
+    body.l = t.l;
+    body.f = t.f;
+  }
+
+  message(p:ModePlayer, d:unknown) {
+    const m = d as BrClientMsg;
+    const f = this.fighters.get(p.id);
+    if (!f?.spectator || m?.k !== 'watch' || (m.dir !== 1 && m.dir !== -1)) return;
+    const list = this.watchable();
+    if (!list.length) return;
+    const i = list.indexOf(f.watch);
+    f.watch = list[(i + m.dir + list.length) % list.length];
+    this.send(p, { k: 'spectate', target: this.host.get(f.watch)?.name ?? null, reason: f.spectator });
   }
 
   act(p:ModePlayer, act:number, now:number, aim:Aim) {
@@ -472,8 +537,11 @@ export class BattleRoyale implements GameMode {
   }
 
   private die(p:ModePlayer, f:Fighter, by:string | null, now:number) {
-    const wait = respawnDelay(this.zone().stage);
-    f.respawnAt = now + wait;
+    // 보스전이 시작되면 다시 시작 못 함 → 잠깐 누워 있다가 관전
+    const noRespawn = this.phase !== 'play';
+    const wait = noRespawn ? -1 : respawnDelay(this.zone().stage);
+    if (noRespawn) this.spectate(p, f, 'dead', now);
+    else f.respawnAt = now + wait;
     const { x, y, z, f: face, b, l } = p.body;
     const r2 = (n:number) => Math.round(n * 100) / 100;
     // 가진 장비는 시체에 남는다
@@ -505,7 +573,15 @@ export class BattleRoyale implements GameMode {
       this.phase = 'boss';
       const alive = all.filter((p) => !this.fighters.get(p.id)?.respawnAt).length;
       this.boss.spawn(this.match.circles[this.match.circles.length - 1], alive, DIFF, now);
-      this.broadcast({ k: 'kill', killer: null, victim: '최종 보스가 나타났다!' });
+      this.broadcast({ k: 'kill', killer: null, victim: '최종 보스가 나타났다! 이제 다시 시작할 수 없다' });
+      // 다시 시작을 기다리던 사람은 이번 판은 관전
+      all.forEach((p) => {
+        const f = this.fighters.get(p.id);
+        if (f && f.respawnAt && !f.spectator) {
+          this.spectate(p, f, 'dead', now);
+          f.specFrom = now;
+        }
+      });
     }
     if (this.phase === 'boss') {
       this.boss.tick(now, all);
@@ -513,8 +589,14 @@ export class BattleRoyale implements GameMode {
         this.bossSentAt = now;
         this.broadcast({ k: 'boss', id: this.boss.npc.id, hp: Math.ceil(this.boss.hp), max: this.boss.max, remain: Math.max(0, BOSS_LIMIT_MS - (now - this.boss.spawnedAt)) });
       }
+      // 승리 · 시간 초과 · 참가자가 모두 쓰러짐(다시 시작할 수 없으니 바로 패배)
+      const standing = all.some((p) => {
+        const f = this.fighters.get(p.id);
+        return f && !f.respawnAt;
+      });
       if (!this.boss.alive) this.finish('win', now);
-      else if (now - this.boss.spawnedAt > BOSS_LIMIT_MS) this.finish('lose', now);
+      else if (!standing) this.finish('lose', now, 'wiped');
+      else if (now - this.boss.spawnedAt > BOSS_LIMIT_MS) this.finish('lose', now, 'time');
     }
     // 결과를 보여 준 뒤 새 판: 모두 새 원 안에서 살아난다
     if (this.phase === 'end' && now >= this.endAt) {
@@ -557,6 +639,10 @@ export class BattleRoyale implements GameMode {
     all.forEach((p) => {
       const f = this.fighters.get(p.id);
       if (!f) return;
+      if (f.spectator) {
+        if (now >= f.specFrom) this.follow(p, f);
+        return;
+      }
       if (f.respawnAt && now >= f.respawnAt) {
         this.revive(p, this.spawnBody(), now);
         this.send(p, { k: 'respawn' });
@@ -577,6 +663,12 @@ export class BattleRoyale implements GameMode {
       const f = this.fighters.get(p.id);
       if (!f) return;
       /* eslint-disable no-bitwise -- 상태 비트 */
+      // 관전 중이면 세상에 없음(남에게 안 보임), 그 전엔 쓰러진 모습
+      if (f.spectator && now >= f.specFrom) {
+        p.st = ST_HIDDEN | ST_FROZEN;
+        p.gv = 0;
+        return;
+      }
       p.st = (f.respawnAt ? ST_DEAD | ST_FROZEN : 0)
         | (now < f.shieldUntil ? ST_SHIELD : 0)
         | (now < f.swingUntil ? ST_SWING : 0)
@@ -587,10 +679,10 @@ export class BattleRoyale implements GameMode {
   }
 
   /** 판 끝: 결과(마지막 일격·보스 피해 순위)를 알리고 RESULT_MS 뒤 새 판 */
-  private finish(result:'win' | 'lose', now:number) {
+  private finish(result:'win' | 'lose', now:number, why?:'time' | 'wiped') {
     const top = [ ...this.boss.dmgBy.entries() ].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([ n, d ]):[string, number] => [ n, Math.round(d) ]);
     this.broadcast({ k: 'boss', id: this.boss.npc?.id ?? 0, hp: 0, max: this.boss.max, remain: 0 });
-    this.broadcast({ k: 'end', result, killer: this.boss.killer, top, next: RESULT_MS });
+    this.broadcast({ k: 'end', result, why, killer: this.boss.killer, top, next: RESULT_MS });
     console.log(`[br] match #${this.match?.id} ${result} (killer ${this.boss.killer})`);
     this.phase = 'end';
     this.endAt = now + RESULT_MS;

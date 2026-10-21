@@ -1,6 +1,6 @@
 import { WebSocket } from 'ws';
 import {
-  ClientMsg, decodeInputs, MAX_LAG_MS, NO_FACE, encodeSnap, ST_FROZEN, InputTuple, NEAR, PROTOCOL_VERSION, ServerMsg, SIM_HZ, SNAP_HZ, SnapRow, toArrayBuffer, toBody, toRow, validInput,
+  ClientMsg, decodeInputs, MAX_LAG_MS, NO_FACE, encodeSnap, ST_FROZEN, ST_HIDDEN, InputTuple, NEAR, PROTOCOL_VERSION, ServerMsg, SIM_HZ, SNAP_HZ, SnapRow, toArrayBuffer, toBody, toRow, validInput,
   VIEW_DEFAULT, VIEW_MAX, VIEW_MIN,
 } from 'yeouido-net';
 import { Body, createSimWorld, newBody, SimWorld, step, WORLD } from 'yeouido-sim';
@@ -396,7 +396,8 @@ export class World {
         if (!list) return;
         for (let k = 0; k < list.length; k++) {
           const j = list[k];
-          if (j !== i) {
+          // 세상에 없는 사람(관전 등)은 남에게 안 보낸다
+          if (j !== i && !(all[j].st & ST_HIDDEN)) { // eslint-disable-line no-bitwise
             const o = all[j].body;
             const d = Math.hypot(o.x - px, o.z - pz);
             // 거리(1/16 m)와 번호를 한 숫자로: 숫자 정렬만으로 가까운 순이 된다

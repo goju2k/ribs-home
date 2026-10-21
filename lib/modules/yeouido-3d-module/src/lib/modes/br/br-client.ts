@@ -1,7 +1,7 @@
 /* eslint-disable no-bitwise -- 상태·행동 비트 */
 import * as THREE from 'three';
 import {
-  ACT_MELEE, BOSS, BrServerMsg, dayNight, ST_BURN, ST_SLAM, Z_BOSS, Z_RUNNER, Z_WALKER, Corpse, emptyGear, gaugeHp, Gear, isBrMsg, ITEM_KINDS, ITEM_NAMES, MatchPlan, meleeStats, ST_DEAD, ST_HURT, ST_SHIELD, ST_SWING,
+  ACT_MELEE, BOSS, BrClientMsg, BrServerMsg, dayNight, ST_BURN, ST_SLAM, Z_BOSS, Z_RUNNER, Z_WALKER, Corpse, emptyGear, gaugeHp, Gear, isBrMsg, ITEM_KINDS, ITEM_NAMES, MatchPlan, meleeStats, ST_DEAD, ST_HURT, ST_SHIELD, ST_SWING,
   zoneAt, ZoneNow,
 } from 'yeouido-br';
 
@@ -46,7 +46,11 @@ export interface BrHudState {
   /** 보스: 체력 비율 0~1·체력·남은 초 (안 나왔으면 null) */
   boss: { ratio: number; hp: number; remain: number; } | null;
   /** 판 끝 결과 (새 판까지 남은 초) */
-  end: { result: 'win' | 'lose'; killer: string | null; top: [string, number][]; next: number; } | null;
+  end: { result: 'win' | 'lose'; why?: 'time' | 'wiped'; killer: string | null; top: [string, number][]; next: number; } | null;
+  /** 관전 중: 보고 있는 사람(null = 보스), 이유(dead 보스전 중 쓰러짐·late 늦게 들어옴) */
+  spec: { target: string | null; reason: 'dead' | 'late'; } | null;
+  /** 관전 대상 바꾸기 (HUD 버튼) */
+  watch: (dir:1 | -1) => void;
 }
 
 interface ShownCorpse {
@@ -97,7 +101,9 @@ export class BrClient implements ModeClient {
 
   private bossInfo:{ hp: number; max: number; remain: number; at: number; } | null = null;
 
-  private endInfo:{ result: 'win' | 'lose'; killer: string | null; top: [string, number][]; until: number; } | null = null;
+  private specInfo:{ target: string | null; reason: 'dead' | 'late'; } | null = null;
+
+  private endInfo:{ result: 'win' | 'lose'; why?: 'time' | 'wiped'; killer: string | null; top: [string, number][]; until: number; } | null = null;
 
   /** 땅 울리기 경고 원 */
   private slamRing:THREE.Mesh;
@@ -136,6 +142,9 @@ export class BrClient implements ModeClient {
     host.scene.add(this.slamRing);
   }
 
+  /** 관전 대상 바꾸기 요청 */
+  private watch = (dir:1 | -1) => this.host.send({ k: 'watch', dir } satisfies BrClientMsg);
+
   receive(d:unknown, now:number) {
     if (!isBrMsg(d)) return;
     const m = d as BrServerMsg;
@@ -146,6 +155,8 @@ export class BrClient implements ModeClient {
       // 새 판이면 지난 판 결과·보스 표시를 지운다
       if (this.match?.plan.id !== m.id) {
         this.endInfo = null;
+        this.specInfo = null;
+        this.deadInfo = null;
         this.bossInfo = null;
       }
       this.match = { plan: { id: m.id, circles: m.circles.map(([ cx, cz, r ]) => ({ cx, cz, r })) }, startAt, dayOffset: m.dayOffset ?? 0 };
@@ -159,9 +170,13 @@ export class BrClient implements ModeClient {
       this.hits.push({ id: ++this.seq, dmg: m.dmg, at: now });
       if (this.hits.length > 6) this.hits.shift();
     } else if (m.k === 'hurt') this.hurtAt = now;
-    else if (m.k === 'dead') this.deadInfo = { by: m.by, until: now + m.wait };
+    // wait < 0: 이번 판은 다시 시작 못 함 (보스전) — 곧 관전으로 바뀐다
+    else if (m.k === 'dead') this.deadInfo = { by: m.by, until: m.wait < 0 ? -1 : now + m.wait };
     else if (m.k === 'respawn') this.deadInfo = null;
-    else if (m.k === 'items') {
+    else if (m.k === 'spectate') {
+      this.specInfo = { target: m.target, reason: m.reason };
+      this.deadInfo = null;
+    } else if (m.k === 'items') {
       this.items.clear();
       m.list.forEach((it) => this.items.add(it));
     } else if (m.k === 'itemAdd') m.list.forEach((it) => this.items.add(it));
@@ -184,7 +199,7 @@ export class BrClient implements ModeClient {
       if (this.hits.length > 6) this.hits.shift();
     } else if (m.k === 'boss') this.bossInfo = m.hp > 0 ? { hp: m.hp, max: m.max, remain: m.remain, at: now } : null;
     else if (m.k === 'end') {
-      this.endInfo = { result: m.result, killer: m.killer, top: m.top, until: now + m.next };
+      this.endInfo = { result: m.result, why: m.why, killer: m.killer, top: m.top, until: now + m.next };
       this.bossInfo = null;
     } else if (m.k === 'shot') this.shots.tracer(m.o, m.e, now);
     else if (m.k === 'arrow') this.shots.arrow(m.id, m.o, m.d, m.v, m.range, now);
@@ -354,14 +369,16 @@ export class BrClient implements ModeClient {
       zone: z ? { stage: z.stage, shrinking: z.shrinking, untilChange: Math.ceil(z.untilChange / 1000), remain: Math.ceil(z.remain / 1000), outside } : null,
       hp: me ? gaugeHp(me.gv) : 100,
       shield: !!me && (me.st & ST_SHIELD) !== 0,
-      dead: this.deadInfo ? { by: this.deadInfo.by, wait: Math.max(0, Math.ceil((this.deadInfo.until - now) / 1000)) } : null,
+      dead: this.deadInfo ? { by: this.deadInfo.by, wait: this.deadInfo.until < 0 ? -1 : Math.max(0, Math.ceil((this.deadInfo.until - now) / 1000)) } : null,
+      spec: this.specInfo,
+      watch: this.watch,
       feed: this.feed.map(({ id, text }) => ({ id, text })),
       hits: this.hits.map(({ id, dmg, at }) => ({ id, dmg, age: (now - at) / HIT_MS })),
       hurt: Math.max(0, 1 - (now - this.hurtAt) / 400),
       gear: this.gear,
       got: this.got.map(({ id, text }) => ({ id, text })),
       boss: this.bossInfo ? { ratio: this.bossInfo.hp / this.bossInfo.max, hp: this.bossInfo.hp, remain: Math.ceil(Math.max(0, this.bossInfo.remain - (now - this.bossInfo.at)) / 1000) } : null,
-      end: this.endInfo ? { result: this.endInfo.result, killer: this.endInfo.killer, top: this.endInfo.top, next: Math.max(0, Math.ceil((this.endInfo.until - now) / 1000)) } : null,
+      end: this.endInfo ? { result: this.endInfo.result, why: this.endInfo.why, killer: this.endInfo.killer, top: this.endInfo.top, next: Math.max(0, Math.ceil((this.endInfo.until - now) / 1000)) } : null,
       reload: this.gear.pistol || this.gear.bow ? Math.min(1, this.reloadMs ? (now - this.reloadAt) / this.reloadMs : 1) : null,
     };
   }

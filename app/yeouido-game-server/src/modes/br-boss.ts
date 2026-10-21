@@ -51,6 +51,11 @@ export class Boss {
 
   private summonAt = 0;
 
+  /** 막힘 확인: 이 시각에 목표까지 거리가 얼마였는지 */
+  private stuckAt = 0;
+
+  private stuckD = Infinity;
+
   private swingUntil = 0;
 
   private hurtUntil = 0;
@@ -134,6 +139,26 @@ export class Boss {
     };
   }
 
+  /** 목표 근처 6~10m 빈 땅으로 (실외 땅만). 못 찾으면 false */
+  private leap(to:Body) {
+    const { collision } = this.host.sim;
+    const me = this.npc!.body;
+    for (let i = 0; i < 40; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const d = 6 + Math.random() * 4;
+      const x = to.x + Math.cos(a) * d;
+      const z = to.z + Math.sin(a) * d;
+      if (collision.floorAt(x, z, 1e4) === 0 && collision.at(x, z) !== BLOCK.WATER && !collision.blocked(x, z, 1.2)) {
+        me.x = x;
+        me.z = z;
+        me.y = 0;
+        me.vy = 0;
+        return true;
+      }
+    }
+    return false;
+  }
+
   tick(now:number, players:ModePlayer[]) {
     const { npc } = this;
     if (!npc) return;
@@ -143,12 +168,12 @@ export class Boss {
     }
     const me = npc.body;
     const alive = players.filter((p) => this.hooks.alive(p));
-    // 쫓을 사람: 시야 안 가장 가까운 사람 (같은 높이)
+    // 쫓을 사람: 가장 가까운 산 사람 (거리 무관 — 최종 원 안을 찾아다닌다). 실내 사람은 못 쫓고, 옥상 사람은 그 밑까지 가서 땅을 울린다
     let target:ModePlayer | null = null;
-    let best:number = BOSS.sight;
+    let best = Infinity;
     alive.forEach((p) => {
       const d = Math.hypot(p.body.x - me.x, p.body.z - me.z);
-      if (d < best && p.body.b < 0 && Math.abs(p.body.y - me.y) < 2.5) {
+      if (d < best && p.body.b < 0) {
         best = d;
         target = p;
       }
@@ -176,6 +201,15 @@ export class Boss {
       if (d > BOSS.smashRange - 0.6) {
         npc.input.mx = dx / d;
         npc.input.mz = dz / d;
+      }
+      // 도약: 길 찾기가 없어 건물에 막히면, 3초 동안 2m도 못 다가가면 목표 근처 빈 땅으로 뛰어올라 착지하며 땅 울리기(예고 원)
+      if (now >= this.stuckAt) {
+        if (d > BOSS.smashRange + 2 && this.stuckD - d < 2 && this.leap(t.body)) {
+          this.windupAt = now;
+          this.slamAt = now;
+        }
+        this.stuckAt = now + BOSS.stuckMs;
+        this.stuckD = d;
       }
       // 내려치기: 앞쪽 가까운 사람 모두
       if (d <= BOSS.smashRange && now >= this.smashAt) {

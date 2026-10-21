@@ -34,7 +34,6 @@ export const BOSS = {
   height: 4.3,
   /** 쫓는 속도 배율 (달리기 4.8 기준 → 4.1m/s, 맨발보다 조금 느림) */
   chaseMul: 0.85,
-  sight: 60,
   /** 내려치기: 앞 반경·피해·대기 */
   smashRange: 3.2,
   smashDamage: 25,
@@ -44,6 +43,8 @@ export const BOSS = {
   slamDamage: 12,
   slamEveryMs: 6000,
   slamWindupMs: 900,
+  /** 도약: 이 시간 동안 목표에게 2m도 못 다가가면(건물에 막힘) 목표 근처로 뛰어오른다 (ms) */
+  stuckMs: 3000,
   /** 좀비 부르기: 간격·마리 수 */
   summonEveryMs: 25_000,
   summonCount: 3,

@@ -25,7 +25,7 @@ export type BrServerMsg =
   | { k: 'hit'; target: number; dmg: number; }
   /** 내가 맞음 (from: 때린 사람 이름, 없으면 전장 피해) */
   | { k: 'hurt'; dmg: number; from: string | null; }
-  /** 내가 죽음: 누구에게, 다시 시작까지 남은 시간(ms) */
+  /** 내가 죽음: 누구에게, 다시 시작까지 남은 시간(ms, -1 = 이번 판은 다시 시작 못 함 — 보스전) */
   | { k: 'dead'; by: string | null; wait: number; }
   | { k: 'respawn'; }
   /** 땅 아이템 전부 (입장·새 판) */
@@ -57,6 +57,17 @@ export type BrServerMsg =
   /** 보스 상태 (나타나 있는 동안 0.5초마다): 체력·최대, 남은 시간(ms) */
   | { k: 'boss'; id: number; hp: number; max: number; remain: number; }
   /** 판 끝: 승리(보스 쓰러짐)·패배(시간 초과), 마지막 일격, 보스에게 준 피해 순위, 새 판까지(ms) */
-  | { k: 'end'; result: 'win' | 'lose'; killer: string | null; top: [string, number][]; next: number; };
+  /** why: 패배 이유 — time 시간 초과, wiped 참가자가 모두 쓰러짐 */
+  | { k: 'end'; result: 'win' | 'lose'; why?: 'time' | 'wiped'; killer: string | null; top: [string, number][]; next: number; }
+  /**
+   * 관전: 이번 판은 더 못 뛰고 남을 따라 본다 (target: 보고 있는 사람 이름, 없으면 보스).
+   * reason: dead = 보스전 중에 쓰러짐, late = 보스전·결과 중에 들어옴 (다음 판에 참여)
+   */
+  | { k: 'spectate'; target: string | null; reason: 'dead' | 'late'; };
+
+/** 클라이언트 → 서버 (엔진의 { t: 'mode', d }) */
+export type BrClientMsg =
+  /** 관전 대상 바꾸기 (다음 +1, 이전 -1) */
+  | { k: 'watch'; dir: 1 | -1; };
 
 export const isBrMsg = (d:unknown):d is BrServerMsg => typeof d === 'object' && d !== null && typeof (d as { k?: unknown; }).k === 'string';

@@ -1,7 +1,7 @@
 import { MutableRefObject, useEffect, useRef } from 'react';
 import styled from 'styled-components';
 import * as THREE from 'three';
-import { fromBody, InputTuple, NO_FACE, ST_FROZEN } from 'yeouido-net';
+import { fromBody, InputTuple, NO_FACE, ST_FROZEN, ST_HIDDEN } from 'yeouido-net';
 import { Body, copyBody, createSimWorld, describe, FLY, Input, newBody, STEP, step, WORLD } from 'yeouido-sim';
 
 import { Minimap } from './minimap';
@@ -509,7 +509,9 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       // 내 모습: 게임 모드가 상태 비트로 정한다 (죽음 = 숨김, 무적 = 깜빡임, 휘두르기, 맞음)
       const blinkOff = Math.floor(now / 120) % 2 === 0;
       const myLook = modeClient?.look(net.meStatus.s, net.meStatus.v, now, true, 0) ?? PLAIN_LOOK;
-      player.root.visible = mode !== 'fp' && !myLook.hidden && !(myLook.blink && blinkOff);
+      // 세상에 없으면(관전 등) 내 몸·표식을 안 그린다
+      const away = (net.meStatus.s & ST_HIDDEN) !== 0; // eslint-disable-line no-bitwise
+      player.root.visible = mode !== 'fp' && !away && !myLook.hidden && !(myLook.blink && blinkOff);
       player.root.scale.setScalar(big);
       player.root.position.set(pos.x, pos.y, pos.z);
       player.root.rotation.y = facing;
@@ -542,11 +544,11 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       const tall = 1.72 * big;
       const onScreen = tall * Math.cos(PITCH); // 내려다보니 화면에선 키가 줄어 보인다
       const mk = onScreen * 1.2; // 화면에서 사람보다 살짝 크게
-      marker.visible = !persp3 && shown > 45;
+      marker.visible = !persp3 && shown > 45 && !away;
       marker.scale.set(mk, mk, 1);
       // 화면에서 머리 위로 사람 키만큼 띄운다 (세로 거리도 cos 만큼 줄어 보여서 나눠 준다)
       marker.position.set(pos.x, pos.y + tall + (onScreen + mk / 2) / Math.cos(PITCH), pos.z);
-      const below = mode !== 'fp' && pos.y - floor > 1;
+      const below = mode !== 'fp' && pos.y - floor > 1 && !away;
       drop.visible = below;
       if (below) {
         dropGeo.attributes.position.setXYZ(0, pos.x, pos.y, pos.z);

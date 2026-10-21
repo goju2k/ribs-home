@@ -1,4 +1,4 @@
-import { ST_FROZEN } from 'yeouido-net';
+import { ST_FROZEN, ST_HIDDEN } from 'yeouido-net';
 
 /**
  * 배틀로얄 모드 규칙 값 (게임성 측정용 PoC — 확정 아님. 숫자는 여기서만 바꾼다).
@@ -17,7 +17,7 @@ export const ST_SHIELD = 2;
 export const ST_SWING = 4;
 /** 방금 맞음 (붉게 번쩍) */
 export const ST_HURT = 8;
-export { ST_FROZEN };
+export { ST_FROZEN, ST_HIDDEN };
 
 /** 행동 비트: 왼쪽 클릭·공격 버튼 = 근접, 오른쪽 = 원거리(6단계) */
 export const ACT_MELEE = 1;

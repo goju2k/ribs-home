@@ -15,6 +15,11 @@ const dayLabel = (d:NonNullable<BrHudState['day']>) => {
   return d.remain <= 15 ? `곧 밤! 좀비가 나온다 · ${clock(d.remain)}` : `낮 · 밤까지 ${clock(d.remain)}`;
 };
 
+const endTitle = (e:NonNullable<BrHudState['end']>) => {
+  if (e.result === 'win') return '승리! 최종 보스를 쓰러뜨렸다';
+  return e.why === 'wiped' ? '패배… 모두 쓰러졌다' : '패배… 시간 안에 보스를 쓰러뜨리지 못했다';
+};
+
 const hpColor = (hp:number) => {
   if (hp > 50) return '#5fd35f';
   return hp > 25 ? '#ffd84a' : '#ff5a4a';
@@ -59,10 +64,14 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
           </ZoneBar>
         )}
         <HpPanel>
-          <span>체력</span>
-          <HpBar><HpFill style={{ width: `${state.hp}%`, background: hpColor(state.hp) }} /></HpBar>
-          <span>{state.hp}</span>
-          {state.shield && <Shield>무적</Shield>}
+          {state.spec ? <span>관전 중 · 다음 판에 참여</span> : (
+            <>
+              <span>체력</span>
+              <HpBar><HpFill style={{ width: `${state.hp}%`, background: hpColor(state.hp) }} /></HpBar>
+              <span>{state.hp}</span>
+              {state.shield && <Shield>무적</Shield>}
+            </>
+          )}
         </HpPanel>
         <GearRow>
           {ITEM_KINDS.map((k) => (
@@ -107,7 +116,7 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
 
       {state.end && (
         <End $win={state.end.result === 'win'}>
-          <b>{state.end.result === 'win' ? '승리! 최종 보스를 쓰러뜨렸다' : '패배… 시간 안에 보스를 쓰러뜨리지 못했다'}</b>
+          <b>{endTitle(state.end)}</b>
           {state.end.killer && <span>마지막 일격: {state.end.killer}</span>}
           {state.end.top.length > 0 && (
             <ol>
@@ -118,11 +127,22 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
         </End>
       )}
 
+      {state.spec && !state.end && (
+        <Spec>
+          <span>{state.spec.reason === 'late' ? '보스전이 진행 중이라 이번 판은 관전합니다 · 다음 판에 참여' : '이번 판은 관전합니다 · 다음 판에 참여'}</span>
+          <SpecRow>
+            <SpecButton onClick={() => state.watch(-1)} aria-label='이전 사람'>◀</SpecButton>
+            <b>{state.spec.target ? `관전 중: ${state.spec.target}` : '관전 중: 최종 보스'}</b>
+            <SpecButton onClick={() => state.watch(1)} aria-label='다음 사람'>▶</SpecButton>
+          </SpecRow>
+        </Spec>
+      )}
+
       {state.dead && !state.end && (
         <Dead>
           <b>쓰러졌다</b>
           <span>{state.dead.by ? `${state.dead.by}에게 당함` : '전장 밖에서 버티지 못함'}</span>
-          <span>{state.dead.wait}초 뒤 원 안 어딘가에서 다시 시작</span>
+          <span>{state.dead.wait < 0 ? '보스전 중에는 다시 시작할 수 없다 · 곧 관전으로' : `${state.dead.wait}초 뒤 원 안 어딘가에서 다시 시작`}</span>
         </Dead>
       )}
 
@@ -298,6 +318,32 @@ const End = styled(Panel)<{ $win: boolean; }>(({ $win }) => ({
   b: { fontFamily: 'Galmuri14, sans-serif', fontWeight: 'normal', fontSize: 20, color: $win ? '#ffd84a' : '#ff7a6b' },
   ol: { margin: 0, paddingLeft: 18, color: '#d6dbf5' },
 }));
+
+const Spec = styled(Panel)({
+  position: 'absolute',
+  left: '50%',
+  bottom: 140,
+  transform: 'translateX(-50%)',
+  padding: '8px 12px',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  gap: 6,
+  b: { fontWeight: 'normal', color: '#ffd84a' },
+});
+
+const SpecRow = styled.div({ display: 'flex', alignItems: 'center', gap: 10 });
+
+const SpecButton = styled.button({
+  fontFamily: PIXEL_FONT,
+  fontSize: 14,
+  color: '#f4f4f8',
+  background: '#3a4272',
+  border: 0,
+  padding: '6px 10px',
+  cursor: 'pointer',
+  ...pixelBorder(),
+});
 
 const Hint = styled(Panel)({
   position: 'absolute',
