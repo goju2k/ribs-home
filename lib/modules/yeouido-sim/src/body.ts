@@ -11,12 +11,14 @@ import { WorldData } from './world-data';
 export const STEP = 1 / 30;
 
 export const WALK = 1.4; // m/s
-export const RUN = 9.6; // 임시로 두 배 (원래 4.8)
+export const RUN = 4.8;
 export const FLY = 12; // 날 때 수평 속도
 export const FLY_RUN = 36;
 export const LIFT = 10; // 오르내리는 속도
 export const LIFT_RUN = 30;
 export const MAX_ALT = 500;
+/** 날 수 없으면 떨어진다 (m/s², 게임이라 실제보다 조금 세게) */
+export const GRAVITY = 20;
 export const RADIUS = 0.28;
 /** 엘리베이터: 누르고 있으면 이 간격마다 한 층 (초) */
 export const LIFT_WAIT = 0.6;
@@ -48,6 +50,10 @@ export interface Body {
   l: number;
   /** 엘리베이터 다음 층까지 남은 시간 */
   lw: number;
+  /** 날 수 있는지 (로켓슈트, 개발용 허용) 1/0 */
+  fly: number;
+  /** 떨어지는 속도 (m/s, 아래가 음수) */
+  vy: number;
 }
 
 export interface SimWorld {
@@ -63,7 +69,7 @@ export function createSimWorld(data:WorldData):SimWorld {
   return { data, collision: new Collision(data), indoors, byBid: new Map(indoors.map((g) => [ g.bid, g ])) };
 }
 
-export const newBody = (x:number, y:number, z:number):Body => ({ x, y, z, f: 0, spd: 0, a: 0, b: -1, l: 1, lw: 0 });
+export const newBody = (x:number, y:number, z:number):Body => ({ x, y, z, f: 0, spd: 0, a: 0, b: -1, l: 1, lw: 0, fly: 0, vy: 0 });
 
 export const copyBody = (b:Body):Body => ({ ...b });
 
@@ -72,7 +78,7 @@ export function describe(w:SimWorld, b:Body) {
   const room = b.b >= 0 ? w.byBid.get(b.b) : undefined;
   if (room) return { room, floor: room.baseY(b.l), flying: false, cab: room.cabAt(b.x, b.z) };
   const floor = w.collision.floorAt(b.x, b.z, b.y);
-  return { room: undefined, floor, flying: b.y - floor > 0.5, cab: -1 };
+  return { room: undefined, floor, flying: b.y - floor > 0.5 && b.fly === 1, cab: -1 };
 }
 
 /** 한 걸음 (STEP초). b를 바꾼다 */
@@ -85,7 +91,8 @@ export function step(w:SimWorld, b:Body, input:Input) {
   const faceLock = input.face !== undefined && Number.isFinite(input.face);
   if (faceLock) b.f = input.face!;
 
-  // 높이: 실내는 엘리베이터 칸에서만 층 이동, 실외는 누르는 동안 오르내리고 놓으면 그 높이에 떠 있는다
+  // 높이: 실내는 엘리베이터 칸에서만 층 이동.
+  // 실외는 날 수 있으면 누르는 동안 오르내리고 놓으면 그 높이에 떠 있고, 날 수 없으면 바닥까지 떨어진다
   let floor = 0;
   if (room) {
     const cab = room.cabAt(b.x, b.z);
@@ -100,13 +107,22 @@ export function step(w:SimWorld, b:Body, input:Input) {
   } else {
     b.lw = 0;
     const prevY = b.y;
-    if (lift) b.y = Math.min(MAX_ALT, b.y + lift * (input.run ? LIFT_RUN : LIFT) * dt);
+    if (b.fly) {
+      b.vy = 0;
+      if (lift) b.y = Math.min(MAX_ALT, b.y + lift * (input.run ? LIFT_RUN : LIFT) * dt);
+    } else {
+      b.vy -= GRAVITY * dt;
+      b.y += b.vy * dt;
+    }
     // 빨리 내려오면 한 걸음에 지붕을 지나칠 수 있어 움직이기 전 높이로 바닥을 찾는다
     floor = collision.floorAt(b.x, b.z, Math.max(prevY, b.y));
-    if (b.y < floor) b.y = floor;
+    if (b.y <= floor) {
+      b.y = floor;
+      b.vy = 0;
+    }
   }
   const grounded = !room && floor === 0 && b.y < 0.05;
-  const flying = !room && b.y - floor > 0.5;
+  const flying = !room && b.fly === 1 && b.y - floor > 0.5;
 
   // 이동: 걷기↔달리기가 툭 끊기지 않게 속도를 부드럽게 따라간다
   const speeds = flying ? [ FLY, FLY_RUN ] : [ WALK, RUN ];

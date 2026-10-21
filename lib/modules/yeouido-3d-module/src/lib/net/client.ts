@@ -1,4 +1,5 @@
 import { BodyTuple, ClientMsg, decodeSnap, encodeInputs, fromRow, INTERP_DELAY_MS, InputTuple, PlayerState, PROTOCOL_VERSION, ServerMsg, VIEW_MAX, VIEW_MIN } from 'yeouido-net';
+import { MatchPlan, zoneAt, ZoneNow } from 'yeouido-sim';
 
 /**
  * 게임 서버 접속 (서버 권위): 자동 재접속, 내 입력 보내기, 서버가 확정한 내 상태 받기, 다른 사람 위치 보간.
@@ -103,6 +104,12 @@ export class GameClient {
 
   private spawn:SpawnFn;
 
+  /** 지금 판: 원과, 판이 시작된 시각(이 브라우저 시계) */
+  match:{ plan:MatchPlan; startAt:number; } | null = null;
+
+  /** 판이 바뀌었다 (새 판 → 서버가 자리를 옮겼으니 예측을 버린다) */
+  private matchChanged = false;
+
   constructor(url:string, name:string, spawn:SpawnFn) {
     this.url = url;
     this.name = name;
@@ -127,7 +134,8 @@ export class GameClient {
     this.ws = ws;
     ws.onopen = () => {
       this.retry = 0;
-      this.send({ t: 'hello', v: PROTOCOL_VERSION, name: this.name, spawn: this.spawn() });
+      const debug = new URLSearchParams(window.location.search).has('debug');
+      this.send({ t: 'hello', v: PROTOCOL_VERSION, name: this.name, debug, spawn: debug ? this.spawn() : undefined });
     };
     ws.binaryType = 'arraybuffer';
     ws.onmessage = (e) => {
@@ -177,7 +185,13 @@ export class GameClient {
     } else if (msg.t === 'rtc') this.rtcSignal(msg);
     else if (msg.t === 'error') this.error = msg.msg;
     else if (msg.t === 'pong') this.pong(msg.c);
-    else if (msg.t === 'join') this.names.set(msg.id, msg.name);
+    else if (msg.t === 'match') {
+      const startAt = now - msg.elapsed;
+      if (this.match && this.match.plan.id !== msg.id) this.matchChanged = true;
+      // 같은 판이면 시계만 살짝 맞춘다 (받는 지연만큼 흔들리지 않게 큰 차이만)
+      if (this.match?.plan.id === msg.id && Math.abs(this.match.startAt - startAt) < 300) return;
+      this.match = { plan: { id: msg.id, circles: msg.circles.map(([ cx, cz, r ]) => ({ cx, cz, r })) }, startAt };
+    } else if (msg.t === 'join') this.names.set(msg.id, msg.name);
     else if (msg.t === 'leave') {
       this.names.delete(msg.id);
       this.samples.delete(msg.id);
@@ -301,7 +315,16 @@ export class GameClient {
   takeAuthority() {
     const a = this.auth;
     this.auth = null;
+    if (a && this.matchChanged) {
+      a.reset = true;
+      this.matchChanged = false;
+    }
     return a;
+  }
+
+  /** 지금 전장 원 (판 정보를 아직 못 받았으면 null) */
+  zone(now:number):ZoneNow | null {
+    return this.match ? zoneAt(this.match.plan, now - this.match.startAt) : null;
   }
 
   /**

@@ -129,7 +129,7 @@ export class Minimap {
    * @param yaw 카메라 회전 (화면 위쪽 = 월드 (-sin yaw, -cos yaw))
    * @param facing 내가 바라보는 방향 (월드 (sin f, cos f))
    */
-  draw(x:number, z:number, yaw:number, facing:number, others:MiniDot[]) {
+  draw(x:number, z:number, yaw:number, facing:number, others:MiniDot[], zone?:{ cx: number; cz: number; r: number; next: { cx: number; cz: number; r: number; }; } | null) {
     const cv = this.canvas;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const size = cv.clientWidth;
@@ -151,6 +151,27 @@ export class Minimap {
     g.scale(k, k);
     g.translate(-x, -z);
     g.drawImage(this.base, -this.data.half.w, -this.data.half.d, this.base.width * MPP, this.base.height * MPP);
+    // 전장: 원 밖은 어둡게, 지금 원은 흰 선, 다음 원은 점선
+    if (zone) {
+      g.beginPath();
+      g.rect(-1e4, -1e4, 2e4, 2e4);
+      g.arc(zone.cx, zone.cz, zone.r, 0, Math.PI * 2, true);
+      g.fillStyle = 'rgba(40,20,90,0.45)';
+      g.fill('evenodd');
+      g.lineWidth = 2 * dpr / k;
+      g.strokeStyle = '#f4f4f8';
+      g.beginPath();
+      g.arc(zone.cx, zone.cz, zone.r, 0, Math.PI * 2);
+      g.stroke();
+      if (zone.next.r < zone.r - 1) {
+        g.setLineDash([ 6 * dpr / k, 4 * dpr / k ]);
+        g.strokeStyle = '#ffd84a';
+        g.beginPath();
+        g.arc(zone.next.cx, zone.next.cz, zone.next.r, 0, Math.PI * 2);
+        g.stroke();
+        g.setLineDash([]);
+      }
+    }
     // 다른 사람
     g.fillStyle = '#2fb3b0';
     const dot = 3 * dpr / k;

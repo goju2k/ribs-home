@@ -45,6 +45,8 @@ export interface GameStatus {
   mode: CamMode;
   /** 게임 서버 접속 상태, 접속자 수(나 포함), 오류, 마지막 서버 보정 크기(m)와 확인 대기 입력 수 */
   net: { state: NetState; count: number; error: string; correction: number; pending: number; transport: Transport; rtt: number; jitter: number; };
+  /** 전장: 단계, 줄어드는 중인지, 다음 변화·판 끝까지 남은 초, 원 밖이면 원까지 거리(m) */
+  zone: { stage: number; shrinking: boolean; untilChange: number; remain: number; outside: number; } | null;
 }
 
 /** 머리 위 ▼ 표식 — 9×9 도트 그림 */
@@ -124,6 +126,8 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     const body:Body = roof
       ? newBody(roof.plan.frame.ox + (Math.random() - 0.5) * 6, roof.height, roof.plan.frame.oz + (Math.random() - 0.5) * 6)
       : newBody(WORLD.spawn.x, 0, WORLD.spawn.z);
+    // 개발용(?debug)만 자유 비행 (서버도 같은 값을 준다)
+    if (new URLSearchParams(window.location.search).has('debug')) body.fly = 1;
     // 확인용: 주소에 ?at=x,z,높이 를 주면 그 자리에서 시작 (건물 안이면 높이로 층을 골라 실내에서)
     const at = new URLSearchParams(window.location.search).get('at')?.split(',').map(Number);
     if (at && at.length >= 2 && at.every(Number.isFinite)) {
@@ -171,6 +175,15 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     const drop = new THREE.Line(dropGeo, new THREE.LineBasicMaterial({ color: '#ffd84a', transparent: true, opacity: 0.7 }));
     drop.frustumCulled = false;
     scene.add(drop);
+    // 전장 경계: 반경 1짜리 열린 원통을 원 크기로 늘린다 (안팎 모두 보이게, 안개 없이)
+    const wall = new THREE.Mesh(
+      new THREE.CylinderGeometry(1, 1, 1, 256, 1, true),
+      new THREE.MeshBasicMaterial({ color: '#4aa8ff', transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false, fog: false }),
+    );
+    wall.renderOrder = 10;
+    wall.visible = false;
+    scene.add(wall);
+    const WALL_H = 600;
     let autoZoom = 1;
     const bufSize = new THREE.Vector2();
     let seeFade = 0;
@@ -402,7 +415,14 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       const seen = (r:{ b: number; l: number; }) => r.b < 0 || (r.b === body.b && r.l === body.l);
       others.update(remotes, dt, seen, big, (r) => r.b < 0 && r.y - collision.floorAt(r.x, r.z, r.y) > 0.5);
       // 미니맵은 두 프레임에 한 번
-      if (miniFrame++ % 2 === 0) mini.draw(pos.x, pos.z, yaw, facing, remotes.filter(seen));
+      const zone = net.zone(now);
+      if (miniFrame++ % 2 === 0) mini.draw(pos.x, pos.z, yaw, facing, remotes.filter(seen), zone);
+      wall.visible = !!zone;
+      if (zone) {
+        wall.position.set(zone.cx, WALL_H / 2 - 5, zone.cz);
+        wall.scale.set(zone.r, WALL_H, zone.r);
+      }
+      const outside = zone ? Math.max(0, Math.hypot(pos.x - zone.cx, pos.z - zone.cz) - zone.r) : 0;
       const tall = 1.72 * big;
       const onScreen = tall * Math.cos(PITCH); // 내려다보니 화면에선 키가 줄어 보인다
       const mk = onScreen * 1.2; // 화면에서 사람보다 살짝 크게
@@ -525,6 +545,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         indoor: room ? { name: room.name, level, elevator: cab >= 0 } : null,
         net: { state: net.state, count: net.count, error: net.error, correction, pending: pending.length, transport: net.transport, rtt: net.rtt, jitter: net.jitter },
         mode,
+        zone: zone ? { stage: zone.stage, shrinking: zone.shrinking, untilChange: Math.ceil(zone.untilChange / 1000), remain: Math.ceil(zone.remain / 1000), outside } : null,
       };
       if (!readySent) {
         readySent = true;

@@ -5,7 +5,7 @@
  * 스냅숏에는 받는 사람 주변(보이는 범위)·같은 공간의 사람만 담는다.
  */
 
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 /** 입력의 보는 방향이 없다는 표시 */
 export const NO_FACE = 99;
@@ -30,8 +30,8 @@ export const INTERP_DELAY_MS = 120;
 /** 실외면 -1, 실내면 건물 번호 */
 export const OUTDOOR = -1;
 
-/** 내 시뮬레이션 상태 전부: [x, y, z, f, spd, a, b, l, lw] (yeouido-sim Body와 같은 순서) */
-export type BodyTuple = [number, number, number, number, number, number, number, number, number];
+/** 내 시뮬레이션 상태 전부: [x, y, z, f, spd, a, b, l, lw, fly, vy] (yeouido-sim Body와 같은 순서) */
+export type BodyTuple = [number, number, number, number, number, number, number, number, number, number, number];
 
 /** 입력 한 걸음: [순번, mx, mz, 달리기(0/1), 높이(-1/0/1), 보는 방향(라디안, 없으면 NO_FACE)] */
 export type InputTuple = [number, number, number, number, number, number];
@@ -53,7 +53,8 @@ export interface PlayerState {
 /** 클라이언트 → 서버 */
 export type ClientMsg =
   /** spawn: 확인용 ?at= 이나 재접속 때 이어서 시작할 자리 (서버가 받아 줄지 판단) */
-  | { t: 'hello'; v: number; name: string; spawn?: { x: number; y: number; z: number; b: number; l: number; }; }
+  /** debug: 개발용 (비행 허용, spawn 받아 줌) */
+  | { t: 'hello'; v: number; name: string; debug?: boolean; spawn?: { x: number; y: number; z: number; b: number; l: number; }; }
   | { t: 'input'; cmds: InputTuple[]; }
   /** 화면에 보이는 반경(m) — 바뀔 때만 보낸다 */
   | { t: 'view'; r: number; }
@@ -80,7 +81,12 @@ export type ServerMsg =
   /** ack: 이 상태까지 반영한 내 입력 순번, me: 그 시점 내 상태 (정밀값) */
   | { t: 'snap'; tick: number; ack: number; me: BodyTuple; ps: SnapRow[]; }
   | { t: 'error'; msg: string; }
-  | { t: 'pong'; c: number; };
+  | { t: 'pong'; c: number; }
+  /**
+   * 판 정보: 원 11개([cx, cz, r]: 0번 처음 원, k번 k단계 끝 원)와 판이 시작된 뒤 흐른 시간(ms).
+   * 클라이언트는 yeouido-sim zoneAt으로 지금 원을 계산한다. 새 판이면 id가 바뀐다
+   */
+  | { t: 'match'; id: number; circles: [number, number, number][]; elapsed: number; };
 
 const round = (n:number, k = 100) => Math.round(n * k) / k;
 
@@ -89,12 +95,12 @@ export const toRow = (id:number, s:PlayerState):SnapRow => [ id, round(s.x), rou
 export const fromRow = (r:SnapRow):{ id: number; } & PlayerState => ({ id: r[0], x: r[1], y: r[2], z: r[3], f: r[4], a: r[5], b: r[6], l: r[7] });
 
 export interface BodyLike {
-  x: number; y: number; z: number; f: number; spd: number; a: number; b: number; l: number; lw: number;
+  x: number; y: number; z: number; f: number; spd: number; a: number; b: number; l: number; lw: number; fly: number; vy: number;
 }
 
-export const toBody = (b:BodyLike):BodyTuple => [ b.x, b.y, b.z, b.f, b.spd, b.a, b.b, b.l, b.lw ];
+export const toBody = (b:BodyLike):BodyTuple => [ b.x, b.y, b.z, b.f, b.spd, b.a, b.b, b.l, b.lw, b.fly, b.vy ];
 
-export const fromBody = (t:BodyTuple):BodyLike => ({ x: t[0], y: t[1], z: t[2], f: t[3], spd: t[4], a: t[5], b: t[6], l: t[7], lw: t[8] });
+export const fromBody = (t:BodyTuple):BodyLike => ({ x: t[0], y: t[1], z: t[2], f: t[3], spd: t[4], a: t[5], b: t[6], l: t[7], lw: t[8], fly: t[9], vy: t[10] });
 
 const num = (v:unknown, lim:number) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= lim;
 

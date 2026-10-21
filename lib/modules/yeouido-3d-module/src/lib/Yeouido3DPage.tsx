@@ -27,6 +27,13 @@ const netLabel = (s:GameStatus) => {
   return s.net.state === 'connecting' ? '접속 중…' : '오프라인';
 };
 
+const clock = (s:number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
+const zoneLabel = (z:NonNullable<GameStatus['zone']>) => {
+  if (z.stage > 10) return '최종 원 · 시간 종료';
+  return `전장 ${z.stage}/10 · ${z.shrinking ? '줄어드는 중' : '다음 축소'} ${clock(z.untilChange)} · 남은 시간 ${clock(z.remain)}`;
+};
+
 const MODE_LABEL:Record<CamMode, string> = { top: '위', chase: '뒤', fp: '1인칭' };
 
 const isTouch = () => typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
@@ -34,7 +41,7 @@ const isTouch = () => typeof window !== 'undefined' && ('ontouchstart' in window
 export function Yeouido3DPage() {
   useGalmuriFont();
   const inputRef = useRef(createInput());
-  const statusRef = useRef<GameStatus>({ ready: false, buildMs: 0, pixel: 0, x: 0, z: 0, running: false, alt: 0, flying: false, onRoof: false, indoor: null, net: { state: 'connecting', count: 0, error: '', correction: 0, pending: 0, transport: 'ws', rtt: 0, jitter: 0 }, mode: 'top' });
+  const statusRef = useRef<GameStatus>({ ready: false, buildMs: 0, pixel: 0, x: 0, z: 0, running: false, alt: 0, flying: false, onRoof: false, indoor: null, net: { state: 'connecting', count: 0, error: '', correction: 0, pending: 0, transport: 'ws', rtt: 0, jitter: 0 }, mode: 'top', zone: null });
   const [ ready, setReady ] = useState(false);
   const [ touch ] = useState(isTouch);
   const [ status, setStatus ] = useState<GameStatus>(statusRef.current);
@@ -134,6 +141,13 @@ export function Yeouido3DPage() {
         </Buttons>
       </TopBar>
 
+      {status.zone && (
+        <ZoneBar $warn={status.zone.outside > 0}>
+          {zoneLabel(status.zone)}
+          {status.zone.outside > 0 && <b>전장 밖! 원 안으로 {Math.ceil(status.zone.outside)}m</b>}
+        </ZoneBar>
+      )}
+
       {touch && <VirtualJoystick inputRef={inputRef} />}
       <SideButtons>
         <LiftButton {...holdProps('upHeld')} aria-label='위로'>▲</LiftButton>
@@ -183,6 +197,21 @@ const Title = styled.div({
 });
 
 const Sub = styled.span({ color: '#b9bfe0' });
+
+const ZoneBar = styled(Panel)<{ $warn: boolean; }>(({ $warn }) => ({
+  position: 'absolute',
+  top: 74,
+  left: 10,
+  maxWidth: 'calc(100% - 190px)',
+  padding: '6px 10px',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+  color: '#f4f4f8',
+  b: { fontWeight: 'normal', color: '#ff7a6b', animation: $warn ? 'zoneBlink 0.8s steps(2) infinite' : 'none' },
+  '@keyframes zoneBlink': { '50%': { opacity: 0.35 } },
+  '@media (max-width: 560px)': { top: 126 },
+}));
 
 const Buttons = styled.div({ display: 'flex', gap: 6 });
 

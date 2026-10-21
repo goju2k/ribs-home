@@ -4,4 +4,4 @@ export * from './collision';
 export * from './indoor/spec';
 export * from './indoor/plan';
 export * from './indoor/indoor-grid';
-export * from './body';
+export * from './body'; export * from './match';

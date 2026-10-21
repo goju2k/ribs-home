@@ -4,7 +4,7 @@
  * 모두 리틀 엔디언. 첫 바이트가 종류.
  *
  * 스냅숏 (서버 → 클라이언트)
- *   u8 1 | u32 tick | u32 ack | me: f64 × 9 (x y z f spd a b l lw — 예측 보정용이라 정밀값)
+ *   u8 1 | u32 tick | u32 ack | me: f64 × ME (x y z f spd a b l lw fly vy — 예측 보정용이라 정밀값)
  *   u16 행 수 | 행마다 17바이트:
  *     u16 id | i32 x(cm) | i32 z(cm) | u16 y(cm) | u8 방향(256단계) | u8 걷는 속도(×10, 25.5m/s까지) | i16 건물 | u8 층
  * 입력 (클라이언트 → 서버)
@@ -17,6 +17,9 @@ export const BIN_SNAP = 1;
 export const BIN_INPUT = 2;
 
 const ROW = 17;
+/** 내 상태 값 개수 (BodyTuple 길이) */
+const ME = 11;
+const HEAD = 1 + 4 + 4 + ME * 8;
 const IN = 11;
 const TAU = Math.PI * 2;
 
@@ -25,7 +28,7 @@ export interface Snap {
 }
 
 export function encodeSnap(tick:number, ack:number, me:BodyTuple, rows:SnapRow[]) {
-  const buf = new ArrayBuffer(1 + 4 + 4 + 72 + 2 + rows.length * ROW);
+  const buf = new ArrayBuffer(HEAD + 2 + rows.length * ROW);
   const d = new DataView(buf);
   let o = 0;
   d.setUint8(o, BIN_SNAP);
@@ -55,16 +58,16 @@ export function encodeSnap(tick:number, ack:number, me:BodyTuple, rows:SnapRow[]
 }
 
 export function decodeSnap(buf:ArrayBuffer):Snap | null {
-  if (buf.byteLength < 83) return null;
+  if (buf.byteLength < HEAD + 2) return null;
   const d = new DataView(buf);
   if (d.getUint8(0) !== BIN_SNAP) return null;
   const tick = d.getUint32(1, true);
   const ack = d.getUint32(5, true);
-  const me = Array.from({ length: 9 }, (_, i) => d.getFloat64(9 + i * 8, true)) as BodyTuple;
-  const n = d.getUint16(81, true);
-  if (buf.byteLength < 83 + n * ROW) return null;
+  const me = Array.from({ length: ME }, (_, i) => d.getFloat64(9 + i * 8, true)) as BodyTuple;
+  const n = d.getUint16(HEAD, true);
+  if (buf.byteLength < HEAD + 2 + n * ROW) return null;
   const rows:SnapRow[] = [];
-  for (let i = 0, o = 83; i < n; i++, o += ROW) {
+  for (let i = 0, o = HEAD + 2; i < n; i++, o += ROW) {
     rows.push([
       d.getUint16(o, true),
       d.getInt32(o + 2, true) / 100,
