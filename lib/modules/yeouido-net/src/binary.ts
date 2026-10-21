@@ -8,7 +8,7 @@
  *   u16 행 수 | 행마다 20바이트:
  *     u16 id | i32 x(cm) | i32 z(cm) | u16 y(cm) | u8 방향(256단계) | u8 걷는 속도(×10, 25.5m/s까지) | i16 건물 | u8 층 | u8 상태 비트 | u8 게이지 | u8 모습 종류(0 사람, 그 밖은 모드의 NPC)
  * 입력 (클라이언트 → 서버)
- *   u8 2 | u8 개수 | 개마다 11바이트: u32 순번 | i16 mx×1000 | i16 mz×1000 | u8 (bit0 달리기, bit1 위, bit2 아래, bit3 보는 방향 있음, bit4~6 행동) | i16 보는 방향×10000
+ *   u8 2 | u8 개수 | 개마다 13바이트: u32 순번 | i16 mx×1000 | i16 mz×1000 | u8 (bit0 달리기, bit1 위, bit2 아래, bit3 보는 방향 있음, bit4~6 행동) | i16 보는 방향×10000 | i16 조준 높이각×10000
  */
 import { NO_FACE } from './index';
 import type { BodyTuple, InputTuple, SnapRow } from './index';
@@ -20,7 +20,7 @@ const ROW = 20;
 /** 내 상태 값 개수 (BodyTuple 길이) */
 const ME = 13;
 const HEAD = 1 + 4 + 4 + ME * 8 + 2;
-const IN = 11;
+const IN = 13;
 const TAU = Math.PI * 2;
 
 export interface Snap {
@@ -102,7 +102,7 @@ export function encodeInputs(cmds:InputTuple[]) {
   const d = new DataView(buf);
   d.setUint8(0, BIN_INPUT);
   d.setUint8(1, list.length);
-  list.forEach(([ seq, mx, mz, run, lift, face, act ], i) => {
+  list.forEach(([ seq, mx, mz, run, lift, face, act, pitch ], i) => {
     const o = 2 + i * IN;
     const hasFace = face !== NO_FACE;
     d.setUint32(o, seq, true);
@@ -110,6 +110,7 @@ export function encodeInputs(cmds:InputTuple[]) {
     d.setInt16(o + 6, Math.round(mz * 1000), true);
     d.setUint8(o + 8, (run ? 1 : 0) | (lift > 0 ? 2 : 0) | (lift < 0 ? 4 : 0) | (hasFace ? 8 : 0) | ((act & 7) << 4));
     d.setInt16(o + 9, hasFace ? Math.round(face * 10000) : 0, true);
+    d.setInt16(o + 11, Math.round(Math.max(-1.6, Math.min(1.6, pitch)) * 10000), true);
   });
   return buf;
 }
@@ -125,7 +126,7 @@ export function decodeInputs(buf:ArrayBuffer):InputTuple[] | null {
     const o = 2 + i * IN;
     const flags = d.getUint8(o + 8);
     const face = flags & 8 ? d.getInt16(o + 9, true) / 10000 : NO_FACE;
-    out.push([ d.getUint32(o, true), d.getInt16(o + 4, true) / 1000, d.getInt16(o + 6, true) / 1000, flags & 1, (flags & 2 ? 1 : 0) - (flags & 4 ? 1 : 0), face, (flags >> 4) & 7 ]);
+    out.push([ d.getUint32(o, true), d.getInt16(o + 4, true) / 1000, d.getInt16(o + 6, true) / 1000, flags & 1, (flags & 2 ? 1 : 0) - (flags & 4 ? 1 : 0), face, (flags >> 4) & 7, d.getInt16(o + 11, true) / 10000 ]);
   }
   return out;
 }

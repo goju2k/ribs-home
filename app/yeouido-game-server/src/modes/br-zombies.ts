@@ -83,6 +83,29 @@ export class Horde {
     this.zeds.clear();
   }
 
+  /** 총·화살로 맞힐 수 있는 좀비들 (pos: 되감은 자리를 줄 수 있다) */
+  shotTargets(now:number, hitMsg:(by:ModePlayer, id:number, dmg:number) => void, pos:(id:number, b:Body) => { x: number; y: number; z: number; } = (_, b) => b) {
+    const out:{ id: number; x: number; y: number; z: number; b: number; l: number; hit: (dmg:number, by:ModePlayer) => void; }[] = [];
+    this.zeds.forEach((z) => {
+      if (z.deadAt || z.burnAt) return;
+      const { body } = z.npc;
+      const at = pos(z.npc.id, body);
+      out.push({
+        id: z.npc.id,
+        x: at.x,
+        y: at.y,
+        z: at.z,
+        b: body.b,
+        l: body.l,
+        hit: (dmg, by) => {
+          this.hit(z, dmg, now, by);
+          hitMsg(by, z.npc.id, dmg);
+        },
+      });
+    });
+    return out;
+  }
+
   /** 근접 공격이 닿는 가장 가까운 좀비 */
   nearest(at:Body, reaches:(t:Body) => boolean) {
     let best:Zed | null = null;

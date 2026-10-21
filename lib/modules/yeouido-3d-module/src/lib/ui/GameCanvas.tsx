@@ -159,7 +159,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     let acc = 0;
     let seq = 0;
     // frozen: 보낼 때 움직일 수 없는 상태였음 (서버도 이동 없이 순번만 넘긴다 — 다시 돌릴 때도 건너뛴다)
-    const pending:{ seq: number; inp: Input; act: number; frozen: boolean; }[] = [];
+    const pending:{ seq: number; inp: Input; act: number; pitch: number; frozen: boolean; }[] = [];
     const err = { x: 0, y: 0, z: 0 }; // 서버 보정으로 생긴 화면상 어긋남 (서서히 0으로)
     let correction = 0;
     const pos = { x: body.x, y: body.y, z: body.z }; // 화면에 그리는 위치
@@ -263,7 +263,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         const top = inputRef.current.mode === 'top';
         if (!top) lock();
         mouseAct |= e.button === 2 ? 2 : e.button === 0 ? 1 : 0; // eslint-disable-line no-bitwise, no-nested-ternary
-        if (top) aimPt = { x: e.clientX, y: e.clientY };
+        if (top && (e.button === 0 || e.button === 2)) aimPt = { x: e.clientX, y: e.clientY };
         return;
       }
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -306,7 +306,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     const onUp = (e:PointerEvent) => {
       if (e.pointerType === 'mouse') {
         mouseAct &= ~(e.button === 2 ? 2 : e.button === 0 ? 1 : 0); // eslint-disable-line no-bitwise, no-nested-ternary
-        if (!(mouseAct & 1)) aimPt = null; // eslint-disable-line no-bitwise
+        if (!(mouseAct & 3)) aimPt = null; // eslint-disable-line no-bitwise
         return;
       }
       // 손가락 짧게 = 행동 1 (두 손가락 확대 중엔 아님). 위 시점이면 탭한 쪽을 본다
@@ -455,7 +455,9 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       const out:InputTuple[] = [];
       // 움직일 수 없는 상태(모드가 정함)면 예측도 멈춘다
       const frozen = (net.meStatus.s & ST_FROZEN) !== 0; // eslint-disable-line no-bitwise
-      const tuple = (c:{ seq: number; inp: Input; act: number; }):InputTuple => [ c.seq, c.inp.mx, c.inp.mz, c.inp.run ? 1 : 0, c.inp.lift, c.inp.face ?? NO_FACE, c.act ];
+      const tuple = (c:{ seq: number; inp: Input; act: number; pitch: number; }):InputTuple => [ c.seq, c.inp.mx, c.inp.mz, c.inp.run ? 1 : 0, c.inp.lift, c.inp.face ?? NO_FACE, c.act, c.pitch ];
+      // 조준 높이각: 1인칭은 보는 높이 그대로, 그 밖은 수평
+      const pitch = mode === 'fp' ? Math.round(fpPitch * 10000) / 10000 : 0;
       while (acc >= STEP) {
         acc -= STEP;
         seq++;
@@ -466,7 +468,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         input.actTap = 0;
         aimTap = null;
         if (act) modeClient?.acted(act, now);
-        const c = { seq, inp, act, frozen };
+        const c = { seq, inp, act, pitch, frozen };
         pending.push(c);
         out.push(tuple(c));
       }

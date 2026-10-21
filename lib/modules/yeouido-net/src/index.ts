@@ -9,7 +9,10 @@
  * - 자기 메시지는 { t: 'mode' } 통로로만 주고받는다 (형식은 모드 모듈이 정한다).
  */
 
-export const PROTOCOL_VERSION = 9;
+export const PROTOCOL_VERSION = 10;
+
+/** 클라이언트가 알려 주는 화면 지연(다른 사람을 얼마나 늦게 보는지)의 상한 (ms) — 지연 보정이 이보다 더 되감지 않는다 */
+export const MAX_LAG_MS = 300;
 
 /** 상태 비트 중 엔진이 쓰는 것: 움직일 수 없음 (입력은 받되 이동하지 않는다 — 클라이언트 예측도 멈춘다). 나머지 비트는 모드가 쓴다 */
 export const ST_FROZEN = 0x80;
@@ -43,8 +46,8 @@ export const OUTDOOR = -1;
 /** 내 시뮬레이션 상태 전부: [x, y, z, f, spd, a, b, l, lw, fly, vy, sm, fm] (yeouido-sim Body와 같은 순서) */
 export type BodyTuple = [number, number, number, number, number, number, number, number, number, number, number, number, number];
 
-/** 입력 한 걸음: [순번, mx, mz, 달리기(0/1), 높이(-1/0/1), 보는 방향(라디안, 없으면 NO_FACE), 행동 비트(0~7)] */
-export type InputTuple = [number, number, number, number, number, number, number];
+/** 입력 한 걸음: [순번, mx, mz, 달리기(0/1), 높이(-1/0/1), 보는 방향(라디안, 없으면 NO_FACE), 행동 비트(0~7), 조준 높이각(라디안, +는 아래)] */
+export type InputTuple = [number, number, number, number, number, number, number, number];
 
 /** 다른 사람에게 보이는 상태 */
 export interface PlayerState {
@@ -77,6 +80,8 @@ export type ClientMsg =
   | { t: 'ping'; c: number; }
   /** 게임 모드 전용 요청 (형식은 모드 모듈이 정한다) */
   | { t: 'mode'; d: unknown; }
+  /** 내 화면 지연: 다른 사람을 지금보다 이만큼 늦게 보고 있다 (편도 지연 + 보간 지연, ms) — 서버가 판정을 이만큼 되감는다 */
+  | { t: 'lag'; ms: number; }
   /** WebRTC 신호 (offer 또는 ICE 후보) */
   | ({ t: 'rtc'; } & RtcSignal);
 
@@ -121,8 +126,8 @@ const num = (v:unknown, lim:number) => typeof v === 'number' && Number.isFinite(
 
 /** 받은 입력 한 줄이 쓸 만한지 */
 export function validInput(c:unknown):c is InputTuple {
-  return Array.isArray(c) && c.length === 7 && num(c[0], 1e9) && num(c[1], 1.01) && num(c[2], 1.01) && num(c[3], 1) && num(c[4], 1) && num(c[5], NO_FACE)
-    && Number.isInteger(c[6]) && c[6] >= 0 && c[6] <= ACT_MAX;
+  return Array.isArray(c) && c.length === 8 && num(c[0], 1e9) && num(c[1], 1.01) && num(c[2], 1.01) && num(c[3], 1) && num(c[4], 1) && num(c[5], NO_FACE)
+    && Number.isInteger(c[6]) && c[6] >= 0 && c[6] <= ACT_MAX && num(c[7], 1.6);
 }
 
 export * from './binary';

@@ -69,6 +69,11 @@ export class GameClient {
 
   private pingTimer:ReturnType<typeof setInterval> | null = null;
 
+  /** 다른 사람을 받은 때보다 얼마나 늦게 그리는지 (보간 지연, 가운데 값, ms) */
+  private viewDelay = INTERP_DELAY_MS;
+
+  private pings = 0;
+
   private pc:RTCPeerConnection | null = null;
 
   private dc:RTCDataChannel | null = null;
@@ -240,6 +245,9 @@ export class GameClient {
       const m = JSON.stringify({ t: 'ping', c: performance.now() } satisfies ClientMsg);
       if (this.dc?.readyState === 'open') this.dc.send(m);
       else if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(m);
+      // 2초마다 내 화면 지연(편도 + 보간)을 알린다 — 서버가 총 판정을 이만큼 되감는다
+      this.pings++;
+      if (this.pings % 2 === 0 && this.rtt) this.send({ t: 'lag', ms: Math.round(this.rtt / 2 + this.viewDelay) });
     }, 1000);
   }
 
@@ -340,11 +348,14 @@ export class GameClient {
    */
   remotes(now:number):Remote[] {
     const out:Remote[] = [];
+    const delays:number[] = [];
     this.samples.forEach((list, id) => {
       if (!list.length || now - list[list.length - 1].t > 3000) return; // 3초 소식 없으면 숨김
       const n = list.length;
       const gap = n >= 3 ? (list[n - 1].t - list[n - 3].t) / 2 : 0;
-      const at = now - Math.max(INTERP_DELAY_MS, gap * 1.3);
+      const delay = Math.max(INTERP_DELAY_MS, gap * 1.3);
+      delays.push(delay);
+      const at = now - delay;
       let { s } = list[list.length - 1];
       for (let i = list.length - 1; i > 0; i--) {
         const a = list[i - 1];
@@ -370,6 +381,10 @@ export class GameClient {
       }
       out.push({ id, name: this.names.get(id) ?? '', ...s });
     });
+    if (delays.length) {
+      delays.sort((a, b) => a - b);
+      this.viewDelay += (delays[delays.length >> 1] - this.viewDelay) * 0.1; // eslint-disable-line no-bitwise
+    }
     return out;
   }
 

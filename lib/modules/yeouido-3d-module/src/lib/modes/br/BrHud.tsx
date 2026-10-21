@@ -1,7 +1,7 @@
 /* eslint-disable no-bitwise -- 행동 비트 */
 import { MouseEvent, MutableRefObject, PointerEvent } from 'react';
 import styled from 'styled-components';
-import { ACT_MELEE, ITEM_KINDS, ITEM_NAMES, STAGES } from 'yeouido-br';
+import { ACT_MELEE, ACT_RANGED, ITEM_KINDS, ITEM_NAMES, STAGES } from 'yeouido-br';
 
 import type { BrHudState } from './br-client';
 import { ITEM_COLORS } from './item-meshes';
@@ -31,10 +31,21 @@ const zoneLabel = (z:NonNullable<BrHudState['zone']>) => {
  * 배틀로얄 모드 HUD (게임성 측정용 PoC): 전장·체력·무적, 사망 화면, 알림, 때린 피해, 공격 버튼(터치).
  */
 export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: MutableRefObject<InputState>; touch: boolean; }) {
-  const hold = (on:boolean) => {
-    if (on) inputRef.current.act |= ACT_MELEE;
-    else inputRef.current.act &= ~ACT_MELEE;
+  const hold = (bit:number, on:boolean) => {
+    if (on) inputRef.current.act |= bit;
+    else inputRef.current.act &= ~bit;
   };
+  // 누르고 있는 동안 켜지는 버튼 (근접·원거리)
+  const holdProps = (bit:number) => ({
+    onPointerDown: (e:PointerEvent<HTMLButtonElement>) => {
+      capturePointer(e.currentTarget, e.pointerId);
+      hold(bit, true);
+    },
+    onPointerUp: () => hold(bit, false),
+    onPointerCancel: () => hold(bit, false),
+    onLostPointerCapture: () => hold(bit, false),
+    onContextMenu: (e:MouseEvent) => e.preventDefault(),
+  });
   const z = state.zone;
   return (
     <>
@@ -62,6 +73,12 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
             </Slot>
           ))}
         </GearRow>
+        {state.reload !== null && state.reload < 1 && (
+          <HpPanel>
+            <span>재장전</span>
+            <HpBar><HpFill style={{ width: `${Math.round(state.reload * 100)}%`, background: '#ffd84a' }} /></HpBar>
+          </HpPanel>
+        )}
       </Left>
 
       {state.feed.length > 0 && (
@@ -89,19 +106,11 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
       )}
 
       {touch ? (
-        <AttackButton
-          onPointerDown={(e:PointerEvent<HTMLButtonElement>) => {
-            capturePointer(e.currentTarget, e.pointerId);
-            hold(true);
-          }}
-          onPointerUp={() => hold(false)}
-          onPointerCancel={() => hold(false)}
-          onLostPointerCapture={() => hold(false)}
-          onContextMenu={(e:MouseEvent) => e.preventDefault()}
-          aria-label='공격'
-        >공격
-        </AttackButton>
-      ) : <Hint>공격: 왼쪽 클릭 (위 시점은 마우스 쪽으로, 뒤·1인칭은 화면 가운데로)</Hint>}
+        <>
+          <AttackButton {...holdProps(ACT_MELEE)} aria-label='근접 공격'>공격</AttackButton>
+          {state.reload !== null && <ShootButton {...holdProps(ACT_RANGED)} aria-label='원거리 공격'>사격</ShootButton>}
+        </>
+      ) : <Hint>근접: 왼쪽 클릭 · 원거리: 오른쪽 클릭 (위 시점은 마우스 쪽으로, 뒤·1인칭은 화면 가운데로)</Hint>}
     </>
   );
 }
@@ -228,6 +237,14 @@ const AttackButton = styled.button({
   userSelect: 'none',
   ...pixelBorder(),
   '&:active': { transform: 'translateY(1px)', background: '#c4433a' },
+});
+
+const ShootButton = styled(AttackButton)({
+  bottom: 136,
+  width: 68,
+  height: 68,
+  background: '#4a6fe2',
+  '&:active': { transform: 'translateY(1px)', background: '#3a58b8' },
 });
 
 const Hint = styled(Panel)({

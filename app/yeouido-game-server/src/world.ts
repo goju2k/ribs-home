@@ -1,6 +1,6 @@
 import { WebSocket } from 'ws';
 import {
-  ClientMsg, decodeInputs, NO_FACE, encodeSnap, ST_FROZEN, InputTuple, NEAR, PROTOCOL_VERSION, ServerMsg, SIM_HZ, SNAP_HZ, SnapRow, toArrayBuffer, toBody, toRow, validInput,
+  ClientMsg, decodeInputs, MAX_LAG_MS, NO_FACE, encodeSnap, ST_FROZEN, InputTuple, NEAR, PROTOCOL_VERSION, ServerMsg, SIM_HZ, SNAP_HZ, SnapRow, toArrayBuffer, toBody, toRow, validInput,
   VIEW_DEFAULT, VIEW_MAX, VIEW_MIN,
 } from 'yeouido-net';
 import { Body, createSimWorld, newBody, SimWorld, step, WORLD } from 'yeouido-sim';
@@ -21,6 +21,8 @@ const CELL = 128;
 const cellKey = (cx:number, cz:number) => (cx + 1000) * 4096 + (cz + 1000);
 /** 정렬 키에서 번호 자리 (사람 수가 이보다 적어야 한다) */
 const KEY = 65536;
+/** 지연 보정용 위치 기록 틱 수 (1초) */
+const HIST = SIM_HZ;
 /** NPC 번호 범위 (사람 번호와 안 겹치게, 스냅숏 id는 u16) */
 const NPC_FIRST = 40000;
 const NPC_LAST = 65000;
@@ -32,6 +34,7 @@ interface Player extends ModePlayer {
   queue: InputTuple[];
   /** 이번 틱에 이 사람에게만 보낼 모드 메시지 (틱 끝에 한 번에) */
   modeOut: unknown[];
+  lagMs: number;
   /** 처리해도 되는 걸음 수 (틱마다 1씩 쌓임) */
   budget: number;
   /** 마지막으로 처리한 입력 순번 */
@@ -64,6 +67,9 @@ export class World {
   private npcs = new Map<number, ModeNpc>();
 
   private nextNpcId = NPC_FIRST;
+
+  /** 지연 보정: 번호마다 지난 HIST 틱 위치 [x, y, z, b, l] × HIST (틱 % HIST 자리) */
+  private hist = new Map<number, Float32Array>();
 
   private nextId = 1;
 
@@ -122,6 +128,15 @@ export class World {
         this.npcs.delete(id);
       },
       npcs: () => this.npcs.values(),
+      past: (id, msAgo) => {
+        const h = this.hist.get(id);
+        if (!h) return null;
+        // 틱 중간(입력 처리 중)에 부르므로 마지막 기록은 지난 틱 끝 (this.tick - 1)
+        const ago = Math.max(0, Math.min(HIST - 2, Math.round(msAgo / (1000 / SIM_HZ))));
+        const o = ((((this.tick - 1 - ago) % HIST) + HIST) % HIST) * 5;
+        if (Number.isNaN(h[o])) return null;
+        return { x: h[o], y: h[o + 1], z: h[o + 2], b: h[o + 3], l: h[o + 4] };
+      },
     };
     this.mode = new BattleRoyale(host);
   }
@@ -211,6 +226,7 @@ export class World {
       else if (msg.t === 'view' && typeof msg.r === 'number' && Number.isFinite(msg.r)) me.view = Math.max(VIEW_MIN, Math.min(VIEW_MAX, msg.r));
       else if (msg.t === 'rtc') this.rtcSignal(me, msg);
       else if (msg.t === 'mode') this.mode.message?.(me, msg.d);
+      else if (msg.t === 'lag' && typeof msg.ms === 'number' && Number.isFinite(msg.ms)) me.lagMs = Math.max(0, Math.min(MAX_LAG_MS, msg.ms));
     });
     ws.on('close', () => {
       clearTimeout(hello);
@@ -256,7 +272,7 @@ export class World {
   }
 
   private join(ws:WebSocket, name:string, requested:Body | null, debug:boolean) {
-    const p:Player = { id: this.nextId++, name, ws, body: newBody(0, 0, 0), st: 0, gv: 0, modeOut: [], queue: [], budget: 0, ack: 0, rtc: null, view: VIEW_DEFAULT, sent: 0, debug };
+    const p:Player = { id: this.nextId++, name, ws, body: newBody(0, 0, 0), st: 0, gv: 0, modeOut: [], lagMs: 0, queue: [], budget: 0, ack: 0, rtc: null, view: VIEW_DEFAULT, sent: 0, debug };
     this.players.set(p.id, p);
     // 시작 자리·상태는 모드가 정한다
     this.mode.join(p, requested);
@@ -296,12 +312,12 @@ export class World {
     this.players.forEach((p) => {
       p.budget = Math.min(MAX_BURST, p.budget + gain);
       while (p.budget >= 1 && p.queue.length) {
-        const [ seq, mx, mz, run, lift, face, act ] = p.queue.shift()!;
+        const [ seq, mx, mz, run, lift, face, act, pitch ] = p.queue.shift()!;
         // 움직일 수 없는 상태(모드가 정함: 예 — 죽음)면 입력은 받아 순번만 넘긴다 (클라이언트 예측도 같은 비트를 보고 멈춘다)
         if (!(p.st & ST_FROZEN)) step(this.sim, p.body, { mx, mz, run: run === 1, lift, face: face === NO_FACE ? undefined : face }); // eslint-disable-line no-bitwise
         p.ack = seq;
         p.budget -= 1;
-        this.mode.act(p, act, now);
+        this.mode.act(p, act, now, { face: face === NO_FACE ? p.body.f : face, pitch });
       }
     });
     // NPC: 모드가 정한 입력으로 한 걸음
@@ -309,6 +325,7 @@ export class World {
       if (!(n.st & ST_FROZEN)) step(this.sim, n.body, n.input); // eslint-disable-line no-bitwise
     });
     this.mode.tick(now);
+    this.record();
     this.flushMode();
     const t1 = performance.now();
     this.lastSimMs = t1 - t0;
@@ -316,6 +333,28 @@ export class World {
     if (this.players.size) this.snapshot(this.tick % SPLIT);
     this.lastSnapMs = performance.now() - t1;
     this.lastTickMs = performance.now() - t0;
+  }
+
+  /** 지연 보정용: 이번 틱 사람·NPC 위치를 기록 (없어진 번호는 지운다) */
+  private record() {
+    const slot = (this.tick % HIST) * 5;
+    const seen = new Set<number>();
+    const put = (id:number, b:Body) => {
+      seen.add(id);
+      let h = this.hist.get(id);
+      if (!h) {
+        h = new Float32Array(HIST * 5).fill(NaN);
+        this.hist.set(id, h);
+      }
+      h[slot] = b.x;
+      h[slot + 1] = b.y;
+      h[slot + 2] = b.z;
+      h[slot + 3] = b.b;
+      h[slot + 4] = b.l;
+    };
+    this.players.forEach((p) => put(p.id, p.body));
+    this.npcs.forEach((n) => put(n.id, n.body));
+    if (this.hist.size > seen.size) [ ...this.hist.keys() ].forEach((id) => !seen.has(id) && this.hist.delete(id));
   }
 
   /**

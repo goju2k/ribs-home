@@ -6,20 +6,45 @@ import { FIST } from './rules';
  */
 
 /** 순서가 곧 번호 (메시지에 번호로 오가므로 새 종류는 뒤에 붙인다) */
-export const ITEM_KINDS = [ 'pipe', 'armor', 'shoes', 'rocket', 'hammer' ] as const;
+export const ITEM_KINDS = [ 'pipe', 'armor', 'shoes', 'rocket', 'hammer', 'pistol', 'bow' ] as const;
 export type ItemKind = typeof ITEM_KINDS[number];
 
-export const ITEM_NAMES:Record<ItemKind, string> = { pipe: '쇠파이프', armor: '갑옷', shoes: '신발', rocket: '로켓슈트', hammer: '망치' };
+export const ITEM_NAMES:Record<ItemKind, string> = { pipe: '쇠파이프', armor: '갑옷', shoes: '신발', rocket: '로켓슈트', hammer: '망치', pistol: '권총', bow: '활' };
 
 /** 땅에 뿌릴 때 비율 (로켓슈트는 땅에 안 뿌린다 — 물건을 부숴야 나온다) */
-export const DROP_WEIGHTS:Record<ItemKind, number> = { pipe: 3, armor: 3, shoes: 3, rocket: 0, hammer: 3 };
+export const DROP_WEIGHTS:Record<ItemKind, number> = { pipe: 3, armor: 3, shoes: 3, rocket: 0, hammer: 3, pistol: 1, bow: 1 };
 
 export const MAX_LEVEL = 7;
 
 /** 장비: 칸마다 강화 단계 (0 = 없음) */
 export type Gear = Record<ItemKind, number>;
 
-export const emptyGear = ():Gear => ({ pipe: 0, armor: 0, shoes: 0, rocket: 0, hammer: 0 });
+export const emptyGear = ():Gear => ({ pipe: 0, armor: 0, shoes: 0, rocket: 0, hammer: 0, pistol: 0, bow: 0 });
+
+/** 원거리 무기: 한 종류만 든다 (다른 종류를 주우면 들고 있던 것은 그 자리에 떨어진다) */
+export const RANGED_KINDS:ItemKind[] = [ 'pistol', 'bow' ];
+
+/** 들고 있는 원거리 무기 (없으면 null) */
+export const heldRanged = (g:Gear):ItemKind | null => RANGED_KINDS.find((k) => g[k] > 0) ?? null;
+
+export interface RangedStats {
+  /** 바로 맞음(총) 또는 날아가는 화살 */
+  hitscan: boolean;
+  damage: number;
+  /** 다음 발까지 (재장전, ms) */
+  reloadMs: number;
+  range: number;
+  /** 화살 속도 (m/s) */
+  speed: number;
+}
+
+/**
+ * 원거리 무기 (탄약 무제한, 강화마다 재장전↓·피해↑):
+ * 권총 피해 14→32·재장전 0.9→0.48초·사거리 40m(바로 맞음) / 활 피해 22→46·재장전 1.4→0.8초·사거리 60m(화살 45m/s)
+ */
+export const rangedStats = (kind:ItemKind, lv:number):RangedStats => (kind === 'bow'
+  ? { hitscan: false, damage: 22 + 4 * (lv - 1), reloadMs: 1400 - 100 * (lv - 1), range: 60, speed: 45 }
+  : { hitscan: true, damage: 14 + 3 * (lv - 1), reloadMs: 900 - 70 * (lv - 1), range: 40, speed: 0 });
 
 /** 주웠을 때 새 단계: 없던 칸이면 주운 단계, 있으면 더 높은 쪽 + 1 */
 export const afterPickup = (cur:number, got:number) => (cur ? Math.min(MAX_LEVEL, Math.max(cur, got) + 1) : got);

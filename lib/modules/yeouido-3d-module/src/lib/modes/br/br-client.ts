@@ -7,6 +7,7 @@ import {
 
 import { ITEM_COLORS, ItemMeshes } from './item-meshes';
 import { PropMeshes } from './prop-meshes';
+import { ShotFx } from './shot-fx';
 
 import { createPerson, Person } from '../../player/person';
 import { Appearance, Look, ModeClient, ModeFrame, ModeHostClient } from '../mode-client';
@@ -40,6 +41,8 @@ export interface BrHudState {
   gear: Gear;
   /** 방금 주운 것 */
   got: { id: number; text: string; }[];
+  /** 원거리 재장전 진행 0~1 (1 = 쏠 수 있음), 원거리 무기가 없으면 null */
+  reload: number | null;
 }
 
 interface ShownCorpse {
@@ -86,6 +89,13 @@ export class BrClient implements ModeClient {
 
   private props:PropMeshes;
 
+  private shots:ShotFx;
+
+  /** 원거리 재장전: 쏜 시각과 걸리는 시간 */
+  private reloadAt = 0;
+
+  private reloadMs = 0;
+
   private gear:Gear = emptyGear();
 
   private got:{ id: number; text: string; at: number; }[] = [];
@@ -106,6 +116,7 @@ export class BrClient implements ModeClient {
     host.scene.add(this.wall);
     this.items = new ItemMeshes(host.scene);
     this.props = new PropMeshes(host.scene);
+    this.shots = new ShotFx(host.scene);
   }
 
   receive(d:unknown, now:number) {
@@ -149,6 +160,12 @@ export class BrClient implements ModeClient {
       this.props.hit(m.id, -1, now);
       this.hits.push({ id: ++this.seq, dmg: m.dmg, at: now });
       if (this.hits.length > 6) this.hits.shift();
+    } else if (m.k === 'shot') this.shots.tracer(m.o, m.e, now);
+    else if (m.k === 'arrow') this.shots.arrow(m.id, m.o, m.d, m.v, m.range, now);
+    else if (m.k === 'arrowEnd') this.shots.arrowEnd(m.id, m.at, now);
+    else if (m.k === 'fired') {
+      this.reloadAt = now;
+      this.reloadMs = m.reloadMs;
     } else if (m.k === 'gear') this.gear = m.gear;
     else if (m.k === 'got') {
       const k = ITEM_KINDS[m.kind];
@@ -206,6 +223,7 @@ export class BrClient implements ModeClient {
     });
     this.items.update(f.now, f.me);
     this.props.update(f.now, f.me);
+    this.shots.update(f.now);
   }
 
   acted(act:number, now:number) {
@@ -310,6 +328,7 @@ export class BrClient implements ModeClient {
       hurt: Math.max(0, 1 - (now - this.hurtAt) / 400),
       gear: this.gear,
       got: this.got.map(({ id, text }) => ({ id, text })),
+      reload: this.gear.pistol || this.gear.bow ? Math.min(1, this.reloadMs ? (now - this.reloadAt) / this.reloadMs : 1) : null,
     };
   }
 
@@ -319,6 +338,7 @@ export class BrClient implements ModeClient {
     [ ...this.corpses.keys() ].forEach((id) => this.removeCorpse(id));
     this.items.dispose();
     this.props.dispose();
+    this.shots.dispose();
     this.lootGeo.dispose();
     this.lootMat.dispose();
   }

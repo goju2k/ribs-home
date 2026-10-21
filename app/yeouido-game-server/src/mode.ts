@@ -20,6 +20,18 @@ export interface ModePlayer {
   gv: number;
   /** 입력 대기열 (새 판 등으로 자리를 옮길 때 비운다) */
   queue: unknown[];
+  /** 이 사람 화면 지연 (ms, MAX_LAG_MS 안) — 지연 보정에 쓴다 */
+  readonly lagMs: number;
+}
+
+/** 입력 한 걸음의 조준: 보는 방향(없으면 몸 방향)과 높이각(+는 아래) */
+export interface Aim {
+  face: number; pitch: number;
+}
+
+/** 지난 위치 (지연 보정) */
+export interface PastPose {
+  x: number; y: number; z: number; b: number; l: number;
 }
 
 /**
@@ -48,6 +60,8 @@ export interface ModeHost {
   addNpc(k:number, body:Body): ModeNpc;
   removeNpc(id:number): void;
   npcs(): Iterable<ModeNpc>;
+  /** 사람·NPC가 msAgo 전에 있던 자리 (지난 1초까지, 기록이 없으면 null) — 지연 보정 판정용 */
+  past(id:number, msAgo:number): PastPose | null;
 }
 
 export interface GameMode {
@@ -60,7 +74,7 @@ export interface GameMode {
   join(p:ModePlayer, requested:Body | null): void;
   leave(p:ModePlayer): void;
   /** 입력 한 걸음을 처리한 뒤 (act: 행동 비트, 0이어도 부른다 — 누르고 있는 동안 계속 들어온다) */
-  act(p:ModePlayer, act:number, now:number): void;
+  act(p:ModePlayer, act:number, now:number, aim:Aim): void;
   /** 틱마다 (모든 입력을 처리한 뒤) */
   tick(now:number): void;
   /** 클라이언트가 보낸 모드 요청 */

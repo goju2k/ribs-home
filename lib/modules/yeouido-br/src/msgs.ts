@@ -45,6 +45,14 @@ export type BrServerMsg =
   | { k: 'propHit'; id: number; hp: number; }
   | { k: 'propGone'; ids: number[]; }
   /** 내가 물건을 침 */
-  | { k: 'hitProp'; id: number; dmg: number; };
+  | { k: 'hitProp'; id: number; dmg: number; }
+  /** 총: 쏜 자리 → 끝(맞은 곳·벽·사거리 끝) 궤적 (근처 사람에게), by = 쏜 사람 */
+  | { k: 'shot'; by: number; o: [number, number, number]; e: [number, number, number]; }
+  /** 화살: 쏜 자리·방향(길이 1)·속도·사거리 — 클라이언트가 같이 날린다 */
+  | { k: 'arrow'; id: number; by: number; o: [number, number, number]; d: [number, number, number]; v: number; range: number; }
+  /** 화살이 멈춤 (맞음·벽) */
+  | { k: 'arrowEnd'; id: number; at: [number, number, number]; }
+  /** 내가 쐈다 (재장전 표시용) */
+  | { k: 'fired'; reloadMs: number; };
 
 export const isBrMsg = (d:unknown):d is BrServerMsg => typeof d === 'object' && d !== null && typeof (d as { k?: unknown; }).k === 'string';

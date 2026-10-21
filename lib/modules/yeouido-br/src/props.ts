@@ -28,15 +28,15 @@ export type DropRow = [ItemKind | null, number, number, number];
 export const DROPS:Record<PropKind, { count: [number, number]; table: DropRow[]; }> = {
   crate: {
     count: [ 1, 1 ],
-    table: [[ null, 3, 0, 0 ], [ 'pipe', 3, 1, 1 ], [ 'armor', 3, 1, 1 ], [ 'shoes', 3, 1, 1 ], [ 'hammer', 3, 1, 1 ], [ 'rocket', 0.5, 1, 1 ]],
+    table: [[ null, 3, 0, 0 ], [ 'pipe', 3, 1, 1 ], [ 'armor', 3, 1, 1 ], [ 'shoes', 3, 1, 1 ], [ 'hammer', 3, 1, 1 ], [ 'rocket', 0.5, 1, 1 ], [ 'pistol', 1, 1, 1 ], [ 'bow', 1, 1, 1 ]],
   },
   vending: {
     count: [ 1, 2 ],
-    table: [[ 'shoes', 4, 1, 2 ], [ 'armor', 3, 1, 2 ], [ 'pipe', 2, 1, 2 ], [ 'hammer', 2, 1, 1 ], [ 'rocket', 1, 1, 1 ]],
+    table: [[ 'shoes', 4, 1, 2 ], [ 'armor', 3, 1, 2 ], [ 'pipe', 2, 1, 2 ], [ 'hammer', 2, 1, 1 ], [ 'rocket', 1, 1, 1 ], [ 'pistol', 1.5, 1, 2 ], [ 'bow', 1.5, 1, 2 ]],
   },
   safe: {
     count: [ 2, 3 ],
-    table: [[ 'armor', 3, 2, 3 ], [ 'pipe', 3, 2, 3 ], [ 'shoes', 3, 2, 3 ], [ 'rocket', 2, 1, 2 ], [ 'hammer', 1, 2, 3 ]],
+    table: [[ 'armor', 3, 2, 3 ], [ 'pipe', 3, 2, 3 ], [ 'shoes', 3, 2, 3 ], [ 'rocket', 2, 1, 2 ], [ 'hammer', 1, 2, 3 ], [ 'pistol', 2.5, 2, 3 ], [ 'bow', 2.5, 2, 3 ]],
   },
 };
 
