@@ -10,8 +10,9 @@ import { WorldData } from './world-data';
 /** 고정 시뮬레이션 간격 (초). 입력 하나 = 한 걸음 */
 export const STEP = 1 / 30;
 
-export const WALK = 1.4; // m/s
-export const RUN = 4.8;
+/** 걷기·달리기 (m/s) — 실제보다 1.5배 (게임이 답답하지 않게) */
+export const WALK = 2.1;
+export const RUN = 7.2;
 export const FLY = 12; // 날 때 수평 속도
 export const FLY_RUN = 36;
 export const LIFT = 10; // 오르내리는 속도
@@ -19,6 +20,8 @@ export const LIFT_RUN = 30;
 export const MAX_ALT = 500;
 /** 날 수 없으면 떨어진다 (m/s², 게임이라 실제보다 조금 세게) */
 export const GRAVITY = 20;
+/** 점프: 날 수 없을 때 위(Space·▲)를 누르면 이 속도로 뛰어오른다 (약 1m) */
+export const JUMP_V = 6.4;
 export const RADIUS = 0.28;
 /** 엘리베이터: 누르고 있으면 이 간격마다 한 층 (초) */
 export const LIFT_WAIT = 0.6;
@@ -114,6 +117,8 @@ export function step(w:SimWorld, b:Body, input:Input) {
       b.vy = 0;
       if (lift) b.y = Math.min(MAX_ALT, b.y + lift * (input.run ? LIFT_RUN : LIFT) * b.fm * dt);
     } else {
+      // 땅·지붕에 서 있을 때(떨어지는 중이 아님) 위를 누르면 점프
+      if (lift > 0 && b.vy === 0) b.vy = JUMP_V;
       b.vy -= GRAVITY * dt;
       b.y += b.vy * dt;
     }

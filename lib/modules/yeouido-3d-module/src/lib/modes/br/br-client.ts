@@ -165,6 +165,7 @@ export class BrClient implements ModeClient {
       m.list.forEach((c) => this.addCorpse(c));
     } else if (m.k === 'corpse') this.addCorpse(m.c);
     else if (m.k === 'corpseGone') this.removeCorpse(m.id);
+    else if (m.k === 'notice') this.pushFeed(m.text, now);
     else if (m.k === 'kill') this.pushFeed(m.killer ? `${m.killer} ▶ ${m.victim}` : `${m.victim} 전장 밖에서 쓰러짐`, now);
     else if (m.k === 'hit') {
       this.hits.push({ id: ++this.seq, dmg: m.dmg, at: now });

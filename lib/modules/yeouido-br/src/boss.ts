@@ -27,19 +27,19 @@ export const bossHp = (alive:number, difficulty:Difficulty = 'normal') => Math.r
 
 /** 보스 능력 (난이도가 피해에도 곱해진다) */
 export const BOSS = {
-  /** 몸 크기 배율 (화면·맞는 원기둥) */
-  scale: 2.5,
+  /** 몸 크기 배율 (화면·맞는 원기둥) — 사람의 10배(키 17m), 위압감 */
+  scale: 10,
   /** 맞는 원기둥 반지름·키 (m) */
-  radius: 1.0,
-  height: 4.3,
-  /** 쫓는 속도 배율 (달리기 4.8 기준 → 4.1m/s, 맨발보다 조금 느림) */
+  radius: 4,
+  height: 17,
+  /** 쫓는 속도 배율 (달리기 7.2 기준 → 6.1m/s, 맨발보다 조금 느림) */
   chaseMul: 0.85,
   /** 내려치기: 앞 반경·피해·대기 */
-  smashRange: 3.2,
+  smashRange: 7,
   smashDamage: 25,
   smashMs: 1800,
   /** 땅 울리기: 반경(높이 무관 — 옥상에서 버티기 방지)·피해·간격, 미리 알려 주는 시간 */
-  slamRange: 14,
+  slamRange: 20,
   slamDamage: 12,
   slamEveryMs: 6000,
   slamWindupMs: 900,

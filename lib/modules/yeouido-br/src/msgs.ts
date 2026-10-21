@@ -19,6 +19,8 @@ export type BrServerMsg =
   | { k: 'corpses'; list: Corpse[]; }
   | { k: 'corpse'; c: Corpse; }
   | { k: 'corpseGone'; id: number; }
+  /** 알림 한 줄 (보스 등장·나감 등) */
+  | { k: 'notice'; text: string; }
   /** 누가 누구를 (killer 없음 = 전장 밖에서) */
   | { k: 'kill'; killer: string | null; victim: string; }
   /** 내가 때림 (target: 맞은 사람 id) */

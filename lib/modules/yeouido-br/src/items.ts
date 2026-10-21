@@ -49,7 +49,7 @@ export const rangedStats = (kind:ItemKind, lv:number):RangedStats => (kind === '
 /** 주웠을 때 새 단계: 없던 칸이면 주운 단계, 있으면 더 높은 쪽 + 1 */
 export const afterPickup = (cur:number, got:number) => (cur ? Math.min(MAX_LEVEL, Math.max(cur, got) + 1) : got);
 
-/** 신발: 땅 속도 배율 (+1 1.15 → 달리기 5.5m/s = 뛰는 좀비, +7 1.45 → 7.0m/s) */
+/** 신발: 땅 속도 배율 (+1 1.15 → 달리기 8.3m/s = 뛰는 좀비, +7 1.45 → 10.4m/s) */
 export const shoeMul = (lv:number) => (lv ? 1.15 + 0.05 * (lv - 1) : 1);
 
 /** 로켓슈트: 비행 가능 + 비행 속도 배율 (+1 0.4 → 달려 날기 14m/s, +7 0.88 → 32m/s) */

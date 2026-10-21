@@ -146,7 +146,7 @@ export function Yeouido3DPage() {
           {run ? '달리기' : '걷기'}
         </RunButton>
       </SideButtons>
-      {!touch && <KeyHint>이동 WASD/방향키 · 달리기 T(전환)/Shift · 높이 Space·R / C·F · 시점 V(뒤·1인칭은 마우스 움직임 = 시점) · 회전 Q/E · 확대 휠/+/-</KeyHint>}
+      {!touch && <KeyHint>이동 WASD/방향키 · 달리기 T(전환)/Shift · 점프·높이 Space·R / C·F · 시점 V(뒤·1인칭은 마우스 움직임 = 시점) · 회전 Q/E · 확대 휠/+/-</KeyHint>}
 
       {!ready && <Loading>여의도를 세우는 중…</Loading>}
       <Attribution href='https://www.openstreetmap.org/copyright' target='_blank' rel='noreferrer'>

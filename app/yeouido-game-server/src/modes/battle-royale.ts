@@ -9,6 +9,7 @@ import { Body, newBody } from 'yeouido-sim';
 import { Boss } from './br-boss';
 import { ItemField } from './br-items';
 import { Prop, PropField, propRow } from './br-props';
+import { newStats, PlayerStats, Records } from './br-records';
 import { aimDir, Arrow, at3, hitscan, MUZZLE_Y, ShotTarget } from './br-shots';
 import { Horde } from './br-zombies';
 
@@ -42,8 +43,8 @@ const ITEM_REFILL_MS = 20_000;
 /** 전장 밖 아이템을 치우는 간격 (ms) — 원이 줄면 밖에 남은 아이템은 사라진다 */
 const ITEM_SWEEP_MS = 1000;
 /** 부술 수 있는 물건: 판 시작 수, 최소 유지 수 (원 넓이만큼 유지, 아이템과 같은 주기) */
-const PROP_START = 450;
-const PROP_MIN = 50;
+const PROP_START = 900;
+const PROP_MIN = 100;
 /** 물건 내구도 알림은 이 거리 안 사람에게만 (m) */
 const PROP_HIT_RANGE = 80;
 /** 총 궤적·화살은 이 거리 안 사람에게만 보낸다 (m) */
@@ -122,6 +123,14 @@ export class BattleRoyale implements GameMode {
 
   private bossSentAt = 0;
 
+  /** 판 기록: 이번 판에 들어온 사람마다 (나가도 남는다) */
+  private stats = new Map<number, PlayerStats>();
+
+  private records = new Records();
+
+  /** 이번 판이 실제로 시작된 시각 (기록용, 개발용 시계 당김과 무관) */
+  private startedAt = 0;
+
   private arrows:Arrow[] = [];
 
   private nextArrowId = 1;
@@ -190,6 +199,8 @@ export class BattleRoyale implements GameMode {
     this.match = makeMatchPlan(this.host.sim, id, (Math.random() * 2 ** 32) >>> 0); // eslint-disable-line no-bitwise
     this.matchAt = Date.now() - TIME_OFFSET;
     this.phase = 'play';
+    this.startedAt = Date.now();
+    this.stats.clear();
     this.boss.clear();
     this.corpses = [];
     this.horde.clear();
@@ -247,6 +258,11 @@ export class BattleRoyale implements GameMode {
       });
     }
     f.gear[k] = afterPickup(f.gear[k], lv);
+    const st = this.stats.get(p.id);
+    if (st) {
+      st.picks[k]++;
+      st.maxGear[k] = Math.max(st.maxGear[k], f.gear[k]);
+    }
     this.send(p, { k: 'got', kind, lv: f.gear[k], from });
   }
 
@@ -276,7 +292,11 @@ export class BattleRoyale implements GameMode {
       });
     });
     // 사람은 damage()가 쏜 사람에게 맞힘 알림을 보내고, 좀비·보스는 여기서
-    const zeds = this.horde.shotTargets(now, (by, id, dmg) => this.send(by, { k: 'hit', target: id, dmg }), pos);
+    const zeds = this.horde.shotTargets(now, (by, id, dmg, killed) => {
+      this.send(by, { k: 'hit', target: id, dmg });
+      const st = this.stats.get(by.id);
+      if (killed && st) st.zombieKills++;
+    }, pos);
     const boss = this.boss.shotTarget(() => {}, pos, now);
     if (boss) {
       const { hit } = boss;
@@ -379,6 +399,7 @@ export class BattleRoyale implements GameMode {
   join(p:ModePlayer, requested:Body | null) {
     if (!this.match) this.newMatch();
     const now = Date.now();
+    this.stats.set(p.id, newStats(p.name, now, this.phase !== 'play'));
     this.revive(p, requested ?? this.spawnBody(), now);
     // 보스전·결과 중에 들어오면 이번 판은 관전, 다음 판에 참여
     if (this.phase !== 'play') this.spectate(p, this.fighters.get(p.id)!, 'late', now);
@@ -388,8 +409,50 @@ export class BattleRoyale implements GameMode {
     this.send(p, { k: 'props', list: this.props.list() });
   }
 
+  /** 나감: 살아 있었으면 그 자리에 시체(장비)를 남긴다 — 죽기 직전에 나가 장비를 없애는 꼼수 방지 */
   leave(p:ModePlayer) {
+    const f = this.fighters.get(p.id);
+    const now = Date.now();
+    if (f && !f.respawnAt && this.match && this.phase !== 'end') {
+      this.dropCorpse(p, f);
+      this.broadcast({ k: 'notice', text: `${p.name} 나감 · 시체를 남김` });
+    }
+    const st = this.stats.get(p.id);
+    if (st) st.leftAt = now;
     this.fighters.delete(p.id);
+  }
+
+  /** 그 자리에 시체 (가진 장비 전부) */
+  private dropCorpse(p:ModePlayer, f:Fighter) {
+    const { x, y, z, f: face, b, l } = p.body;
+    const r2 = (n:number) => Math.round(n * 100) / 100;
+    const items:CorpseItem[] = ITEM_KINDS.map((k, i):CorpseItem => [ i, f.gear[k] ]).filter(([ , lv ]) => lv > 0);
+    const c:Corpse = { id: this.nextCorpseId++, name: p.name, x: r2(x), y: r2(y), z: r2(z), f: r2(face), b, l, items };
+    this.corpses.push(c);
+    this.broadcast({ k: 'corpse', c });
+    if (this.corpses.length > MAX_CORPSES) this.broadcast({ k: 'corpseGone', id: this.corpses.shift()!.id });
+  }
+
+  /** 판 기록 저장 (보스전 결과 또는 사람이 없어 닫힘) */
+  private saveRecord(result:'win' | 'lose' | 'abandoned', why:string | null) {
+    if (!this.match || !this.stats.size) return;
+    // 보스가 나왔던 판만 보스 기록 (지난 판 값이 남아 있지 않게)
+    const bossed = this.phase !== 'play';
+    const players = [ ...this.stats.entries() ].map(([ id, st ]) => {
+      const f = this.fighters.get(id);
+      return { ...st, bossDamage: bossed ? this.boss.dmgBy.get(st.name) ?? 0 : 0, aliveAtEnd: !!f && !f.respawnAt && st.leftAt === null };
+    });
+    this.records.save({
+      matchId: this.match.id,
+      startedAt: this.startedAt,
+      endedAt: Date.now(),
+      result,
+      why,
+      difficulty: DIFF,
+      bossHp: bossed ? this.boss.max : null,
+      bossKiller: bossed ? this.boss.killer : null,
+      players,
+    });
   }
 
   /** 관전으로: 다시 시작 못 함 (dead면 잠깐 누워 있다가, late면 바로) */
@@ -476,7 +539,10 @@ export class BattleRoyale implements GameMode {
     // 좀비가 더 가까우면 좀비를 친다
     const zed = this.horde.nearest(p.body, (b) => meleeReaches(p.body, b, w.range, w.cosArc));
     if (zed && Math.hypot(zed.npc.body.x - p.body.x, zed.npc.body.z - p.body.z) < bestD) {
-      this.horde.hit(zed, w.damage, now, p);
+      if (this.horde.hit(zed, w.damage, now, p)) {
+        const st = this.stats.get(p.id);
+        if (st) st.zombieKills++;
+      }
       this.send(p, { k: 'hit', target: zed.npc.id, dmg: w.damage });
       return;
     }
@@ -533,7 +599,15 @@ export class BattleRoyale implements GameMode {
     f.hurtUntil = now + HURT_MS;
     this.send(t, { k: 'hurt', dmg, from: by?.name ?? byName });
     if (by) this.send(by, { k: 'hit', target: t.id, dmg });
-    if (f.hp <= 0) this.die(t, f, by?.name ?? byName, now);
+    // 기록: 준 피해·처치·사망
+    const bySt = by ? this.stats.get(by.id) : undefined;
+    if (bySt) bySt.damage += dmg;
+    if (f.hp <= 0) {
+      if (bySt) bySt.kills++;
+      const st = this.stats.get(t.id);
+      if (st) st.deaths++;
+      this.die(t, f, by?.name ?? byName, now);
+    }
   }
 
   private die(p:ModePlayer, f:Fighter, by:string | null, now:number) {
@@ -542,14 +616,8 @@ export class BattleRoyale implements GameMode {
     const wait = noRespawn ? -1 : respawnDelay(this.zone().stage);
     if (noRespawn) this.spectate(p, f, 'dead', now);
     else f.respawnAt = now + wait;
-    const { x, y, z, f: face, b, l } = p.body;
-    const r2 = (n:number) => Math.round(n * 100) / 100;
     // 가진 장비는 시체에 남는다
-    const items:CorpseItem[] = ITEM_KINDS.map((k, i):CorpseItem => [ i, f.gear[k] ]).filter(([ , lv ]) => lv > 0);
-    const c:Corpse = { id: this.nextCorpseId++, name: p.name, x: r2(x), y: r2(y), z: r2(z), f: r2(face), b, l, items };
-    this.corpses.push(c);
-    this.broadcast({ k: 'corpse', c });
-    if (this.corpses.length > MAX_CORPSES) this.broadcast({ k: 'corpseGone', id: this.corpses.shift()!.id });
+    this.dropCorpse(p, f);
     this.broadcast({ k: 'kill', killer: by, victim: p.name });
     this.send(p, { k: 'dead', by, wait });
   }
@@ -562,6 +630,7 @@ export class BattleRoyale implements GameMode {
       if (!this.emptyAt) this.emptyAt = now;
       else if (now - this.emptyAt > EMPTY_CLOSE_MS) {
         console.log(`[br] match #${this.match.id} closed (empty)`);
+        if (this.phase !== 'end') this.saveRecord('abandoned', null);
         this.match = null;
         this.emptyAt = 0;
       }
@@ -573,7 +642,13 @@ export class BattleRoyale implements GameMode {
       this.phase = 'boss';
       const alive = all.filter((p) => !this.fighters.get(p.id)?.respawnAt).length;
       this.boss.spawn(this.match.circles[this.match.circles.length - 1], alive, DIFF, now);
-      this.broadcast({ k: 'kill', killer: null, victim: '최종 보스가 나타났다! 이제 다시 시작할 수 없다' });
+      this.broadcast({ k: 'notice', text: '최종 보스가 나타났다! 이제 다시 시작할 수 없다' });
+      // 기록: 보스가 나온 순간의 장비 (보스 체력을 맞추는 기준)
+      all.forEach((p) => {
+        const f = this.fighters.get(p.id);
+        const st = this.stats.get(p.id);
+        if (f && st && !f.respawnAt) st.gearAtBoss = { ...f.gear };
+      });
       // 다시 시작을 기다리던 사람은 이번 판은 관전
       all.forEach((p) => {
         const f = this.fighters.get(p.id);
@@ -601,7 +676,10 @@ export class BattleRoyale implements GameMode {
     // 결과를 보여 준 뒤 새 판: 모두 새 원 안에서 살아난다
     if (this.phase === 'end' && now >= this.endAt) {
       this.newMatch();
-      all.forEach((p) => this.revive(p, this.spawnBody(), now));
+      all.forEach((p) => {
+        this.revive(p, this.spawnBody(), now);
+        this.stats.set(p.id, newStats(p.name, now, false));
+      });
       this.broadcast(this.matchMsg());
       this.broadcast({ k: 'corpses', list: [] });
       this.broadcast({ k: 'items', list: this.items.list() });
@@ -680,6 +758,7 @@ export class BattleRoyale implements GameMode {
 
   /** 판 끝: 결과(마지막 일격·보스 피해 순위)를 알리고 RESULT_MS 뒤 새 판 */
   private finish(result:'win' | 'lose', now:number, why?:'time' | 'wiped') {
+    this.saveRecord(result, why ?? null);
     const top = [ ...this.boss.dmgBy.entries() ].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([ n, d ]):[string, number] => [ n, Math.round(d) ]);
     this.broadcast({ k: 'boss', id: this.boss.npc?.id ?? 0, hp: 0, max: this.boss.max, remain: 0 });
     this.broadcast({ k: 'end', result, why, killer: this.boss.killer, top, next: RESULT_MS });

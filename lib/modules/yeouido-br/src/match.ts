@@ -10,7 +10,7 @@ export const MATCH_MS = 20 * 60 * 1000;
 export const STAGES = 10;
 export const STAGE_MS = MATCH_MS / STAGES;
 /** 최종 원 반경 (m) */
-export const FINAL_R = 500;
+export const FINAL_R = 300;
 
 export interface Circle {
   cx: number; cz: number; r: number;
@@ -110,7 +110,7 @@ export interface Spawn {
 }
 
 /**
- * 원 안의 무작위 시작 자리: 지상 60%, 옥상 30%, 실내 층 10% (실내가 원 안에 없으면 지상)
+ * 원 안의 무작위 시작 자리: 지상 80%, 옥상 10%, 실내 층 10% (실내가 원 안에 없으면 지상). 옥상·실내는 실내가 만들어진 건물만이라 지금은 KB 한 채 — 실내 건물이 늘면(9단계) 옥상 비율을 다시 올린다
  */
 export function pickSpawn(sim:SimWorld, zone:Circle, rand:() => number = Math.random):Spawn {
   const { collision, data } = sim;
@@ -128,12 +128,19 @@ export function pickSpawn(sim:SimWorld, zone:Circle, rand:() => number = Math.ra
     }
     return null;
   };
+  // 옥상: 실내가 만들어진 건물 옥상만 (내부가 없는 건물 옥상에 서면 내려올 길이 없다)
   const roof = ():Spawn | null => {
+    const tops = sim.indoors.filter((g) => inZone(g.plan.frame.ox, g.plan.frame.oz));
+    if (!tops.length) return null;
+    const g = tops[Math.floor(rand() * tops.length)];
+    const { frame } = g.plan;
     for (let i = 0; i < 200; i++) {
-      const p = randomIn();
-      if (!inZone(p.x, p.z)) continue;
-      const h = collision.floorAt(p.x, p.z, 1e4);
-      if (h > 2 && h < 400) return { x: p.x, y: h, z: p.z, b: -1, l: 1 };
+      const u = (rand() - 0.5) * frame.L;
+      const v = (rand() - 0.5) * frame.W;
+      const x = frame.ox + frame.ux * u - frame.uz * v;
+      const z = frame.oz + frame.uz * u + frame.ux * v;
+      const h = collision.floorAt(x, z, 1e4);
+      if (g.contains(x, z) && inZone(x, z) && h > 2) return { x, y: h, z, b: -1, l: 1 };
     }
     return null;
   };
@@ -153,6 +160,6 @@ export function pickSpawn(sim:SimWorld, zone:Circle, rand:() => number = Math.ra
     return null;
   };
   const roll = rand();
-  const first = roll < 0.6 ? ground : roll < 0.9 ? roof : indoor; // eslint-disable-line no-nested-ternary
+  const first = roll < 0.8 ? ground : roll < 0.9 ? roof : indoor; // eslint-disable-line no-nested-ternary
   return first() ?? ground() ?? roof() ?? { x: zone.cx, y: 0, z: zone.cz, b: -1, l: 1 };
 }

@@ -2,7 +2,7 @@ import { MutableRefObject, useEffect, useRef } from 'react';
 import styled from 'styled-components';
 import * as THREE from 'three';
 import { fromBody, InputTuple, NO_FACE, ST_FROZEN, ST_HIDDEN } from 'yeouido-net';
-import { Body, copyBody, createSimWorld, describe, FLY, Input, newBody, STEP, step, WORLD } from 'yeouido-sim';
+import { Body, castRay, copyBody, createSimWorld, describe, FLY, Input, newBody, STEP, step, WORLD } from 'yeouido-sim';
 
 import { Minimap } from './minimap';
 
@@ -53,6 +53,10 @@ export interface GameStatus {
 
 /** 터치: 짧은 탭 = 행동(공격), 이보다 길거나 끌면 카메라 조작 (마우스는 누르는 순간 행동) */
 const TAP_MS = 250;
+/** 조준 광선 길이 (m) — 이 안에서 벽·땅에 닿는 곳을 겨눈다 */
+const AIM_RANGE = 80;
+/** 총구 높이 (발에서, m) — 서버 판정과 같아야 한다 */
+const MUZZLE_Y = 1.4;
 const TAP_MOVE = 8;
 
 /** 머리 위 ▼ 표식 — 9×9 도트 그림 */
@@ -98,6 +102,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const tagRef = useRef<HTMLDivElement>(null);
+  const crossRef = useRef<HTMLDivElement>(null);
   const miniRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -200,6 +205,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 6000);
     // 3인칭·1인칭용 원근 카메라 (멀리는 안개로 덮고 가시거리에서 자른다)
     const persp = new THREE.PerspectiveCamera(60, 1, 0.1, FAR);
+    const aimDirV = new THREE.Vector3();
     const fog = new THREE.Fog(SKY, FOG_NEAR, FAR);
     let { mode } = inputRef.current;
     let camDist = 16; // 3인칭: 머리에서 카메라까지 (m) — 배경이 넉넉히 보이게
@@ -410,7 +416,27 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       // - 1인칭, 마우스로 잠근 3인칭, 3인칭에서 행동 중 → 카메라가 보는 쪽 (카메라 앞 (-sin yaw, -cos yaw) = 몸 앞 (sin f, cos f) → f = yaw + π)
       // - 위 시점에서 행동 중 → 마우스·탭이 가리키는 땅 쪽
       let face:number | undefined;
-      if (mode === 'fp' || (mode === 'chase' && (usedMouse || held || input.actTap))) face = Math.atan2(Math.sin(yaw + Math.PI), Math.cos(yaw + Math.PI));
+      // 뒤·1인칭: 화면 가운데(조준선)에서 나가는 카메라 광선이 벽·땅에 닿는 곳을 겨눈다 → 총구에서 그곳으로 (조준선과 맞는 방향·높이각)
+      let aimPitch = 0;
+      if (persp3) {
+        persp.getWorldDirection(aimDirV);
+        const c = persp.position;
+        // 3인칭은 카메라가 캐릭터 뒤에 있어 그 사이 벽에 닿지 않게, 광선 위에서 캐릭터와 가장 가까운 점부터 잰다
+        const t0 = Math.max(0, (body.x - c.x) * aimDirV.x + (body.y + MUZZLE_Y - c.y) * aimDirV.y + (body.z - c.z) * aimDirV.z);
+        const sx = c.x + aimDirV.x * t0;
+        const sy = c.y + aimDirV.y * t0;
+        const sz = c.z + aimDirV.z * t0;
+        const hit = castRay(sim, sx, sy, sz, aimDirV.x, aimDirV.y, aimDirV.z, AIM_RANGE, body.b, body.l);
+        const tx = sx + aimDirV.x * hit - body.x;
+        const ty = sy + aimDirV.y * hit - (body.y + MUZZLE_Y);
+        const tz = sz + aimDirV.z * hit - body.z;
+        const flat = Math.hypot(tx, tz);
+        if (flat > 0.5) {
+          const yawAim = Math.atan2(tx, tz);
+          aimPitch = Math.max(-1.5, Math.min(1.5, Math.atan2(-ty, flat)));
+          if (mode === 'fp' || (mode === 'chase' && (usedMouse || held || input.actTap))) face = yawAim;
+        } else if (mode === 'fp' || (mode === 'chase' && (usedMouse || held || input.actTap))) face = Math.atan2(Math.sin(yaw + Math.PI), Math.cos(yaw + Math.PI));
+      }
       const aimAt = mode === 'top' ? (aimTap ?? (held ? aimPt : null)) : null;
       if (aimAt) {
         const rect = canvas.getBoundingClientRect();
@@ -457,7 +483,8 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       const frozen = (net.meStatus.s & ST_FROZEN) !== 0; // eslint-disable-line no-bitwise
       const tuple = (c:{ seq: number; inp: Input; act: number; pitch: number; }):InputTuple => [ c.seq, c.inp.mx, c.inp.mz, c.inp.run ? 1 : 0, c.inp.lift, c.inp.face ?? NO_FACE, c.act, c.pitch ];
       // 조준 높이각: 1인칭은 보는 높이 그대로, 그 밖은 수평
-      const pitch = mode === 'fp' ? Math.round(fpPitch * 10000) / 10000 : 0;
+      // 조준 높이각: 뒤·1인칭은 조준선이 가리키는 곳, 위 시점은 수평
+      const pitch = persp3 ? Math.round(aimPitch * 10000) / 10000 : 0;
       while (acc >= STEP) {
         acc -= STEP;
         seq++;
@@ -648,6 +675,8 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       SEE.toCam.value.set(toCamX, toCamZ);
 
       others.placeTags(cam, w, h);
+      // 뒤·1인칭: 화면 가운데 조준선 (원거리가 정확히 여기로 간다)
+      if (crossRef.current) crossRef.current.style.display = persp3 && !away ? 'block' : 'none';
       renderer.render(scene, cam);
 
       statusRef.current = {
@@ -698,6 +727,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     <>
       <Canvas ref={canvasRef} />
       <TagLayer ref={tagRef} />
+      <Crosshair ref={crossRef} />
       <MiniCanvas ref={miniRef} aria-label='미니맵 (누르면 배율 변경)' />
     </>
   );
@@ -716,6 +746,20 @@ const MiniCanvas = styled.canvas({
   boxShadow: 'inset -2px -2px 0 rgba(0,0,0,0.45), inset 2px 2px 0 rgba(255,255,255,0.22), 0 0 0 2px #0b0e22',
   // 좁은 화면에선 상단 바가 두 줄이 된다
   '@media (max-width: 560px)': { top: 126 },
+});
+
+/** 조준선: 화면 가운데 작은 + */
+const Crosshair = styled.div({
+  display: 'none',
+  position: 'absolute',
+  left: '50%',
+  top: '50%',
+  width: 18,
+  height: 18,
+  transform: 'translate(-50%, -50%)',
+  pointerEvents: 'none',
+  background: 'linear-gradient(#f4f4f8, #f4f4f8) center / 2px 100% no-repeat, linear-gradient(#f4f4f8, #f4f4f8) center / 100% 2px no-repeat',
+  filter: 'drop-shadow(0 0 1px #0b0e22) drop-shadow(0 0 1px #0b0e22)',
 });
 
 /** 다른 사람 이름표 (HTML 글자) */

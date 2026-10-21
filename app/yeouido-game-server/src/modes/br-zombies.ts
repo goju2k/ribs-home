@@ -84,7 +84,7 @@ export class Horde {
   }
 
   /** 총·화살로 맞힐 수 있는 좀비들 (pos: 되감은 자리를 줄 수 있다) */
-  shotTargets(now:number, hitMsg:(by:ModePlayer, id:number, dmg:number) => void, pos:(id:number, b:Body) => { x: number; y: number; z: number; } = (_, b) => b) {
+  shotTargets(now:number, hitMsg:(by:ModePlayer, id:number, dmg:number, killed:boolean) => void, pos:(id:number, b:Body) => { x: number; y: number; z: number; } = (_, b) => b) {
     const out:{ id: number; x: number; y: number; z: number; b: number; l: number; hit: (dmg:number, by:ModePlayer) => void; }[] = [];
     this.zeds.forEach((z) => {
       if (z.deadAt || z.burnAt) return;
@@ -98,8 +98,8 @@ export class Horde {
         b: body.b,
         l: body.l,
         hit: (dmg, by) => {
-          this.hit(z, dmg, now, by);
-          hitMsg(by, z.npc.id, dmg);
+          const killed = this.hit(z, dmg, now, by);
+          hitMsg(by, z.npc.id, dmg, killed);
         },
       });
     });
@@ -224,7 +224,7 @@ export class Horde {
           z.wanderAt = now + 3000 + Math.random() * 3000;
           const r = Math.random();
           if (r < 0.15) z.wander = NaN;
-          else if (r < 0.75 && !Number.isNaN(z.smell)) z.wander = z.smell + (Math.random() - 0.5) * (Math.PI / 2);
+          else if (r < 0.6 && !Number.isNaN(z.smell)) z.wander = z.smell + (Math.random() - 0.5) * ((Math.PI * 2) / 3);
           else z.wander = Math.random() * Math.PI * 2;
         }
         npc.input.face = undefined;
@@ -250,7 +250,8 @@ export class Horde {
       this.zeds.forEach((z) => {
         if (!z.deadAt && !z.burnAt && Math.hypot(z.npc.body.x - p.body.x, z.npc.body.z - p.body.z) < NEAR_R) near++;
       });
-      const want = Math.min(2, PER_PLAYER - near, MAX_ZOMBIES - this.zeds.size);
+      // 한 번에 한 마리씩만 (몰려서 생기지 않게)
+      const want = Math.min(1, PER_PLAYER - near, MAX_ZOMBIES - this.zeds.size);
       for (let i = 0; i < want; i++) {
         const body = this.spot(p.body);
         if (body) this.add(body, now);
@@ -306,9 +307,9 @@ export class Horde {
     const floor = collision.floorAt(at.x, at.z, at.y + 0.5);
     for (let i = 0; i < 30; i++) {
       const a = Math.random() * Math.PI * 2;
-      // 옥상이면 같은 옥상 위 8~25m, 땅이면 20~45m
+      // 옥상이면 같은 옥상 위 8~25m, 땅이면 30~60m (넓게 흩어 생기게)
       const onRoof = floor > 1;
-      const d = onRoof ? 8 + Math.random() * 17 : 20 + Math.random() * 25;
+      const d = onRoof ? 8 + Math.random() * 17 : 30 + Math.random() * 30;
       const x = at.x + Math.cos(a) * d;
       const z = at.z + Math.sin(a) * d;
       if (Math.abs(x) > sim.data.half.w - 5 || Math.abs(z) > sim.data.half.d - 5) continue; // eslint-disable-line no-continue

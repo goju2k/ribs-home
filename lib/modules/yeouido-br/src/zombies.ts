@@ -35,7 +35,7 @@ export const Z_RUNNER = 2;
 export interface ZombieStats {
   name: string;
   hp: number;
-  /** 쫓을 때 달리는지·속도 배율 (걷기 1.4m/s, 달리기 4.8m/s 기준) */
+  /** 쫓을 때 달리는지·속도 배율 (걷기 2.1m/s, 달리기 7.2m/s 기준) */
   chaseRun: boolean;
   chaseMul: number;
   /** 어슬렁거릴 때 걷기 배율 */
@@ -47,12 +47,12 @@ export interface ZombieStats {
 }
 
 /**
- * 쫓는 속도: 일반 좀비 4.3m/s(맨발 달리기 4.8보다 조금 느림 — 맨발로는 떼어 내기 어렵다), 뛰는 좀비 5.5m/s(= 신발 +1).
+ * 쫓는 속도: 일반 좀비 6.5m/s(맨발 달리기 7.2보다 조금 느림 — 맨발로는 떼어 내기 어렵다), 뛰는 좀비 8.3m/s(= 신발 +1).
  * 피해: 일반 초당 3.3, 뛰는 좀비 초당 4.2 — 맨몸이 둘에게 물리면 약 13초
  */
 export const ZOMBIES:Record<number, ZombieStats> = {
   [Z_WALKER]: { name: '좀비', hp: 40, chaseRun: true, chaseMul: 0.9, wanderMul: 0.5, damage: 5, cooldownMs: 1500, reach: 1.1 },
-  [Z_RUNNER]: { name: '뛰는 좀비', hp: 30, chaseRun: true, chaseMul: 5.5 / 4.8, wanderMul: 0.6, damage: 5, cooldownMs: 1200, reach: 1.1 },
+  [Z_RUNNER]: { name: '뛰는 좀비', hp: 30, chaseRun: true, chaseMul: 1.15, wanderMul: 0.6, damage: 5, cooldownMs: 1200, reach: 1.1 },
 };
 
 /** 뛰는 좀비 비율 */
