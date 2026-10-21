@@ -5,8 +5,8 @@
  *
  * 스냅숏 (서버 → 클라이언트)
  *   u8 1 | u32 tick | u32 ack | me: f64 × ME (x y z f spd a b l lw fly vy sm fm — 예측 보정용이라 정밀값) | u8 내 상태 비트 | u8 내 게이지
- *   u16 행 수 | 행마다 19바이트:
- *     u16 id | i32 x(cm) | i32 z(cm) | u16 y(cm) | u8 방향(256단계) | u8 걷는 속도(×10, 25.5m/s까지) | i16 건물 | u8 층 | u8 상태 비트 | u8 게이지
+ *   u16 행 수 | 행마다 20바이트:
+ *     u16 id | i32 x(cm) | i32 z(cm) | u16 y(cm) | u8 방향(256단계) | u8 걷는 속도(×10, 25.5m/s까지) | i16 건물 | u8 층 | u8 상태 비트 | u8 게이지 | u8 모습 종류(0 사람, 그 밖은 모드의 NPC)
  * 입력 (클라이언트 → 서버)
  *   u8 2 | u8 개수 | 개마다 11바이트: u32 순번 | i16 mx×1000 | i16 mz×1000 | u8 (bit0 달리기, bit1 위, bit2 아래, bit3 보는 방향 있음, bit4~6 행동) | i16 보는 방향×10000
  */
@@ -16,7 +16,7 @@ import type { BodyTuple, InputTuple, SnapRow } from './index';
 export const BIN_SNAP = 1;
 export const BIN_INPUT = 2;
 
-const ROW = 19;
+const ROW = 20;
 /** 내 상태 값 개수 (BodyTuple 길이) */
 const ME = 13;
 const HEAD = 1 + 4 + 4 + ME * 8 + 2;
@@ -48,7 +48,7 @@ export function encodeSnap(tick:number, ack:number, me:BodyTuple, ms:number, mv:
   o += 2;
   d.setUint16(o, rows.length, true);
   o += 2;
-  rows.forEach(([ id, x, y, z, f, a, b, l, s, v ]) => {
+  rows.forEach(([ id, x, y, z, f, a, b, l, s, v, k ]) => {
     d.setUint16(o, id, true);
     d.setInt32(o + 2, Math.round(x * 100), true);
     d.setInt32(o + 6, Math.round(z * 100), true);
@@ -59,6 +59,7 @@ export function encodeSnap(tick:number, ack:number, me:BodyTuple, ms:number, mv:
     d.setUint8(o + 16, Math.max(0, Math.min(255, l)));
     d.setUint8(o + 17, u8(s));
     d.setUint8(o + 18, u8(v));
+    d.setUint8(o + 19, u8(k));
     o += ROW;
   });
   return buf;
@@ -88,6 +89,7 @@ export function decodeSnap(buf:ArrayBuffer):Snap | null {
       d.getUint8(o + 16),
       d.getUint8(o + 17),
       d.getUint8(o + 18),
+      d.getUint8(o + 19),
     ]);
   }
   return { tick, ack, me, ms, mv, rows };

@@ -5,7 +5,7 @@ import {
 } from 'yeouido-net';
 import { Body, createSimWorld, newBody, SimWorld, step, WORLD } from 'yeouido-sim';
 
-import { GameMode, ModeHost, ModePlayer } from './mode';
+import { GameMode, ModeHost, ModeNpc, ModePlayer } from './mode';
 import { BattleRoyale } from './modes/battle-royale';
 import { createRtcLink, rtcAvailable, RtcLink } from './rtc';
 
@@ -21,6 +21,9 @@ const CELL = 128;
 const cellKey = (cx:number, cz:number) => (cx + 1000) * 4096 + (cz + 1000);
 /** 정렬 키에서 번호 자리 (사람 수가 이보다 적어야 한다) */
 const KEY = 65536;
+/** NPC 번호 범위 (사람 번호와 안 겹치게, 스냅숏 id는 u16) */
+const NPC_FIRST = 40000;
+const NPC_LAST = 65000;
 /** 시뮬레이션 몇 틱에 스냅숏 한 번인지 (30Hz / 15Hz = 2) */
 const SPLIT = Math.round(SIM_HZ / SNAP_HZ);
 
@@ -56,6 +59,11 @@ export class World {
   private keys = new Float64Array(256);
 
   private players = new Map<number, Player>();
+
+  /** 모드가 만든 NPC (좀비 등) — 사람과 같은 이동·스냅숏, 받는 사람은 아님 */
+  private npcs = new Map<number, ModeNpc>();
+
+  private nextNpcId = NPC_FIRST;
 
   private nextId = 1;
 
@@ -102,6 +110,18 @@ export class World {
         if (except) this.players.forEach((p) => p !== except && p.modeOut.push(d));
         else this.modeAll.push(d);
       },
+      addNpc: (k, body) => {
+        // 비어 있는 번호를 돌려 쓴다
+        while (this.npcs.has(this.nextNpcId)) this.nextNpcId = this.nextNpcId >= NPC_LAST ? NPC_FIRST : this.nextNpcId + 1;
+        const npc:ModeNpc = { id: this.nextNpcId, k, body, st: 0, gv: 255, input: { mx: 0, mz: 0, run: false, lift: 0 } };
+        this.nextNpcId = this.nextNpcId >= NPC_LAST ? NPC_FIRST : this.nextNpcId + 1;
+        this.npcs.set(npc.id, npc);
+        return npc;
+      },
+      removeNpc: (id) => {
+        this.npcs.delete(id);
+      },
+      npcs: () => this.npcs.values(),
     };
     this.mode = new BattleRoyale(host);
   }
@@ -284,6 +304,10 @@ export class World {
         this.mode.act(p, act, now);
       }
     });
+    // NPC: 모드가 정한 입력으로 한 걸음
+    this.npcs.forEach((n) => {
+      if (!(n.st & ST_FROZEN)) step(this.sim, n.body, n.input); // eslint-disable-line no-bitwise
+    });
     this.mode.tick(now);
     this.flushMode();
     const t1 = performance.now();
@@ -301,10 +325,14 @@ export class World {
    *   (가까운 24명 매번, 64명까지 두 번에 한 번, 그 뒤는 네 번에 한 번 — 사람이 몰려도 양이 일정 이상 안 늘게)
    */
   private snapshot(half:number) {
-    const all = [ ...this.players.values() ];
+    // 보이는 것 = 사람 + NPC (앞쪽 사람들만 받는 사람)
+    const all:{ id: number; body: Body; st: number; gv: number; k: number; }[] = [ ...this.players.values() ].map((p) => ({ id: p.id, body: p.body, st: p.st, gv: p.gv, k: 0 }));
+    const receivers = all.length;
+    this.npcs.forEach((o) => all.push(o));
     const n = all.length;
     if (this.keys.length < n) this.keys = new Float64Array(n * 2);
-    const rows = all.map((o) => toRow(o.id, o.body, o.st, o.gv));
+    const rows = all.map((o) => toRow(o.id, o.body, o.st, o.gv, o.k));
+    const players = [ ...this.players.values() ];
     // 공간 격자: 실외는 CELL m 칸, 실내는 "건물:층" 묶음 (번호 목록) — 받는 사람마다 전원을 훑지 않고 근처만 본다
     const cells = new Map<number, number[]>();
     const rooms = new Map<string, number[]>();
@@ -318,8 +346,8 @@ export class World {
     });
     const { keys } = this;
     let sent = 0;
-    all.forEach((p, i) => {
-      if (p.id % SPLIT !== half) return;
+    players.forEach((p, i) => {
+      if (i >= receivers || p.id % SPLIT !== half) return;
       p.sent++;
       const px = p.body.x;
       const pz = p.body.z;

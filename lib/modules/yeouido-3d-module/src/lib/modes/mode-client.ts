@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { SimWorld } from 'yeouido-sim';
 
-import type { PersonPose } from '../player/person';
+import type { PersonLook, PersonPose } from '../player/person';
 
 /**
  * 클라이언트 쪽 게임 모드 = 엔진 화면(GameCanvas: 월드·이동·카메라·다른 사람) 위에 얹는 게임 화면.
@@ -19,7 +19,12 @@ export interface Look extends PersonPose {
   bar: number | null;
 }
 
-export const PLAIN_LOOK:Look = { hidden: false, blink: false, bar: null, swing: 0, down: false, flash: false };
+export const PLAIN_LOOK:Look = { hidden: false, blink: false, bar: null, swing: 0, down: false, glow: null };
+
+/** NPC 모습 (모습 종류 k마다): 옷·피부색과 이름표를 달지 */
+export interface Appearance {
+  look: PersonLook; tag: boolean;
+}
 
 export interface ModeFrame {
   now: number;
@@ -46,6 +51,10 @@ export interface ModeClient {
   acted(act:number, now:number): void;
   /** 상태 비트·게이지 → 모습 (mine: 나 자신, key: 사람 번호 — 동작 진행을 사람마다 잰다) */
   look(st:number, gv:number, now:number, mine:boolean, key?:number): Look;
+  /** 모습 종류(k, 0 = 사람) → NPC 모습. null이면 사람 모습 */
+  appearance(k:number): Appearance | null;
+  /** 밝기 1 = 낮, 0 = 밤 (없으면 늘 낮) — 엔진이 하늘·빛에 반영한다 */
+  daylight?(now:number): number;
   /** 미니맵 위에 그리기 (월드 좌표계로 변환된 상태, k = 캔버스 px/m) */
   minimap(g:CanvasRenderingContext2D, k:number, dpr:number): void;
   /** React HUD가 읽어 갈 상태 (모드 HUD 컴포넌트만 뜻을 안다) */

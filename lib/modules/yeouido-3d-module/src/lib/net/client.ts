@@ -362,6 +362,7 @@ export class GameClient {
             l: b.s.l,
             s: b.s.s,
             v: b.s.v,
+            k: b.s.k,
           };
           break;
         }

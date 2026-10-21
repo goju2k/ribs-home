@@ -118,7 +118,15 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     views.forEach((v) => scene.add(v.group));
     const buildMs = Math.round(performance.now() - t0);
 
-    scene.add(new THREE.HemisphereLight('#e6f4ff', '#8a8573', 1.6));
+    const hemi = new THREE.HemisphereLight('#e6f4ff', '#8a8573', 1.6);
+    scene.add(hemi);
+    // 밤 등불 (내 머리 위, 밤에만 켜짐)
+    const lamp = new THREE.PointLight('#ffd9a0', 0, 22, 1.2);
+    scene.add(lamp);
+    const DAY_SKY = new THREE.Color(SKY);
+    const NIGHT_SKY = new THREE.Color('#141a33');
+    const skyNow = new THREE.Color();
+    let lastDay = 1;
     const sun = new THREE.DirectionalLight('#fff3dc', 2.4);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -512,7 +520,19 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       others.update(remotes, dt, seen, big, (r) => r.b < 0 && r.y - collision.floorAt(r.x, r.z, r.y) > 0.5, (r) => {
         const lk = looks.get(r.id) ?? PLAIN_LOOK;
         return lk.blink && blinkOff ? { ...lk, hidden: true } : lk;
-      });
+      }, (k) => modeClient?.appearance(k) ?? null);
+      // 낮밤 (모드가 정한 밝기): 하늘·안개·빛을 섞고, 어두우면 내 주변을 등불처럼 밝힌다
+      const day = modeClient?.daylight?.(now) ?? 1;
+      if (Math.abs(day - lastDay) > 0.002) {
+        lastDay = day;
+        skyNow.copy(NIGHT_SKY).lerp(DAY_SKY, day);
+        (scene.background as THREE.Color).copy(skyNow);
+        fog.color.copy(skyNow);
+        hemi.intensity = 0.35 + (1.6 - 0.35) * day;
+        sun.intensity = 0.15 + (2.4 - 0.15) * day;
+      }
+      lamp.intensity = (1 - day) * 3;
+      lamp.position.set(pos.x, pos.y + 3, pos.z);
       modeClient?.frame({ now, dt, persp: persp3, me: { x: pos.x, y: pos.y, z: pos.z, f: facing, b: body.b, l: body.l, st: net.meStatus.s, gv: net.meStatus.v } });
       // 미니맵은 두 프레임에 한 번 (모드가 위에 그린다: 전장 원 등)
       const mc = modeClient;

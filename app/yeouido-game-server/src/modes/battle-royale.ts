@@ -1,5 +1,5 @@
 import {
-  ACT_MELEE, afterPickup, armorCut, BR_MODE, breakPower, PROP_KINDS, PROP_RADIUS, rollDrops, BrServerMsg, Corpse, CorpseItem, emptyGear, Gear, HP_MAX, HURT_MS, hpGauge, insideZone,
+  ACT_MELEE, afterPickup, armorCut, BR_MODE, dayNight, breakPower, PROP_KINDS, PROP_RADIUS, rollDrops, BrServerMsg, Corpse, CorpseItem, emptyGear, Gear, HP_MAX, HURT_MS, hpGauge, insideZone,
   ITEM_KINDS, makeMatchPlan, MATCH_MS, MatchPlan, meleeReaches, meleeStats, PICK_RANGE, pickSpawn, respawnDelay, rocketMul, shoeMul,
   SPAWN_SHIELD_MS, ST_DEAD, ST_FROZEN, ST_HURT, ST_SHIELD, ST_SWING, zoneAt, zoneDps,
 } from 'yeouido-br';
@@ -7,9 +7,12 @@ import { Body, newBody } from 'yeouido-sim';
 
 import { ItemField } from './br-items';
 import { Prop, PropField, propRow } from './br-props';
+import { Horde } from './br-zombies';
 
 import { GameMode, ModeHost, ModePlayer } from '../mode';
 
+/** 개발용: 낮밤 시계를 당겨 밤을 빨리 본다 (예: BR_DAY_OFFSET_MS=190000 → 10초 뒤 밤) */
+const DAY_OFFSET = Number(process.env.BR_DAY_OFFSET_MS) || 0;
 /** 판 정보를 이만큼마다 다시 보낸다 (시계 맞춤) */
 const MATCH_EVERY_MS = 5000;
 /** 아무도 없이 이만큼 지나면 판을 닫는다 */
@@ -82,6 +85,8 @@ export class BattleRoyale implements GameMode {
 
   private props = new PropField();
 
+  private horde:Horde;
+
   private refillAt = 0;
 
   private sweepAt = 0;
@@ -90,6 +95,18 @@ export class BattleRoyale implements GameMode {
 
   constructor(host:ModeHost) {
     this.host = host;
+    this.horde = new Horde(host, {
+      alive: (p) => {
+        const f = this.fighters.get(p.id);
+        return !!f && !f.respawnAt;
+      },
+      // 좀비에게 물림: 무적이면 안 들어가고, 갑옷이 줄인다
+      bite: (p, dmg, now) => {
+        const f = this.fighters.get(p.id);
+        if (!f || now < f.shieldUntil) return;
+        this.damage(p, Math.max(1, Math.round(dmg * (1 - armorCut(f.gear.armor)))), null, now, '좀비');
+      },
+    });
   }
 
   private get elapsed() {
@@ -111,7 +128,7 @@ export class BattleRoyale implements GameMode {
   private matchMsg():BrServerMsg {
     const m = this.match!;
     const r1 = (n:number) => Math.round(n * 10) / 10;
-    return { k: 'match', id: m.id, circles: m.circles.map((c) => [ r1(c.cx), r1(c.cz), r1(c.r) ]), elapsed: this.elapsed };
+    return { k: 'match', id: m.id, circles: m.circles.map((c) => [ r1(c.cx), r1(c.cz), r1(c.r) ]), elapsed: this.elapsed, dayOffset: DAY_OFFSET };
   }
 
   private newMatch() {
@@ -119,6 +136,7 @@ export class BattleRoyale implements GameMode {
     this.match = makeMatchPlan(this.host.sim, id, (Math.random() * 2 ** 32) >>> 0); // eslint-disable-line no-bitwise
     this.matchAt = Date.now();
     this.corpses = [];
+    this.horde.clear();
     this.items.clear();
     this.items.scatter(this.host.sim, this.match.circles[0], ITEM_START);
     this.props.clear();
@@ -218,6 +236,13 @@ export class BattleRoyale implements GameMode {
         bestD = d;
       }
     });
+    // 좀비가 더 가까우면 좀비를 친다
+    const zed = this.horde.nearest(p.body, (b) => meleeReaches(p.body, b, w.range, w.cosArc));
+    if (zed && Math.hypot(zed.npc.body.x - p.body.x, zed.npc.body.z - p.body.z) < bestD) {
+      this.horde.hit(zed, w.damage, now, p);
+      this.send(p, { k: 'hit', target: zed.npc.id, dmg: w.damage });
+      return;
+    }
     if (best) {
       const t:ModePlayer = best;
       // 갑옷은 근접 피해만 줄인다
@@ -263,17 +288,18 @@ export class BattleRoyale implements GameMode {
     if (drops.length) this.broadcast({ k: 'itemAdd', list: drops });
   }
 
-  private damage(t:ModePlayer, dmg:number, by:ModePlayer | null, now:number) {
+  /** 사람이 피해를 입음. by = 때린 사람, 아니면 byName(예: 좀비), 둘 다 없으면 전장 밖 */
+  private damage(t:ModePlayer, dmg:number, by:ModePlayer | null, now:number, byName:string | null = null) {
     const f = this.fighters.get(t.id);
     if (!f || f.respawnAt) return;
     f.hp = Math.max(0, f.hp - dmg);
     f.hurtUntil = now + HURT_MS;
-    this.send(t, { k: 'hurt', dmg, from: by?.name ?? null });
+    this.send(t, { k: 'hurt', dmg, from: by?.name ?? byName });
     if (by) this.send(by, { k: 'hit', target: t.id, dmg });
-    if (f.hp <= 0) this.die(t, f, by, now);
+    if (f.hp <= 0) this.die(t, f, by?.name ?? byName, now);
   }
 
-  private die(p:ModePlayer, f:Fighter, by:ModePlayer | null, now:number) {
+  private die(p:ModePlayer, f:Fighter, by:string | null, now:number) {
     const wait = respawnDelay(this.zone().stage);
     f.respawnAt = now + wait;
     const { x, y, z, f: face, b, l } = p.body;
@@ -284,8 +310,8 @@ export class BattleRoyale implements GameMode {
     this.corpses.push(c);
     this.broadcast({ k: 'corpse', c });
     if (this.corpses.length > MAX_CORPSES) this.broadcast({ k: 'corpseGone', id: this.corpses.shift()!.id });
-    this.broadcast({ k: 'kill', killer: by?.name ?? null, victim: p.name });
-    this.send(p, { k: 'dead', by: by?.name ?? null, wait });
+    this.broadcast({ k: 'kill', killer: by, victim: p.name });
+    this.send(p, { k: 'dead', by, wait });
   }
 
   tick(now:number) {
@@ -334,6 +360,8 @@ export class BattleRoyale implements GameMode {
       const propLack = Math.min(60, Math.max(PROP_MIN, Math.round(PROP_START * area)) - this.props.countIn(zone));
       if (propLack > 0) this.broadcast({ k: 'propAdd', list: this.props.scatter(this.host.sim, zone, propLack) });
     }
+    // 밤이면 좀비 (해 뜨면 불탄다)
+    this.horde.tick(now, dayNight(this.elapsed + DAY_OFFSET).night, all);
     const pickNow = this.tickNo++ % PICK_EVERY === 0;
     all.forEach((p) => {
       const f = this.fighters.get(p.id);
@@ -371,7 +399,7 @@ export class BattleRoyale implements GameMode {
     if (!this.match) return { mode: this.name, match: null };
     const z = this.zone();
     const dead = [ ...this.fighters.values() ].filter((f) => f.respawnAt).length;
-    return { mode: this.name, match: { id: this.match.id, stage: z.stage, r: Math.round(z.r), remainS: Math.round(z.remain / 1000) }, alive: this.fighters.size - dead, dead, corpses: this.corpses.length, items: this.items.size, props: this.props.size };
+    return { mode: this.name, match: { id: this.match.id, stage: z.stage, r: Math.round(z.r), remainS: Math.round(z.remain / 1000) }, alive: this.fighters.size - dead, dead, corpses: this.corpses.length, items: this.items.size, props: this.props.size, night: dayNight(this.elapsed + DAY_OFFSET).night, zombies: this.horde.size };
   }
 
 }

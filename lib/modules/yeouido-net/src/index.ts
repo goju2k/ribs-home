@@ -9,7 +9,7 @@
  * - 자기 메시지는 { t: 'mode' } 통로로만 주고받는다 (형식은 모드 모듈이 정한다).
  */
 
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 
 /** 상태 비트 중 엔진이 쓰는 것: 움직일 수 없음 (입력은 받되 이동하지 않는다 — 클라이언트 예측도 멈춘다). 나머지 비트는 모드가 쓴다 */
 export const ST_FROZEN = 0x80;
@@ -61,6 +61,8 @@ export interface PlayerState {
   /** 상태 비트(모드가 정함, ST_FROZEN만 엔진)와 게이지(0~255, 모드가 정함 — 예: 체력) */
   s: number;
   v: number;
+  /** 모습 종류: 0 = 접속한 사람, 그 밖은 모드가 만든 NPC(예: 좀비) — 뜻은 모드가 정한다 */
+  k: number;
 }
 
 /** 클라이언트 → 서버 */
@@ -83,8 +85,8 @@ export interface RtcSignal {
   sdp?: string; type?: string; c?: string; mid?: string;
 }
 
-/** 스냅숏 한 줄: [id, x, y, z, f, a, b, l, s, v] */
-export type SnapRow = [number, number, number, number, number, number, number, number, number, number];
+/** 스냅숏 한 줄: [id, x, y, z, f, a, b, l, s, v, k] */
+export type SnapRow = [number, number, number, number, number, number, number, number, number, number, number];
 
 /** 서버 → 클라이언트 */
 export type ServerMsg =
@@ -103,9 +105,9 @@ export type ServerMsg =
 
 const round = (n:number, k = 100) => Math.round(n * k) / k;
 
-export const toRow = (id:number, p:Omit<PlayerState, 's' | 'v'>, s:number, v:number):SnapRow => [ id, round(p.x), round(p.y), round(p.z), round(p.f), round(p.a, 10), p.b, p.l, s, v ];
+export const toRow = (id:number, p:Omit<PlayerState, 's' | 'v' | 'k'>, s:number, v:number, k = 0):SnapRow => [ id, round(p.x), round(p.y), round(p.z), round(p.f), round(p.a, 10), p.b, p.l, s, v, k ];
 
-export const fromRow = (r:SnapRow):{ id: number; } & PlayerState => ({ id: r[0], x: r[1], y: r[2], z: r[3], f: r[4], a: r[5], b: r[6], l: r[7], s: r[8], v: r[9] });
+export const fromRow = (r:SnapRow):{ id: number; } & PlayerState => ({ id: r[0], x: r[1], y: r[2], z: r[3], f: r[4], a: r[5], b: r[6], l: r[7], s: r[8], v: r[9], k: r[10] });
 
 export interface BodyLike {
   x: number; y: number; z: number; f: number; spd: number; a: number; b: number; l: number; lw: number; fly: number; vy: number; sm: number; fm: number;

@@ -13,7 +13,8 @@ export interface Corpse {
 /** 서버 → 클라이언트 */
 export type BrServerMsg =
   /** 판 정보: 원 11개([cx, cz, r]: 0번 처음 원, k번 k단계 끝 원)와 판이 시작된 뒤 흐른 시간(ms). 새 판이면 id가 바뀐다 */
-  | { k: 'match'; id: number; circles: [number, number, number][]; elapsed: number; }
+  /** dayOffset: 낮밤 시계를 이만큼 당김 (개발용 시험, 보통 0) */
+  | { k: 'match'; id: number; circles: [number, number, number][]; elapsed: number; dayOffset: number; }
   /** 시체 전부 (입장·새 판) */
   | { k: 'corpses'; list: Corpse[]; }
   | { k: 'corpse'; c: Corpse; }

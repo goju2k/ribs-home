@@ -5,6 +5,8 @@ export interface PersonLook {
   pants: string;
   skin: string;
   hair: string;
+  /** 늘 은은하게 빛나는 색 (예: 밤에도 보이는 좀비) */
+  glow?: string;
 }
 
 export interface Person {
@@ -16,13 +18,13 @@ export interface Person {
   animate: (dt:number, speed:number, fly?:number) => void;
   /**
    * animate 뒤에 덮어쓰는 동작 (게임 모드가 정한 모습):
-   * swing 0~1 = 오른팔 앞으로 내지르기 진행, down = 누움, flash = 붉게 번쩍(맞음)
+   * swing 0~1 = 오른팔 앞으로 내지르기 진행, down = 누움, glow = 몸을 이 색으로 번쩍 (예: 맞음 빨강, 불탐 주황), null이면 없음
    */
   pose: (p:PersonPose) => void;
 }
 
 export interface PersonPose {
-  swing: number; down: boolean; flash: boolean;
+  swing: number; down: boolean; glow: string | null;
 }
 
 // 실제 비율: 키 1.72m, 어깨 폭 0.42m
@@ -129,7 +131,8 @@ export function createPerson(look:PersonLook, silhouette = false):Person {
   body.traverse((o) => {
     if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshLambertMaterial) mats.push(o.material);
   });
-  let flashed = false;
+  let glowing:string | null = null;
+  if (look.glow) mats.forEach((m) => m.emissive.set(look.glow!));
   const pose = (p:PersonPose) => {
     if (p.swing > 0) {
       armR.rotation.x = -1.55 * Math.sin(Math.PI * Math.min(1, p.swing));
@@ -140,9 +143,9 @@ export function createPerson(look:PersonLook, silhouette = false):Person {
       body.rotation.x = -Math.PI / 2;
       body.position.y = 0.12;
     }
-    if (p.flash !== flashed) {
-      flashed = p.flash;
-      mats.forEach((m) => m.emissive.set(p.flash ? '#a01010' : '#000000'));
+    if (p.glow !== glowing) {
+      glowing = p.glow;
+      mats.forEach((m) => m.emissive.set(p.glow ?? look.glow ?? '#000000'));
     }
   };
 

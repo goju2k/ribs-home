@@ -1,7 +1,7 @@
 /* eslint-disable no-bitwise -- 상태·행동 비트 */
 import * as THREE from 'three';
 import {
-  ACT_MELEE, BrServerMsg, Corpse, emptyGear, gaugeHp, Gear, isBrMsg, ITEM_KINDS, ITEM_NAMES, MatchPlan, meleeStats, ST_DEAD, ST_HURT, ST_SHIELD, ST_SWING,
+  ACT_MELEE, BrServerMsg, dayNight, ST_BURN, Z_RUNNER, Z_WALKER, Corpse, emptyGear, gaugeHp, Gear, isBrMsg, ITEM_KINDS, ITEM_NAMES, MatchPlan, meleeStats, ST_DEAD, ST_HURT, ST_SHIELD, ST_SWING,
   zoneAt, ZoneNow,
 } from 'yeouido-br';
 
@@ -9,7 +9,7 @@ import { ITEM_COLORS, ItemMeshes } from './item-meshes';
 import { PropMeshes } from './prop-meshes';
 
 import { createPerson, Person } from '../../player/person';
-import { Look, ModeClient, ModeFrame, ModeHostClient } from '../mode-client';
+import { Appearance, Look, ModeClient, ModeFrame, ModeHostClient } from '../mode-client';
 
 /** 경계 벽 높이 (m) */
 const WALL_H = 600;
@@ -25,6 +25,8 @@ const GOT_MS = 2500;
 /** HUD가 읽는 상태 (BrHud만 뜻을 안다) */
 export interface BrHudState {
   zone: { stage: number; shrinking: boolean; untilChange: number; remain: number; outside: number; } | null;
+  /** 낮밤: 밤인지, 지금 낮/밤이 끝날 때까지 초 */
+  day: { night: boolean; remain: number; } | null;
   hp: number;
   shield: boolean;
   /** 죽었으면: 누구에게(null = 전장), 다시 시작까지 초 */
@@ -53,7 +55,7 @@ export class BrClient implements ModeClient {
 
   private host:ModeHostClient;
 
-  private match:{ plan:MatchPlan; startAt:number; } | null = null;
+  private match:{ plan:MatchPlan; startAt:number; dayOffset:number; } | null = null;
 
   private wall:THREE.Mesh;
 
@@ -113,7 +115,7 @@ export class BrClient implements ModeClient {
       const startAt = now - m.elapsed;
       // 같은 판이면 시계는 큰 차이만 맞춘다 (받는 지연만큼 흔들리지 않게)
       if (this.match?.plan.id === m.id && Math.abs(this.match.startAt - startAt) < 300) return;
-      this.match = { plan: { id: m.id, circles: m.circles.map(([ cx, cz, r ]) => ({ cx, cz, r })) }, startAt };
+      this.match = { plan: { id: m.id, circles: m.circles.map(([ cx, cz, r ]) => ({ cx, cz, r })) }, startAt, dayOffset: m.dayOffset ?? 0 };
     } else if (m.k === 'corpses') {
       [ ...this.corpses.keys() ].forEach((id) => this.removeCorpse(id));
       m.list.forEach((c) => this.addCorpse(c));
@@ -166,7 +168,7 @@ export class BrClient implements ModeClient {
     person.root.position.set(c.x, c.y, c.z);
     person.root.rotation.y = c.f;
     person.animate(0, 0);
-    person.pose({ swing: 0, down: true, flash: false });
+    person.pose({ swing: 0, down: true, glow: null });
     this.host.scene.add(person.root);
     const loot = new THREE.Mesh(this.lootGeo, this.lootMat);
     loot.position.set(c.x, c.y + 0.9, c.z);
@@ -229,8 +231,20 @@ export class BrClient implements ModeClient {
       bar: mine || hp >= 100 ? null : hp / 100,
       swing,
       down: false,
-      flash: (st & ST_HURT) !== 0,
+      // 불탐(새벽 좀비) 주황, 맞음 빨강
+      glow: (st & ST_BURN) ? '#ff7a1a' : (st & ST_HURT) ? '#a01010' : null, // eslint-disable-line no-nested-ternary
     };
+  }
+
+  /** 좀비 모습: 푸르스름한 피부, 해진 옷 (뛰는 좀비는 붉은 옷) — 이름표 없이 체력 막대만 */
+  appearance(k:number):Appearance | null {
+    if (k === Z_WALKER) return { look: { shirt: '#5b6b4f', pants: '#3b3b30', skin: '#8fae7a', hair: '#2a2a20', glow: '#1c3312' }, tag: false };
+    if (k === Z_RUNNER) return { look: { shirt: '#8a3434', pants: '#33302a', skin: '#9fbf7f', hair: '#1a1a14', glow: '#3a1410' }, tag: false };
+    return null;
+  }
+
+  daylight(now:number) {
+    return this.match ? dayNight(now - this.match.startAt + this.match.dayOffset).light : 1;
   }
 
   minimap(g:CanvasRenderingContext2D, k:number, dpr:number) {
@@ -283,6 +297,10 @@ export class BrClient implements ModeClient {
     this.hits = this.hits.filter((x) => now - x.at < HIT_MS);
     this.got = this.got.filter((x) => now - x.at < GOT_MS);
     return {
+      day: this.match ? (() => {
+        const d = dayNight(now - this.match!.startAt + this.match!.dayOffset);
+        return { night: d.night, remain: Math.ceil(d.remain / 1000) };
+      })() : null,
       zone: z ? { stage: z.stage, shrinking: z.shrinking, untilChange: Math.ceil(z.untilChange / 1000), remain: Math.ceil(z.remain / 1000), outside } : null,
       hp: me ? gaugeHp(me.gv) : 100,
       shield: !!me && (me.st & ST_SHIELD) !== 0,

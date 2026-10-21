@@ -9,6 +9,12 @@ import { ITEM_COLORS } from './item-meshes';
 import { capturePointer, InputState } from '../../input';
 import { Panel, PIXEL_FONT, pixelBorder } from '../../ui/pixel';
 
+/** 낮밤 한 줄: 밤이 오기 15초 전부터 경고 */
+const dayLabel = (d:NonNullable<BrHudState['day']>) => {
+  if (d.night) return `밤 · 좀비 출몰 · 해 뜨기까지 ${clock(d.remain)}`;
+  return d.remain <= 15 ? `곧 밤! 좀비가 나온다 · ${clock(d.remain)}` : `낮 · 밤까지 ${clock(d.remain)}`;
+};
+
 const hpColor = (hp:number) => {
   if (hp > 50) return '#5fd35f';
   return hp > 25 ? '#ffd84a' : '#ff5a4a';
@@ -37,6 +43,7 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
         {z && (
           <ZoneBar $warn={z.outside > 0}>
             {zoneLabel(z)}
+            {state.day && <DayLine $night={state.day.night}>{dayLabel(state.day)}</DayLine>}
             {z.outside > 0 && <b>전장 밖! 원 안으로 {Math.ceil(z.outside)}m</b>}
           </ZoneBar>
         )}
@@ -122,6 +129,8 @@ const ZoneBar = styled(Panel)<{ $warn: boolean; }>(({ $warn }) => ({
   b: { fontWeight: 'normal', color: '#ff7a6b', animation: $warn ? 'brBlink 0.8s steps(2) infinite' : 'none' },
   ...BLINK,
 }));
+
+const DayLine = styled.span<{ $night: boolean; }>(({ $night }) => ({ color: $night ? '#b7a0ff' : '#ffe9a8' }));
 
 const HpPanel = styled(Panel)({
   alignSelf: 'flex-start',

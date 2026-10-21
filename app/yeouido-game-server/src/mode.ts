@@ -1,4 +1,4 @@
-import { Body, SimWorld } from 'yeouido-sim';
+import { Body, Input, SimWorld } from 'yeouido-sim';
 
 /**
  * 게임 모드 = 엔진(World: 접속·입력·이동·스냅숏) 위에 얹는 게임 규칙.
@@ -22,6 +22,20 @@ export interface ModePlayer {
   queue: unknown[];
 }
 
+/**
+ * NPC: 모드가 만들고 매 틱 입력(input)을 정하면, 엔진이 사람과 같은 이동·충돌로 움직이고 스냅숏에 담는다 (예: 좀비, 봇).
+ * k = 모습 종류(0은 접속한 사람 몫이라 1부터) — 클라이언트 모드가 모습을 고른다
+ */
+export interface ModeNpc {
+  readonly id: number;
+  readonly k: number;
+  body: Body;
+  /** 상태 비트(ST_FROZEN이면 안 움직임)·게이지 — 사람과 같은 뜻 */
+  st: number;
+  gv: number;
+  input: Input;
+}
+
 /** 엔진이 모드에 빌려주는 것 */
 export interface ModeHost {
   readonly sim: SimWorld;
@@ -30,6 +44,10 @@ export interface ModeHost {
   /** 모드 메시지 보내기 (엔진의 { t: 'mode', d }로 감싸 보낸다) */
   send(p:ModePlayer, d:unknown): void;
   broadcast(d:unknown, except?:ModePlayer): void;
+  /** NPC 만들기·없애기 (없애면 클라이언트에서는 소식이 끊긴 뒤 사라지니, 먼저 숨김 상태를 잠깐 보여 주는 게 좋다) */
+  addNpc(k:number, body:Body): ModeNpc;
+  removeNpc(id:number): void;
+  npcs(): Iterable<ModeNpc>;
 }
 
 export interface GameMode {

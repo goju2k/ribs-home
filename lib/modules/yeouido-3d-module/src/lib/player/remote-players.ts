@@ -2,7 +2,7 @@ import * as THREE from 'three';
 
 import { createPerson, Person } from './person';
 
-import { Look, PLAIN_LOOK } from '../modes/mode-client';
+import { Appearance, Look, PLAIN_LOOK } from '../modes/mode-client';
 import { Remote } from '../net/client';
 import { PIXEL_FONT } from '../ui/pixel';
 
@@ -51,6 +51,8 @@ interface Shown {
   fill: HTMLDivElement;
   /** 지금 막대 값 (바뀔 때만 DOM을 고친다) */
   barV: number | null;
+  /** 모습 종류 (바뀌면 다시 만든다) */
+  k: number;
   name: string;
   /** 이름표를 붙일 머리 위 점 (월드) */
   head: THREE.Vector3;
@@ -88,25 +90,33 @@ export class RemotePlayers {
    * @param big 캐릭터 확대 배율
    * @param flying 날고 있는 사람인지 (날면 진행 방향으로 몸을 기울여 그린다)
    * @param look 게임 모드가 정한 모습 (숨김·동작·막대)
+   * @param appearance 모습 종류(k) → NPC 모습 (null이면 사람)
    */
-  update(list:Remote[], dt:number, visible:(r:Remote) => boolean, big:number, flying:(r:Remote) => boolean, look:(r:Remote) => Look = () => PLAIN_LOOK) {
+  update(list:Remote[], dt:number, visible:(r:Remote) => boolean, big:number, flying:(r:Remote) => boolean, look:(r:Remote) => Look = () => PLAIN_LOOK, appearance:(k:number) => Appearance | null = () => null) {
     const seen = new Set<number>();
     list.forEach((r) => {
       seen.add(r.id);
       let s = this.shown.get(r.id);
-      if (!s || s.name !== r.name) {
+      if (!s || s.name !== r.name || s.k !== r.k) {
         if (s) this.remove(r.id);
-        const person = createPerson({ shirt: SHIRTS[r.id % SHIRTS.length], pants: PANTS[r.id % PANTS.length], skin: '#f1c7a0', hair: '#2a1d14' });
-        const { el: tag, bar, fill } = nameTag(r.name || `#${r.id}`);
+        const app = r.k ? appearance(r.k) : null;
+        const person = createPerson(app?.look ?? { shirt: SHIRTS[r.id % SHIRTS.length], pants: PANTS[r.id % PANTS.length], skin: '#f1c7a0', hair: '#2a1d14' });
+        const { el: tag, bar, fill } = nameTag(r.name || (r.k ? '' : `#${r.id}`));
+        // NPC는 이름표 대신 막대만 (모드가 이름표를 원하면 이름 칸을 쓴다)
+        if (app && !app.tag) tag.firstChild!.textContent = '';
         this.scene.add(person.root);
         this.layer.appendChild(tag);
-        s = { person, tag, bar, fill, barV: null, name: r.name, head: new THREE.Vector3(), on: false, lx: r.x, lz: r.z, speed: 0 };
+        s = { person, tag, bar, fill, barV: null, k: r.k, name: r.name, head: new THREE.Vector3(), on: false, lx: r.x, lz: r.z, speed: 0 };
         this.shown.set(r.id, s);
       }
       const lk = look(r);
       s.on = visible(r) && !lk.hidden;
       s.person.root.visible = s.on;
       if (!s.on) return;
+      const bare = !s.tag.firstChild?.textContent;
+      s.tag.style.padding = bare ? '0' : '1px 5px';
+      s.tag.style.background = bare ? 'transparent' : 'rgba(11,14,34,0.7)';
+      s.tag.style.minWidth = bare ? '24px' : '';
       if (lk.bar !== s.barV) {
         s.barV = lk.bar;
         s.bar.style.display = lk.bar === null ? 'none' : 'block';

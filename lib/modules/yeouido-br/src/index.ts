@@ -4,4 +4,5 @@ export * from './match';
 export * from './rules';
 export * from './items';
 export * from './props';
+export * from './zombies';
 export * from './msgs';
