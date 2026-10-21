@@ -1,4 +1,4 @@
-import { BodyTuple, ClientMsg, fromRow, INTERP_DELAY_MS, InputTuple, PlayerState, PROTOCOL_VERSION, ServerMsg } from 'yeouido-net';
+import { BodyTuple, ClientMsg, decodeSnap, encodeInputs, fromRow, INTERP_DELAY_MS, InputTuple, PlayerState, PROTOCOL_VERSION, ServerMsg, VIEW_MAX, VIEW_MIN } from 'yeouido-net';
 
 /**
  * 게임 서버 접속 (서버 권위): 자동 재접속, 내 입력 보내기, 서버가 확정한 내 상태 받기, 다른 사람 위치 보간.
@@ -62,6 +62,9 @@ export class GameClient {
 
   private dc:RTCDataChannel | null = null;
 
+  /** 서버에 마지막으로 알린 보이는 반경 */
+  private sentView = 0;
+
   /** 데이터채널은 순서가 뒤바뀔 수 있어 이보다 오래된 스냅숏은 버린다 */
   private lastTick = 0;
 
@@ -117,7 +120,12 @@ export class GameClient {
       this.retry = 0;
       this.send({ t: 'hello', v: PROTOCOL_VERSION, name: this.name, spawn: this.spawn() });
     };
+    ws.binaryType = 'arraybuffer';
     ws.onmessage = (e) => {
+      if (e.data instanceof ArrayBuffer) {
+        this.binary(e.data);
+        return;
+      }
       let msg:ServerMsg;
       try {
         msg = JSON.parse(String(e.data));
@@ -128,6 +136,7 @@ export class GameClient {
     };
     ws.onclose = () => {
       this.ws = null;
+      this.sentView = 0;
       this.closeRtc();
       this.lastTick = 0;
       this.state = 'offline';
@@ -165,7 +174,8 @@ export class GameClient {
       msg.ps.forEach((row) => {
         const { id, ...s } = fromRow(row);
         if (id === this.myId) return;
-        const list = this.samples.get(id) ?? [];
+        let list = this.samples.get(id) ?? [];
+        if (list.length && now - list[list.length - 1].t > 500) list = []; // 범위 밖에 있다 다시 들어옴
         list.push({ t: now, s });
         if (list.length > 12) list.shift();
         this.samples.set(id, list);
@@ -177,14 +187,28 @@ export class GameClient {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
   }
 
+  /** 바이너리 스냅숏 → 같은 처리 */
+  private binary(buf:ArrayBuffer) {
+    const snap = decodeSnap(buf);
+    if (snap) this.receive({ t: 'snap', tick: snap.tick, ack: snap.ack, me: snap.me, ps: snap.rows });
+  }
+
+  /** 화면에 보이는 반경(m)을 알려 준다 (15% 넘게 바뀔 때만) — 서버는 이 안의 사람만 보낸다 */
+  setView(r:number) {
+    const v = Math.round(Math.max(VIEW_MIN, Math.min(VIEW_MAX, r)));
+    if (this.state !== 'online' || (this.sentView && Math.abs(v - this.sentView) < this.sentView * 0.15)) return;
+    this.sentView = v;
+    this.send({ t: 'view', r: v });
+  }
+
   /**
    * 입력 보내기. 웹소켓은 이번 프레임에 만든 것만, 데이터채널은 잃어버릴 수 있으니 아직 확인 안 된 최근 입력을 겹쳐 보낸다
    * (서버는 이미 받은 순번을 버린다)
    */
   sendInputs(fresh:InputTuple[], unacked:InputTuple[]) {
     if (this.state !== 'online' || !fresh.length) return;
-    if (this.dc?.readyState === 'open') this.dc.send(JSON.stringify({ t: 'input', cmds: unacked.slice(-10) } satisfies ClientMsg));
-    else this.send({ t: 'input', cmds: fresh });
+    if (this.dc?.readyState === 'open') this.dc.send(encodeInputs(unacked.slice(-10)));
+    else if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(encodeInputs(fresh));
   }
 
   /** WebRTC: 브라우저가 offer를 만들고, 신호는 웹소켓으로. 열리면 입력·스냅숏을 데이터채널로 */
@@ -201,7 +225,12 @@ export class GameClient {
     dc.onclose = () => {
       this.transport = 'ws';
     };
+    dc.binaryType = 'arraybuffer';
     dc.onmessage = (e) => {
+      if (e.data instanceof ArrayBuffer) {
+        this.binary(e.data);
+        return;
+      }
       try {
         this.receive(JSON.parse(String(e.data)));
       } catch {
@@ -243,12 +272,17 @@ export class GameClient {
     return a;
   }
 
-  /** INTERP_DELAY_MS 늦은 시점으로 보간한 다른 사람들 */
+  /**
+   * 늦은 시점으로 보간한 다른 사람들. 서버가 먼 사람은 덜 자주 보내므로,
+   * 사람마다 최근 받은 간격의 1.3배(최소 INTERP_DELAY_MS)만큼 늦춰 두 표본 사이에 오게 한다
+   */
   remotes(now:number):Remote[] {
-    const at = now - INTERP_DELAY_MS;
     const out:Remote[] = [];
     this.samples.forEach((list, id) => {
       if (!list.length || now - list[list.length - 1].t > 3000) return; // 3초 소식 없으면 숨김
+      const n = list.length;
+      const gap = n >= 3 ? (list[n - 1].t - list[n - 3].t) / 2 : 0;
+      const at = now - Math.max(INTERP_DELAY_MS, gap * 1.3);
       let { s } = list[list.length - 1];
       for (let i = list.length - 1; i > 0; i--) {
         const a = list[i - 1];

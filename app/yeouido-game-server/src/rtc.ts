@@ -28,6 +28,7 @@ export interface RtcLink {
   /** 데이터채널이 열려 있으면 true */
   open: () => boolean;
   send: (s:string) => void;
+  sendBinary: (b:ArrayBuffer) => void;
   /** 클라이언트가 보낸 신호 처리 */
   signal: (m:{ sdp?: string; type?: string; c?: string; mid?: string; }) => void;
   close: () => void;
@@ -36,9 +37,9 @@ export interface RtcLink {
 let seq = 0;
 
 /**
- * 연결 하나. emit: 클라이언트에게 보낼 신호(웹소켓으로), onMessage: 데이터채널로 받은 글
+ * 연결 하나. emit: 클라이언트에게 보낼 신호(웹소켓으로), onMessage: 데이터채널로 받은 글 또는 바이너리
  */
-export function createRtcLink(emit:(m:object) => void, onMessage:(s:string) => void, onState:(open:boolean) => void):RtcLink | null {
+export function createRtcLink(emit:(m:object) => void, onMessage:(m:string | Buffer) => void, onState:(open:boolean) => void):RtcLink | null {
   if (!nd) return null;
   seq++;
   const pc:PeerConnection = new nd.PeerConnection(`p${seq}`, {
@@ -61,7 +62,7 @@ export function createRtcLink(emit:(m:object) => void, onMessage:(s:string) => v
     dc = ch;
     ch.onOpen(() => onState(true));
     ch.onClosed(() => onState(false));
-    ch.onMessage((msg) => onMessage(typeof msg === 'string' ? msg : String(msg)));
+    ch.onMessage((msg) => onMessage(typeof msg === 'string' ? msg : Buffer.from(msg as ArrayBuffer)));
     if (ch.isOpen()) onState(true);
   });
   return {
@@ -69,6 +70,13 @@ export function createRtcLink(emit:(m:object) => void, onMessage:(s:string) => v
     send: (s) => {
       try {
         if (dc?.isOpen()) dc.sendMessage(s);
+      } catch {
+        // 닫히는 중
+      }
+    },
+    sendBinary: (b) => {
+      try {
+        if (dc?.isOpen()) dc.sendMessageBinary(Buffer.from(b));
       } catch {
         // 닫히는 중
       }

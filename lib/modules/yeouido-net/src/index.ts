@@ -1,10 +1,19 @@
 /**
  * 여의도 3D 다중접속 프로토콜 (서버·클라이언트 공용).
  * 서버 권위: 클라이언트는 입력만 보내고, 서버가 공용 시뮬레이션(yeouido-sim)으로 위치를 확정한다.
- * 지금은 JSON 메시지. 사람이 많아지면 같은 모양을 유지한 채 바이너리로 바꾼다.
+ * 스냅숏·입력은 바이너리(binary.ts), 나머지(입장·퇴장·신호)는 JSON.
+ * 스냅숏에는 받는 사람 주변(보이는 범위)·같은 공간의 사람만 담는다.
  */
 
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
+
+/** 보이는 범위(반경 m): 클라이언트가 알려 주면 서버가 이 안으로 자른다 */
+export const VIEW_MIN = 80;
+export const VIEW_MAX = 1200;
+export const VIEW_DEFAULT = 300;
+
+/** 이보다 먼 사람은 스냅숏 두 번에 한 번만 (m) */
+export const NEAR = 150;
 
 /** 서버 시뮬레이션 빈도 = 입력 한 걸음 빈도 (Hz, yeouido-sim STEP과 같아야 함) */
 export const SIM_HZ = 30;
@@ -43,6 +52,8 @@ export type ClientMsg =
   /** spawn: 확인용 ?at= 이나 재접속 때 이어서 시작할 자리 (서버가 받아 줄지 판단) */
   | { t: 'hello'; v: number; name: string; spawn?: { x: number; y: number; z: number; b: number; l: number; }; }
   | { t: 'input'; cmds: InputTuple[]; }
+  /** 화면에 보이는 반경(m) — 바뀔 때만 보낸다 */
+  | { t: 'view'; r: number; }
   /** WebRTC 신호 (offer 또는 ICE 후보) */
   | ({ t: 'rtc'; } & RtcSignal);
 
@@ -85,3 +96,5 @@ const num = (v:unknown, lim:number) => typeof v === 'number' && Number.isFinite(
 export function validInput(c:unknown):c is InputTuple {
   return Array.isArray(c) && c.length === 5 && num(c[0], 1e9) && num(c[1], 1.01) && num(c[2], 1.01) && num(c[3], 1) && num(c[4], 1);
 }
+
+export * from './binary';

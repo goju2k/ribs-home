@@ -115,6 +115,11 @@ export class Minimap {
     this.base = bakeBase(data, highlight);
   }
 
+  /** 지금 보이는 반경(m) */
+  get radius() {
+    return RANGES[this.range];
+  }
+
   /** 누를 때마다 다음 배율 */
   cycle() {
     this.range = (this.range + 1) % RANGES.length;

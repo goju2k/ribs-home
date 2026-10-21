@@ -363,6 +363,8 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       camera.left = (-shown / 2) * aspect;
       camera.right = (shown / 2) * aspect;
       camera.updateProjectionMatrix();
+      // 서버에 보이는 범위를 알린다: 화면이 담는 땅의 반 대각선(+여유)과 미니맵 반경 중 큰 쪽
+      net.setView(Math.max(0.5 * Math.hypot(shown * aspect, shown / Math.sin(PITCH)) + 30, mini.radius));
       const target = new THREE.Vector3(pos.x, pos.y + 1, pos.z);
       const dist = 2500;
       camera.position.set(

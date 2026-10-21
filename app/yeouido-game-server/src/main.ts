@@ -19,7 +19,7 @@ world.start();
 
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
-  res.end(JSON.stringify({ ok: true, world: world.id, players: world.size, protocol: PROTOCOL_VERSION, tickMs: Math.round(world.lastTickMs * 100) / 100, rtc: rtcAvailable() }));
+  res.end(JSON.stringify({ ok: true, world: world.id, players: world.size, protocol: PROTOCOL_VERSION, tickMs: Math.round(world.lastTickMs * 100) / 100, sentKBps: Math.round(world.sentPerSec / 102.4) / 10, rtc: rtcAvailable() }));
 });
 
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 4096 });

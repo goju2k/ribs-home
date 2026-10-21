@@ -1,5 +1,8 @@
 import { WebSocket } from 'ws';
-import { ClientMsg, InputTuple, OUTDOOR, PROTOCOL_VERSION, ServerMsg, SIM_HZ, SNAP_HZ, toBody, toRow, validInput } from 'yeouido-net';
+import {
+  ClientMsg, decodeInputs, encodeSnap, InputTuple, NEAR, PROTOCOL_VERSION, ServerMsg, SIM_HZ, SNAP_HZ, SnapRow, toArrayBuffer, toBody, toRow, validInput,
+  VIEW_DEFAULT, VIEW_MAX, VIEW_MIN,
+} from 'yeouido-net';
 import { Body, createSimWorld, newBody, SimWorld, step, WORLD } from 'yeouido-sim';
 
 import { createRtcLink, rtcAvailable, RtcLink } from './rtc';
@@ -8,6 +11,9 @@ import { createRtcLink, rtcAvailable, RtcLink } from './rtc';
 const MAX_BURST = 6;
 /** 이보다 많이 밀리면 오래된 입력을 버린다 (1초) */
 const MAX_QUEUE = SIM_HZ;
+/** 스냅숏 우선순위: 가까운 순 이 등수까지 매번, 그다음 등수까지 두 번에 한 번, 그 뒤는 네 번에 한 번 */
+const NEAR_COUNT = 24;
+const MID_COUNT = 64;
 
 interface Player {
   id: number;
@@ -21,6 +27,8 @@ interface Player {
   ack: number;
   /** WebRTC 데이터채널 (열리면 입력·스냅숏을 이쪽으로) */
   rtc: RtcLink | null;
+  /** 이 사람 화면에 보이는 반경(m) — 이 안의 사람만 보낸다 */
+  view: number;
 }
 
 /**
@@ -47,6 +55,16 @@ export class World {
 
   /** 마지막 틱 처리 시간 (ms) — 한계 점검용 */
   lastTickMs = 0;
+
+  /** 스냅숏 번호 (먼 사람을 두 번에 한 번 보낼 때 쓴다) */
+  private snapNo = 0;
+
+  /** 지난 1초 동안 보낸 스냅숏 바이트 (한계 점검용) */
+  sentPerSec = 0;
+
+  private sentAcc = 0;
+
+  private sentAt = 0;
 
   constructor(id:string) {
     this.id = id;
@@ -95,7 +113,12 @@ export class World {
     let me:Player | null = null;
     const hello = setTimeout(() => ws.close(4000, 'hello timeout'), 5000);
 
-    ws.on('message', (raw) => {
+    ws.on('message', (raw, isBinary) => {
+      // 입력은 바이너리로 온다
+      if (isBinary) {
+        if (me) World.inputCmds(me, decodeInputs(toArrayBuffer(raw as Buffer)));
+        return;
+      }
       let msg:ClientMsg;
       try {
         msg = JSON.parse(String(raw));
@@ -114,7 +137,8 @@ export class World {
         me = this.join(ws, String(msg.name || '').slice(0, 16) || '시민', body);
         return;
       }
-      if (msg.t === 'input') World.input(me, msg);
+      if (msg.t === 'input') World.inputCmds(me, msg.cmds);
+      else if (msg.t === 'view' && typeof msg.r === 'number' && Number.isFinite(msg.r)) me.view = Math.max(VIEW_MIN, Math.min(VIEW_MAX, msg.r));
       else if (msg.t === 'rtc') this.rtcSignal(me, msg);
     });
     ws.on('close', () => {
@@ -125,9 +149,9 @@ export class World {
   }
 
   /** 입력 받기: 데이터채널은 잃어버릴 수 있어 최근 입력을 겹쳐 보내므로, 이미 받은 순번은 버린다 */
-  private static input(p:Player, msg:Extract<ClientMsg, { t: 'input'; }>) {
-    if (!Array.isArray(msg.cmds)) return;
-    msg.cmds.slice(-MAX_QUEUE).forEach((c) => {
+  private static inputCmds(p:Player, cmds:unknown) {
+    if (!Array.isArray(cmds)) return;
+    cmds.slice(-MAX_QUEUE).forEach((c) => {
       if (validInput(c) && c[0] > p.ack && (!p.queue.length || c[0] > p.queue[p.queue.length - 1][0])) p.queue.push(c);
     });
     if (p.queue.length > MAX_QUEUE) p.queue.splice(0, p.queue.length - MAX_QUEUE);
@@ -140,10 +164,14 @@ export class World {
         (m) => {
           if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify(m));
         },
-        (s) => {
+        (data) => {
+          if (typeof data !== 'string') {
+            World.inputCmds(p, decodeInputs(toArrayBuffer(data)));
+            return;
+          }
           try {
-            const m = JSON.parse(s) as ClientMsg;
-            if (m.t === 'input') World.input(p, m);
+            const m = JSON.parse(data) as ClientMsg;
+            if (m.t === 'input') World.inputCmds(p, m.cmds);
           } catch {
             // 깨진 패킷
           }
@@ -155,7 +183,7 @@ export class World {
   }
 
   private join(ws:WebSocket, name:string, body:Body) {
-    const p:Player = { id: this.nextId++, name, ws, body, queue: [], budget: 0, ack: 0, rtc: null };
+    const p:Player = { id: this.nextId++, name, ws, body, queue: [], budget: 0, ack: 0, rtc: null, view: VIEW_DEFAULT };
     this.players.set(p.id, p);
     this.send(p, {
       t: 'welcome',
@@ -202,16 +230,48 @@ export class World {
     this.lastTickMs = performance.now() - t0;
   }
 
-  /** 모두의 위치를 모두에게 (주변 구역만 보내기는 다음 단계). 내 정밀 상태와 ack는 사람마다 */
+  /**
+   * 받는 사람마다 보이는 사람만 골라 바이너리로:
+   * - 실내 사람은 같은 건물·같은 층에게만 (벽 너머 투시 방지)
+   * - 보이는 반경 밖은 빼고, 가까운 순으로 줄 세워 멀수록 덜 자주
+   *   (가까운 24명 매번, 64명까지 두 번에 한 번, 그 뒤는 네 번에 한 번 — 사람이 몰려도 양이 일정 이상 안 늘게)
+   */
   private snapshot() {
-    const rows = [ ...this.players.values() ].map((p) => toRow(p.id, { ...p.body, b: p.body.b ?? OUTDOOR }));
-    const ps = JSON.stringify(rows);
-    this.players.forEach((p) => {
-      // 행 목록은 한 번만 문자열로 만들고 사람마다 앞부분만 붙인다. 데이터채널이 열려 있으면 그쪽(UDP처럼)으로
-      const msg = `{"t":"snap","tick":${this.tick},"ack":${p.ack},"me":${JSON.stringify(toBody(p.body))},"ps":${ps}}`;
-      if (p.rtc?.open()) p.rtc.send(msg);
-      else if (p.ws.readyState === WebSocket.OPEN) p.ws.send(msg);
+    this.snapNo++;
+    const all = [ ...this.players.values() ];
+    const rows = new Map<number, SnapRow>(all.map((p) => [ p.id, toRow(p.id, p.body) ]));
+    let sent = 0;
+    all.forEach((p) => {
+      const near:{ o: Player; d: number; }[] = [];
+      all.forEach((o) => {
+        if (o === p) return;
+        if (o.body.b >= 0 && (o.body.b !== p.body.b || o.body.l !== p.body.l)) return;
+        const d = Math.hypot(o.body.x - p.body.x, o.body.z - p.body.z);
+        if (d <= p.view) near.push({ o, d });
+      });
+      near.sort((a, b) => a.d - b.d);
+      const list:SnapRow[] = [];
+      near.forEach(({ o, d }, rank) => {
+        let every = 1;
+        if (rank >= NEAR_COUNT) every = 2;
+        if (rank >= MID_COUNT) every = 4;
+        if (d > NEAR) every = Math.max(every, 2);
+        if ((this.snapNo + o.id) % every === 0) list.push(rows.get(o.id)!);
+      });
+      const buf = encodeSnap(this.tick, p.ack, toBody(p.body), list);
+      sent += buf.byteLength;
+      // 데이터채널이 열려 있으면 그쪽(UDP처럼)으로
+      if (p.rtc?.open()) p.rtc.sendBinary(buf);
+      else if (p.ws.readyState === WebSocket.OPEN) p.ws.send(buf);
     });
+    // 초당 보낸 양
+    const now = performance.now();
+    this.sentAcc += sent;
+    if (now - this.sentAt >= 1000) {
+      this.sentPerSec = Math.round((this.sentAcc * 1000) / (now - this.sentAt));
+      this.sentAcc = 0;
+      this.sentAt = now;
+    }
   }
 
   private send(p:Player, msg:ServerMsg) {
