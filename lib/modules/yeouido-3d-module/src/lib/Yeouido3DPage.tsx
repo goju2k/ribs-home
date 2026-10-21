@@ -4,7 +4,7 @@ import { MouseEvent, PointerEvent, useEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
 
 import { useGalmuriFont } from './hooks/use-galmuri-font';
-import { createInput } from './input';
+import { CamMode, capturePointer, createInput, nextMode } from './input';
 import { GameCanvas, GameStatus } from './ui/GameCanvas';
 import { Panel, PIXEL_FONT, PixelButton } from './ui/pixel';
 import { VirtualJoystick } from './ui/VirtualJoystick';
@@ -24,12 +24,14 @@ const netLabel = (s:GameStatus) => {
   return s.net.state === 'connecting' ? '접속 중…' : '오프라인';
 };
 
+const MODE_LABEL:Record<CamMode, string> = { top: '위', chase: '뒤', fp: '1인칭' };
+
 const isTouch = () => typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
 
 export function Yeouido3DPage() {
   useGalmuriFont();
   const inputRef = useRef(createInput());
-  const statusRef = useRef<GameStatus>({ ready: false, buildMs: 0, pixel: 0, x: 0, z: 0, running: false, alt: 0, flying: false, onRoof: false, indoor: null, net: { state: 'connecting', count: 0, error: '', correction: 0, pending: 0, transport: 'ws' } });
+  const statusRef = useRef<GameStatus>({ ready: false, buildMs: 0, pixel: 0, x: 0, z: 0, running: false, alt: 0, flying: false, onRoof: false, indoor: null, net: { state: 'connecting', count: 0, error: '', correction: 0, pending: 0, transport: 'ws' }, mode: 'top' });
   const [ ready, setReady ] = useState(false);
   const [ touch ] = useState(isTouch);
   const [ status, setStatus ] = useState<GameStatus>(statusRef.current);
@@ -43,7 +45,7 @@ export function Yeouido3DPage() {
   // 누르고 있는 동안만 켜지는 버튼 — 손가락이 버튼 밖으로 미끄러져도 놓을 때까지 유지
   const holdProps = (key:'upHeld' | 'downHeld') => ({
     onPointerDown: (e:PointerEvent<HTMLButtonElement>) => {
-      e.currentTarget.setPointerCapture(e.pointerId);
+      capturePointer(e.currentTarget, e.pointerId);
       inputRef.current[key] = true;
     },
     onPointerUp: () => {
@@ -54,6 +56,18 @@ export function Yeouido3DPage() {
     },
     onLostPointerCapture: () => {
       inputRef.current[key] = false;
+    },
+    onContextMenu: (e:MouseEvent) => e.preventDefault(),
+  });
+  // 한 번 누르는 버튼: 손가락이 닿는 순간 실행 — 다른 손가락이 조이스틱을 잡고 있으면 휴대폰은 click을 안 만들어 준다.
+  // 키보드(Enter·Space)로 누른 click(detail 0)은 그대로 받는다
+  const tap = (fn:() => void) => ({
+    onPointerDown: (e:PointerEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      fn();
+    },
+    onClick: (e:MouseEvent) => {
+      if (e.detail === 0) fn();
     },
     onContextMenu: (e:MouseEvent) => e.preventDefault(),
   });
@@ -80,30 +94,37 @@ export function Yeouido3DPage() {
         </Title>
         <Buttons>
           <PixelButton
-            onClick={() => {
+            {...tap(() => {
+              inputRef.current.mode = nextMode(inputRef.current.mode);
+            })}
+            aria-label='시점 바꾸기'
+          >시점 {MODE_LABEL[status.mode]}
+          </PixelButton>
+          <PixelButton
+            {...tap(() => {
               inputRef.current.rotate -= 1;
-            }}
+            })}
             aria-label='왼쪽으로 회전'
           >⟲
           </PixelButton>
           <PixelButton
-            onClick={() => {
+            {...tap(() => {
               inputRef.current.rotate += 1;
-            }}
+            })}
             aria-label='오른쪽으로 회전'
           >⟳
           </PixelButton>
           <PixelButton
-            onClick={() => {
+            {...tap(() => {
               inputRef.current.zoom *= 0.75;
-            }}
+            })}
             aria-label='확대'
           >＋
           </PixelButton>
           <PixelButton
-            onClick={() => {
+            {...tap(() => {
               inputRef.current.zoom *= 1.33;
-            }}
+            })}
             aria-label='축소'
           >－
           </PixelButton>
@@ -114,11 +135,11 @@ export function Yeouido3DPage() {
       <SideButtons>
         <LiftButton {...holdProps('upHeld')} aria-label='위로'>▲</LiftButton>
         <LiftButton {...holdProps('downHeld')} aria-label='아래로'>▼</LiftButton>
-        <RunButton $active={run} onClick={toggleRun} onContextMenu={(e) => e.preventDefault()}>
+        <RunButton $active={run} {...tap(toggleRun)}>
           {run ? '달리기' : '걷기'}
         </RunButton>
       </SideButtons>
-      {!touch && <KeyHint>이동 WASD/방향키 · 달리기 T(전환)/Shift · 높이 Space·R / C·F · 회전 Q/E · 확대 휠/+/-</KeyHint>}
+      {!touch && <KeyHint>이동 WASD/방향키 · 달리기 T(전환)/Shift · 높이 Space·R / C·F · 시점 V(뒤·1인칭은 드래그로 둘러보기) · 회전 Q/E · 확대 휠/+/-</KeyHint>}
 
       {!ready && <Loading>여의도를 세우는 중…</Loading>}
       <Attribution href='https://www.openstreetmap.org/copyright' target='_blank' rel='noreferrer'>

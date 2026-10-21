@@ -112,9 +112,10 @@ export class Collision {
    * 카메라에서 (x, y~y+tall, z)를 보는 시선이 건물·나무에 막히는지.
    * 정사영이라 시선은 평행선: 카메라 쪽 수평 방향 (dx, dz)로 1m 갈 때마다 rise 만큼 오른다.
    */
-  hidesFrom(x:number, y:number, z:number, tall:number, dx:number, dz:number, rise:number, indoor?:SightIndoor) {
+  hidesFrom(x:number, y:number, z:number, tall:number, dx:number, dz:number, rise:number, indoor?:SightIndoor, maxS = Infinity) {
+    // maxS: 카메라까지의 수평 거리 (원근 카메라는 가까이 있어 그 너머는 안 본다)
     return [ y + tall * 0.25, y + tall * 0.9 ].some((y0) => {
-      for (let s = 0.6; y0 + s * rise < this.maxH + 1; s += 1) {
+      for (let s = 0.6; s < maxS && y0 + s * rise < this.maxH + 1; s += 1) {
         const sx = x + dx * s;
         const sz = z + dz * s;
         const sy = y0 + s * rise;

@@ -28,6 +28,8 @@ export interface Input {
   run: boolean;
   /** 위(+1)·아래(-1)·정지(0) */
   lift: number;
+  /** 보는 방향(라디안, 몸 방향 f와 같은 기준). 있으면 이동과 상관없이 몸이 이쪽을 본다 (1인칭·조준) */
+  face?: number;
 }
 
 /** 시뮬레이션 상태 — 서버와 클라이언트가 똑같이 들고 있어야 하는 값 전부 */
@@ -80,6 +82,8 @@ export function step(w:SimWorld, b:Body, input:Input) {
   let room = b.b >= 0 ? w.byBid.get(b.b) : undefined;
   const len = Math.min(1, Math.hypot(input.mx, input.mz));
   const lift = Math.sign(input.lift);
+  const faceLock = input.face !== undefined && Number.isFinite(input.face);
+  if (faceLock) b.f = input.face!;
 
   // 높이: 실내는 엘리베이터 칸에서만 층 이동, 실외는 누르는 동안 오르내리고 놓으면 그 높이에 떠 있는다
   let floor = 0;
@@ -142,6 +146,7 @@ export function step(w:SimWorld, b:Body, input:Input) {
   b.a = flying ? 0 : Math.min(b.spd, Math.hypot(next.x - b.x, next.z - b.z) / dt);
   b.x = next.x;
   b.z = next.z;
+  if (faceLock) return;
   const turn = Math.atan2(dx, dz);
   const diff = Math.atan2(Math.sin(turn - b.f), Math.cos(turn - b.f));
   b.f += diff * (1 - Math.exp(-dt * 14));

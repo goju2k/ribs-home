@@ -5,7 +5,10 @@
  * 스냅숏에는 받는 사람 주변(보이는 범위)·같은 공간의 사람만 담는다.
  */
 
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
+
+/** 입력의 보는 방향이 없다는 표시 */
+export const NO_FACE = 99;
 
 /** 보이는 범위(반경 m): 클라이언트가 알려 주면 서버가 이 안으로 자른다 */
 export const VIEW_MIN = 80;
@@ -30,8 +33,8 @@ export const OUTDOOR = -1;
 /** 내 시뮬레이션 상태 전부: [x, y, z, f, spd, a, b, l, lw] (yeouido-sim Body와 같은 순서) */
 export type BodyTuple = [number, number, number, number, number, number, number, number, number];
 
-/** 입력 한 걸음: [순번, mx, mz, 달리기(0/1), 높이(-1/0/1)] */
-export type InputTuple = [number, number, number, number, number];
+/** 입력 한 걸음: [순번, mx, mz, 달리기(0/1), 높이(-1/0/1), 보는 방향(라디안, 없으면 NO_FACE)] */
+export type InputTuple = [number, number, number, number, number, number];
 
 /** 다른 사람에게 보이는 상태 */
 export interface PlayerState {
@@ -94,7 +97,7 @@ const num = (v:unknown, lim:number) => typeof v === 'number' && Number.isFinite(
 
 /** 받은 입력 한 줄이 쓸 만한지 */
 export function validInput(c:unknown):c is InputTuple {
-  return Array.isArray(c) && c.length === 5 && num(c[0], 1e9) && num(c[1], 1.01) && num(c[2], 1.01) && num(c[3], 1) && num(c[4], 1);
+  return Array.isArray(c) && c.length === 6 && num(c[0], 1e9) && num(c[1], 1.01) && num(c[2], 1.01) && num(c[3], 1) && num(c[4], 1) && num(c[5], NO_FACE);
 }
 
 export * from './binary';

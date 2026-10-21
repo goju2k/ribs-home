@@ -1,13 +1,13 @@
 import { MutableRefObject, useEffect, useRef } from 'react';
 import styled from 'styled-components';
 import * as THREE from 'three';
-import { fromBody, InputTuple } from 'yeouido-net';
+import { fromBody, InputTuple, NO_FACE } from 'yeouido-net';
 import { Body, copyBody, createSimWorld, describe, FLY, Input, newBody, STEP, step, WORLD } from 'yeouido-sim';
 
 import { Minimap } from './minimap';
 
 import { createIndoorViews } from '../indoor/indoor-building';
-import { InputState, readLift, readMove } from '../input';
+import { CamMode, InputState, nextMode, readLift, readMove } from '../input';
 import { GameClient, myName, NetState, serverUrl, Transport } from '../net/client';
 import { createPerson } from '../player/person';
 import { RemotePlayers } from '../player/remote-players';
@@ -20,6 +20,12 @@ const MAX_VIEW = 900;
 const ALT_ZOOM = 60; // 이만큼(m) 오를 때마다 보이는 범위가 기본만큼 넓어진다
 const MAX_SHOWN_VIEW = 1600;
 const SKY = '#a8dcf5';
+// 3인칭·1인칭: 가시거리(안개 끝)와 안개 시작, 드래그 감도(라디안/px), 3인칭 카메라 거리 범위
+const FAR = 450;
+const FOG_NEAR = 140;
+const LOOK_SPEED = 0.005;
+const CHASE_MIN = 2.5;
+const CHASE_MAX = 60;
 
 export interface GameStatus {
   ready: boolean;
@@ -35,6 +41,8 @@ export interface GameStatus {
   onRoof: boolean;
   /** 실내에 있을 때 건물 이름·층·엘리베이터 안인지 */
   indoor: { name: string; level: number; elevator: boolean; } | null;
+  /** 지금 시점 */
+  mode: CamMode;
   /** 게임 서버 접속 상태, 접속자 수(나 포함), 오류, 마지막 서버 보정 크기(m)와 확인 대기 입력 수 */
   net: { state: NetState; count: number; error: string; correction: number; pending: number; transport: Transport; };
 }
@@ -140,7 +148,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     player.root.position.set(pos.x, pos.y, pos.z);
     scene.add(player.root);
     // 확인용(?debug): 콘솔에서 상태를 들여다볼 수 있게
-    if (new URLSearchParams(window.location.search).has('debug')) Object.assign(window, { y3d: { body, player, pos } });
+    if (new URLSearchParams(window.location.search).has('debug')) Object.assign(window, { y3d: { body, player, pos, input: inputRef.current } });
 
     // 다중접속: 입력을 보내고, 서버가 확정한 내 상태와 다른 사람들을 받는다 (재접속하면 지금 자리에서 이어서)
     const net = new GameClient(serverUrl(), myName(), () => ({ x: body.x, y: body.y, z: body.z, b: body.b, l: body.l }));
@@ -168,6 +176,13 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     let seeFade = 0;
 
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 6000);
+    // 3인칭·1인칭용 원근 카메라 (멀리는 안개로 덮고 가시거리에서 자른다)
+    const persp = new THREE.PerspectiveCamera(60, 1, 0.1, FAR);
+    const fog = new THREE.Fog(SKY, FOG_NEAR, FAR);
+    let { mode } = inputRef.current;
+    let camDist = 16; // 3인칭: 머리에서 카메라까지 (m) — 배경이 넉넉히 보이게
+    let chasePitch = 0.45; // 3인칭: 내려다보는 각
+    let fpPitch = 0.1; // 1인칭: 아래를 보는 각 (음수면 위)
     let view = 34; // 화면 세로에 담기는 미터
     let yaw = 0;
     let yawTarget = 0;
@@ -192,6 +207,8 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       inputRef.current.zoom *= Math.exp(e.deltaY * 0.0012);
     };
     const onDown = (e:PointerEvent) => {
+      // 1인칭은 마우스를 잠가 움직임만으로 둘러본다 (Esc로 풀림)
+      if (e.pointerType === 'mouse' && inputRef.current.mode === 'fp' && document.pointerLockElement !== canvas) canvas.requestPointerLock?.();
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pointers.size === 2) {
         const [ a, b ] = [ ...pointers.values() ];
@@ -199,8 +216,19 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       }
     };
     const onMove = (e:PointerEvent) => {
-      if (!pointers.has(e.pointerId)) return;
+      if (document.pointerLockElement === canvas) {
+        inputRef.current.look.dx += e.movementX;
+        inputRef.current.look.dy += e.movementY;
+        return;
+      }
+      const prevPt = pointers.get(e.pointerId);
+      if (!prevPt) return;
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      // 한 손가락(마우스) 드래그 = 3인칭·1인칭에서 둘러보기
+      if (pointers.size === 1 && inputRef.current.mode !== 'top') {
+        inputRef.current.look.dx += e.clientX - prevPt.x;
+        inputRef.current.look.dy += e.clientY - prevPt.y;
+      }
       if (pointers.size === 2 && pinch) {
         const [ a, b ] = [ ...pointers.values() ];
         const d = Math.hypot(a.x - b.x, a.y - b.y);
@@ -223,6 +251,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         if (e.code === 'Space') e.preventDefault();
         inputRef.current.keys.add(e.code);
         if (e.code === 'KeyT' && !e.repeat) inputRef.current.runToggle = !inputRef.current.runToggle;
+        if (e.code === 'KeyV' && !e.repeat) inputRef.current.mode = nextMode(inputRef.current.mode);
         if (e.code === 'KeyQ') inputRef.current.rotate -= 1;
         if (e.code === 'KeyE') inputRef.current.rotate += 1;
         if (e.code === 'Equal' || e.code === 'NumpadAdd') inputRef.current.zoom *= 0.8;
@@ -244,13 +273,32 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       const input = inputRef.current;
 
       // 회전·확대 요청 반영
+      // 시점 바뀜: 내려다보기로 돌아가면 방향을 90° 단위로 맞춘다
+      if (input.mode !== mode) {
+        mode = input.mode;
+        if (mode === 'top') yawTarget = Math.round(yawTarget / (Math.PI / 2)) * (Math.PI / 2);
+        if (mode !== 'fp' && document.pointerLockElement === canvas) document.exitPointerLock();
+        scene.fog = mode === 'top' ? null : fog;
+      }
+      const persp3 = mode !== 'top';
       if (input.rotate) {
-        yawTarget += input.rotate * (Math.PI / 2);
+        yawTarget += input.rotate * (persp3 ? Math.PI / 12 : Math.PI / 2);
         input.rotate = 0;
       }
-      yaw += (yawTarget - yaw) * (1 - Math.exp(-dt * 10));
+      // 드래그·마우스로 둘러보기: 오른쪽으로 끌면 오른쪽을 보고, 아래로 끌면 아래를 본다
+      if (input.look.dx || input.look.dy) {
+        if (persp3) {
+          yawTarget -= input.look.dx * LOOK_SPEED;
+          if (mode === 'chase') chasePitch = THREE.MathUtils.clamp(chasePitch + input.look.dy * LOOK_SPEED, 0.05, 1.35);
+          else fpPitch = THREE.MathUtils.clamp(fpPitch + input.look.dy * LOOK_SPEED, -1.35, 1.35);
+        }
+        input.look.dx = 0;
+        input.look.dy = 0;
+      }
+      yaw += (yawTarget - yaw) * (1 - Math.exp(-dt * (persp3 ? 30 : 10)));
       if (input.zoom !== 1) {
-        view = Math.min(MAX_VIEW, Math.max(MIN_VIEW, view * input.zoom));
+        if (mode === 'chase') camDist = THREE.MathUtils.clamp(camDist * input.zoom, CHASE_MIN, CHASE_MAX);
+        else if (mode === 'top') view = Math.min(MAX_VIEW, Math.max(MIN_VIEW, view * input.zoom));
         input.zoom = 1;
       }
 
@@ -261,7 +309,9 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       const rx = Math.cos(yaw);
       const rz = -Math.sin(yaw);
       const q = (n:number) => Math.round(n * 1000) / 1000; // 서버와 똑같은 값으로 계산하게 반올림
-      const inp:Input = { mx: q(rx * mv.x - fx * mv.y), mz: q(rz * mv.x - fz * mv.y), run: mv.run, lift: readLift(input) };
+      // 1인칭은 카메라가 보는 쪽 = 몸이 보는 쪽 (카메라 앞 (-sin yaw, -cos yaw) = 몸 앞 (sin f, cos f) → f = yaw + π)
+      const look = Math.atan2(Math.sin(yaw + Math.PI), Math.cos(yaw + Math.PI));
+      const inp:Input = { mx: q(rx * mv.x - fx * mv.y), mz: q(rz * mv.x - fz * mv.y), run: mv.run, lift: readLift(input), face: mode === 'fp' ? Math.round(look * 10000) / 10000 : undefined };
       // 서버 확정 상태가 오면 (이번 걸음들보다 먼저 — 입장 직후 보낸 입력을 버리지 않게): 그 상태에서 서버가 아직 안 본 입력만 다시 돌려 지금 자리를 맞춘다
       const auth = net.takeAuthority();
       if (auth) {
@@ -294,10 +344,10 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         prev = copyBody(body);
         step(sim, body, inp);
         pending.push({ seq, inp });
-        out.push([ seq, inp.mx, inp.mz, inp.run ? 1 : 0, inp.lift ]);
+        out.push([ seq, inp.mx, inp.mz, inp.run ? 1 : 0, inp.lift, inp.face ?? NO_FACE ]);
       }
       if (pending.length > 150) pending.splice(0, pending.length - 150);
-      if (net.state === 'online') net.sendInputs(out, pending.map((c) => [ c.seq, c.inp.mx, c.inp.mz, c.inp.run ? 1 : 0, c.inp.lift ]));
+      if (net.state === 'online') net.sendInputs(out, pending.map((c) => [ c.seq, c.inp.mx, c.inp.mz, c.inp.run ? 1 : 0, c.inp.lift, c.inp.face ?? NO_FACE ]));
       else pending.length = 0; // 서버 없이 혼자 움직이는 중
 
       // 화면 위치: 직전 걸음과 지금 사이를 보간 + 보정 어긋남을 서서히 지운다
@@ -328,8 +378,9 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       SEE.cutY.value = room ? room.baseY(level) + room.floorH - 0.02 : 0;
       const shown = Math.min(MAX_SHOWN_VIEW, view * autoZoom);
 
-      // 축소할수록 캐릭터를 키워 점으로 사라지지 않게
-      const big = THREE.MathUtils.clamp(shown / 60, 1, 5);
+      // 내려다보기에서 축소할수록 캐릭터를 키워 점으로 사라지지 않게 (3인칭·1인칭은 실제 크기)
+      const big = persp3 ? 1 : THREE.MathUtils.clamp(shown / 60, 1, 5);
+      player.root.visible = mode !== 'fp';
       player.root.scale.setScalar(big);
       player.root.position.set(pos.x, pos.y, pos.z);
       player.root.rotation.y = facing;
@@ -343,11 +394,11 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       const tall = 1.72 * big;
       const onScreen = tall * Math.cos(PITCH); // 내려다보니 화면에선 키가 줄어 보인다
       const mk = onScreen * 1.2; // 화면에서 사람보다 살짝 크게
-      marker.visible = shown > 45;
+      marker.visible = !persp3 && shown > 45;
       marker.scale.set(mk, mk, 1);
       // 화면에서 머리 위로 사람 키만큼 띄운다 (세로 거리도 cos 만큼 줄어 보여서 나눠 준다)
       marker.position.set(pos.x, pos.y + tall + (onScreen + mk / 2) / Math.cos(PITCH), pos.z);
-      const below = pos.y - floor > 1;
+      const below = mode !== 'fp' && pos.y - floor > 1;
       drop.visible = below;
       if (below) {
         dropGeo.attributes.position.setXYZ(0, pos.x, pos.y, pos.z);
@@ -355,62 +406,99 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         dropGeo.attributes.position.needsUpdate = true;
       }
 
-      // 카메라: 플레이어를 바라보는 고정 각도 정사영
       const { clientWidth: w, clientHeight: h } = canvas;
       const aspect = w / Math.max(h, 1);
-      camera.top = shown / 2;
-      camera.bottom = -shown / 2;
-      camera.left = (-shown / 2) * aspect;
-      camera.right = (shown / 2) * aspect;
-      camera.updateProjectionMatrix();
-      // 서버에 보이는 범위를 알린다: 화면이 담는 땅의 반 대각선(+여유)과 미니맵 반경 중 큰 쪽
-      net.setView(Math.max(0.5 * Math.hypot(shown * aspect, shown / Math.sin(PITCH)) + 30, mini.radius));
-      const target = new THREE.Vector3(pos.x, pos.y + 1, pos.z);
-      const dist = 2500;
-      camera.position.set(
-        target.x + Math.sin(yaw) * Math.cos(PITCH) * dist,
-        target.y + Math.sin(PITCH) * dist,
-        target.z + Math.cos(yaw) * Math.cos(PITCH) * dist,
-      );
-      camera.lookAt(target);
+      let cam:THREE.Camera;
+      let shadowAt:THREE.Vector3;
+      let shadowSize:number;
+      if (mode === 'top') {
+        // 내려다보기: 플레이어를 바라보는 고정 각도 정사영
+        camera.top = shown / 2;
+        camera.bottom = -shown / 2;
+        camera.left = (-shown / 2) * aspect;
+        camera.right = (shown / 2) * aspect;
+        camera.updateProjectionMatrix();
+        // 서버에 보이는 범위를 알린다: 화면이 담는 땅의 반 대각선(+여유)과 미니맵 반경 중 큰 쪽
+        net.setView(Math.max(0.5 * Math.hypot(shown * aspect, shown / Math.sin(PITCH)) + 30, mini.radius));
+        const target = new THREE.Vector3(pos.x, pos.y + 1, pos.z);
+        const dist = 2500;
+        camera.position.set(
+          target.x + Math.sin(yaw) * Math.cos(PITCH) * dist,
+          target.y + Math.sin(PITCH) * dist,
+          target.z + Math.cos(yaw) * Math.cos(PITCH) * dist,
+        );
+        camera.lookAt(target);
+        cam = camera;
+        // 그림자는 화면에 보이는 범위만. 높이 날면 화면 가운데 보이는 땅이 발밑과 달라져 그 땅을 기준으로
+        shadowSize = Math.min(500, shown * aspect * 0.75 + 20);
+        const back = target.y / Math.tan(PITCH);
+        shadowAt = new THREE.Vector3(target.x - Math.sin(yaw) * back, 0, target.z - Math.cos(yaw) * back);
+      } else {
+        persp.aspect = aspect;
+        persp.updateProjectionMatrix();
+        if (mode === 'chase') {
+          // 3인칭: 머리 뒤 위에서 따라간다. 땅·지붕·실내 바닥 밑으로는 안 내려간다
+          const head = new THREE.Vector3(pos.x, pos.y + 1.5, pos.z);
+          const cp = Math.cos(chasePitch);
+          persp.position.set(head.x + Math.sin(yaw) * cp * camDist, head.y + Math.sin(chasePitch) * camDist, head.z + Math.cos(yaw) * cp * camDist);
+          const under = room ? room.baseY(level) : collision.floorAt(persp.position.x, persp.position.z, persp.position.y);
+          persp.position.y = Math.max(persp.position.y, under + 0.4);
+          // 실내에선 천장 아래에서만 (천장 위로 가면 천장에 가려 안 보인다)
+          if (room) persp.position.y = Math.min(persp.position.y, room.baseY(level) + room.floorH - 0.35);
+          persp.lookAt(head);
+        } else {
+          // 1인칭: 눈높이에서 보는 방향으로
+          const eye = new THREE.Vector3(pos.x, pos.y + 1.62, pos.z);
+          const cp = Math.cos(fpPitch);
+          persp.position.copy(eye);
+          persp.lookAt(eye.x - Math.sin(yaw) * cp, eye.y - Math.sin(fpPitch), eye.z - Math.cos(yaw) * cp);
+        }
+        net.setView(Math.max(FAR, mini.radius));
+        cam = persp;
+        shadowSize = mode === 'fp' ? 70 : Math.min(160, 40 + camDist * 3);
+        shadowAt = new THREE.Vector3(pos.x, room ? room.baseY(level) : 0, pos.z);
+      }
+      const sc = sun.shadow.camera;
+      sc.left = -shadowSize;
+      sc.right = shadowSize;
+      sc.top = shadowSize;
+      sc.bottom = -shadowSize;
+      sc.near = 1;
+      sc.far = 2000;
+      sc.updateProjectionMatrix();
+      sun.position.copy(shadowAt).addScaledVector(SUN_DIR, 900);
+      sun.target.position.copy(shadowAt);
 
-      // 그림자는 화면에 보이는 범위만 (확대할수록 선명)
-      const s = Math.min(500, shown * aspect * 0.75 + 20);
-      const cam = sun.shadow.camera;
-      cam.left = -s;
-      cam.right = s;
-      cam.top = s;
-      cam.bottom = -s;
-      cam.near = 1;
-      cam.far = 2000;
-      cam.updateProjectionMatrix();
-      // 높이 날면 화면 가운데 보이는 땅이 플레이어 발밑과 달라진다 → 그 땅을 기준으로 그림자를 잡는다
-      const back = target.y / Math.tan(PITCH);
-      const ground = new THREE.Vector3(target.x - Math.sin(yaw) * back, 0, target.z - Math.cos(yaw) * back);
-      sun.position.copy(ground).addScaledVector(SUN_DIR, 900);
-      sun.target.position.copy(ground);
-
-      // 플레이어를 가리는 건물·나무에 구멍: 실제로 시선이 막혔을 때만 서서히 켠다
-      const toCamX = Math.sin(yaw);
-      const toCamZ = Math.cos(yaw);
-      const hidden = collision.hidesFrom(pos.x, pos.y, pos.z, tall, toCamX, toCamZ, Math.tan(PITCH), room ? {
-        bid: room.bid,
-        cutY: SEE.cutY.value,
-        wallAt: (x, y, z) => room.wallAt(level, x, y, z),
-      } : undefined);
+      // 플레이어를 가리는 건물·나무에 구멍: 실제로 시선이 막혔을 때만 서서히 켠다 (1인칭은 내가 안 보이니 없음)
+      const sight = room ? { bid: room.bid, cutY: SEE.cutY.value, wallAt: (x:number, y:number, z:number) => room.wallAt(level, x, y, z) } : undefined;
+      let toCamX = Math.sin(yaw);
+      let toCamZ = Math.cos(yaw);
+      let hidden = false;
+      if (mode === 'top') hidden = collision.hidesFrom(pos.x, pos.y, pos.z, tall, toCamX, toCamZ, Math.tan(PITCH), sight);
+      else if (mode === 'chase') {
+        const hx = persp.position.x - pos.x;
+        const hz = persp.position.z - pos.z;
+        const hd = Math.max(0.01, Math.hypot(hx, hz));
+        toCamX = hx / hd;
+        toCamZ = hz / hd;
+        hidden = collision.hidesFrom(pos.x, pos.y, pos.z, tall, toCamX, toCamZ, (persp.position.y - (pos.y + tall * 0.6)) / hd, sight, hd);
+      }
       seeFade += ((hidden ? 1 : 0) - seeFade) * (1 - Math.exp(-dt * 8));
-      camera.updateMatrixWorld();
-      const ndc = new THREE.Vector3(pos.x, pos.y + tall * 0.5, pos.z).project(camera);
+      cam.updateMatrixWorld();
+      const ndc = new THREE.Vector3(pos.x, pos.y + tall * 0.5, pos.z).project(cam);
       renderer.getDrawingBufferSize(bufSize);
-      const personPx = (onScreen / shown) * bufSize.y;
-      SEE.strength.value = seeFade;
+      // 화면에서 사람 키(px): 정사영은 계산, 원근은 머리·발을 화면에 찍어 잰다
+      const personPx = persp3
+        ? (Math.abs(new THREE.Vector3(pos.x, pos.y + tall, pos.z).project(cam).y - new THREE.Vector3(pos.x, pos.y, pos.z).project(cam).y) / 2) * bufSize.y
+        : (onScreen / shown) * bufSize.y;
+      SEE.strength.value = mode === 'fp' ? 0 : seeFade;
       SEE.center.value.set((ndc.x * 0.5 + 0.5) * bufSize.x, (ndc.y * 0.5 + 0.5) * bufSize.y);
       SEE.radius.value = THREE.MathUtils.clamp(personPx * 3.2, 16, bufSize.y * 0.25) * (0.6 + 0.4 * seeFade);
       SEE.foot.value.set(pos.x, pos.y, pos.z);
       SEE.toCam.value.set(toCamX, toCamZ);
 
-      others.placeTags(camera, w, h);
-      renderer.render(scene, camera);
+      others.placeTags(cam, w, h);
+      renderer.render(scene, cam);
 
       statusRef.current = {
         ready: true,
@@ -424,6 +512,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         onRoof: !room && !flying && floor > 1,
         indoor: room ? { name: room.name, level, elevator: cab >= 0 } : null,
         net: { state: net.state, count: net.count, error: net.error, correction, pending: pending.length, transport: net.transport },
+        mode,
       };
       if (!readySent) {
         readySent = true;

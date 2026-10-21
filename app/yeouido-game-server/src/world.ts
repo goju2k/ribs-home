@@ -1,6 +1,6 @@
 import { WebSocket } from 'ws';
 import {
-  ClientMsg, decodeInputs, encodeSnap, InputTuple, NEAR, PROTOCOL_VERSION, ServerMsg, SIM_HZ, SNAP_HZ, SnapRow, toArrayBuffer, toBody, toRow, validInput,
+  ClientMsg, decodeInputs, NO_FACE, encodeSnap, InputTuple, NEAR, PROTOCOL_VERSION, ServerMsg, SIM_HZ, SNAP_HZ, SnapRow, toArrayBuffer, toBody, toRow, validInput,
   VIEW_DEFAULT, VIEW_MAX, VIEW_MIN,
 } from 'yeouido-net';
 import { Body, createSimWorld, newBody, SimWorld, step, WORLD } from 'yeouido-sim';
@@ -217,8 +217,8 @@ export class World {
     this.players.forEach((p) => {
       p.budget = Math.min(MAX_BURST, p.budget + gain);
       while (p.budget >= 1 && p.queue.length) {
-        const [ seq, mx, mz, run, lift ] = p.queue.shift()!;
-        step(this.sim, p.body, { mx, mz, run: run === 1, lift });
+        const [ seq, mx, mz, run, lift, face ] = p.queue.shift()!;
+        step(this.sim, p.body, { mx, mz, run: run === 1, lift, face: face === NO_FACE ? undefined : face });
         p.ack = seq;
         p.budget -= 1;
       }

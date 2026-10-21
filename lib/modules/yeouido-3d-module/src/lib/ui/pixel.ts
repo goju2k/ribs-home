@@ -24,6 +24,9 @@ export const PixelButton = styled.button<{ $active?: boolean; }>(({ $active }) =
   padding: '7px 7px',
   cursor: 'pointer',
   whiteSpace: 'nowrap',
+  // 두 번 탭 확대·스크롤로 터치가 늦어지거나 빼앗기지 않게
+  touchAction: 'none',
+  userSelect: 'none',
   ...pixelBorder(),
   '&:active': { transform: 'translateY(1px)' },
 }));

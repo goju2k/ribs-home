@@ -8,14 +8,16 @@
  *   u16 행 수 | 행마다 17바이트:
  *     u16 id | i32 x(cm) | i32 z(cm) | u16 y(cm) | u8 방향(256단계) | u8 걷는 속도(×10, 25.5m/s까지) | i16 건물 | u8 층
  * 입력 (클라이언트 → 서버)
- *   u8 2 | u8 개수 | 개마다 9바이트: u32 순번 | i16 mx×1000 | i16 mz×1000 | u8 (bit0 달리기, bit1 위, bit2 아래)
+ *   u8 2 | u8 개수 | 개마다 11바이트: u32 순번 | i16 mx×1000 | i16 mz×1000 | u8 (bit0 달리기, bit1 위, bit2 아래, bit3 보는 방향 있음) | i16 보는 방향×10000
  */
+import { NO_FACE } from './index';
 import type { BodyTuple, InputTuple, SnapRow } from './index';
 
 export const BIN_SNAP = 1;
 export const BIN_INPUT = 2;
 
 const ROW = 17;
+const IN = 11;
 const TAU = Math.PI * 2;
 
 export interface Snap {
@@ -80,16 +82,18 @@ export function decodeSnap(buf:ArrayBuffer):Snap | null {
 /** 입력의 mx·mz는 클라이언트가 이미 1/1000로 반올림해 계산하므로, ×1000 정수로 보내도 서버가 똑같은 값을 쓴다 */
 export function encodeInputs(cmds:InputTuple[]) {
   const list = cmds.slice(-255);
-  const buf = new ArrayBuffer(2 + list.length * 9);
+  const buf = new ArrayBuffer(2 + list.length * IN);
   const d = new DataView(buf);
   d.setUint8(0, BIN_INPUT);
   d.setUint8(1, list.length);
-  list.forEach(([ seq, mx, mz, run, lift ], i) => {
-    const o = 2 + i * 9;
+  list.forEach(([ seq, mx, mz, run, lift, face ], i) => {
+    const o = 2 + i * IN;
+    const hasFace = face !== NO_FACE;
     d.setUint32(o, seq, true);
     d.setInt16(o + 4, Math.round(mx * 1000), true);
     d.setInt16(o + 6, Math.round(mz * 1000), true);
-    d.setUint8(o + 8, (run ? 1 : 0) | (lift > 0 ? 2 : 0) | (lift < 0 ? 4 : 0));
+    d.setUint8(o + 8, (run ? 1 : 0) | (lift > 0 ? 2 : 0) | (lift < 0 ? 4 : 0) | (hasFace ? 8 : 0));
+    d.setInt16(o + 9, hasFace ? Math.round(face * 10000) : 0, true);
   });
   return buf;
 }
@@ -99,12 +103,13 @@ export function decodeInputs(buf:ArrayBuffer):InputTuple[] | null {
   const d = new DataView(buf);
   if (d.getUint8(0) !== BIN_INPUT) return null;
   const n = d.getUint8(1);
-  if (buf.byteLength < 2 + n * 9) return null;
+  if (buf.byteLength < 2 + n * IN) return null;
   const out:InputTuple[] = [];
   for (let i = 0; i < n; i++) {
-    const o = 2 + i * 9;
+    const o = 2 + i * IN;
     const flags = d.getUint8(o + 8);
-    out.push([ d.getUint32(o, true), d.getInt16(o + 4, true) / 1000, d.getInt16(o + 6, true) / 1000, flags & 1, (flags & 2 ? 1 : 0) - (flags & 4 ? 1 : 0) ]);
+    const face = flags & 8 ? d.getInt16(o + 9, true) / 10000 : NO_FACE;
+    out.push([ d.getUint32(o, true), d.getInt16(o + 4, true) / 1000, d.getInt16(o + 6, true) / 1000, flags & 1, (flags & 2 ? 1 : 0) - (flags & 4 ? 1 : 0), face ]);
   }
   return out;
 }

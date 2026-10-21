@@ -104,7 +104,8 @@ export class RemotePlayers {
   placeTags(camera:THREE.Camera, w:number, h:number) {
     this.shown.forEach((s) => {
       const p = this.v.copy(s.head).project(camera);
-      const off = !s.on || p.x < -1.1 || p.x > 1.1 || p.y < -1.1 || p.y > 1.1;
+      // 화면 밖이거나 원근 카메라 뒤쪽(z > 1)이면 숨김
+      const off = !s.on || p.x < -1.1 || p.x > 1.1 || p.y < -1.1 || p.y > 1.1 || p.z > 1 || p.z < -1;
       s.tag.style.display = off ? 'none' : 'block';
       if (off) return;
       const x = ((p.x + 1) / 2) * w;

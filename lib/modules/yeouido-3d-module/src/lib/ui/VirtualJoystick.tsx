@@ -1,7 +1,7 @@
 import { MutableRefObject, useRef, useState } from 'react';
 import styled from 'styled-components';
 
-import { InputState } from '../input';
+import { capturePointer, InputState } from '../input';
 
 const RADIUS = 52;
 
@@ -35,7 +35,7 @@ export function VirtualJoystick({ inputRef }:{ inputRef: MutableRefObject<InputS
     <Zone
       onPointerDown={(e) => {
         if (pointerId.current !== null) return;
-        e.currentTarget.setPointerCapture(e.pointerId);
+        capturePointer(e.currentTarget, e.pointerId);
         pointerId.current = e.pointerId;
         const r = e.currentTarget.getBoundingClientRect();
         origin.current = { x: e.clientX, y: e.clientY };

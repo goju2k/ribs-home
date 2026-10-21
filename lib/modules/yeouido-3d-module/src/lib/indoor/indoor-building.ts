@@ -141,6 +141,11 @@ export class IndoorView {
     const shape = new THREE.Shape(frame.ring.map((p) => new THREE.Vector2(p.u, -p.v)));
     const floorGeo = new THREE.ShapeGeometry(shape).rotateX(-Math.PI / 2).translate(0, 0.03, 0);
     g.add(new THREE.Mesh(colored(floorGeo, plan.lobby ? '#c8b89c' : '#a9a69d'), mat()));
+    // 천장: 아래를 보는 면만 그린다 → 위에서 내려다보면 뒷면이라 안 보이고(층 안이 보임), 3인칭·1인칭에선 천장
+    // (u, v)를 X축 +90° 돌리면 (u, 0, v)이고 앞면이 아래(-y)를 본다
+    const ceilShape = new THREE.Shape(frame.ring.map((p) => new THREE.Vector2(p.u, p.v)));
+    const ceilGeo = new THREE.ShapeGeometry(ceilShape).rotateX(Math.PI / 2).translate(0, H - 0.03, 0);
+    g.add(new THREE.Mesh(colored(ceilGeo, '#ebe8e1'), mat()));
 
     const parts:THREE.BufferGeometry[] = [];
     // 외벽 안쪽 면: 벽 + 창 띠 (문 자리는 비움)
