@@ -54,6 +54,9 @@ export interface Body {
   fly: number;
   /** 떨어지는 속도 (m/s, 아래가 음수) */
   vy: number;
+  /** 속도 배율: 땅(걷기·달리기)과 비행 — 게임 모드가 정한다 (예: 신발·로켓슈트). 기본 1 */
+  sm: number;
+  fm: number;
 }
 
 export interface SimWorld {
@@ -69,7 +72,7 @@ export function createSimWorld(data:WorldData):SimWorld {
   return { data, collision: new Collision(data), indoors, byBid: new Map(indoors.map((g) => [ g.bid, g ])) };
 }
 
-export const newBody = (x:number, y:number, z:number):Body => ({ x, y, z, f: 0, spd: 0, a: 0, b: -1, l: 1, lw: 0, fly: 0, vy: 0 });
+export const newBody = (x:number, y:number, z:number):Body => ({ x, y, z, f: 0, spd: 0, a: 0, b: -1, l: 1, lw: 0, fly: 0, vy: 0, sm: 1, fm: 1 });
 
 export const copyBody = (b:Body):Body => ({ ...b });
 
@@ -109,7 +112,7 @@ export function step(w:SimWorld, b:Body, input:Input) {
     const prevY = b.y;
     if (b.fly) {
       b.vy = 0;
-      if (lift) b.y = Math.min(MAX_ALT, b.y + lift * (input.run ? LIFT_RUN : LIFT) * dt);
+      if (lift) b.y = Math.min(MAX_ALT, b.y + lift * (input.run ? LIFT_RUN : LIFT) * b.fm * dt);
     } else {
       b.vy -= GRAVITY * dt;
       b.y += b.vy * dt;
@@ -125,7 +128,7 @@ export function step(w:SimWorld, b:Body, input:Input) {
   const flying = !room && b.fly === 1 && b.y - floor > 0.5;
 
   // 이동: 걷기↔달리기가 툭 끊기지 않게 속도를 부드럽게 따라간다
-  const speeds = flying ? [ FLY, FLY_RUN ] : [ WALK, RUN ];
+  const speeds = flying ? [ FLY * b.fm, FLY_RUN * b.fm ] : [ WALK * b.sm, RUN * b.sm ];
   const top = speeds[input.run ? 1 : 0];
   const want = len > 0.05 ? len * top : 0;
   b.spd += (want - b.spd) * (1 - Math.exp(-dt * 6));

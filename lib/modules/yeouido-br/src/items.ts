@@ -1,0 +1,51 @@
+import { FIST } from './rules';
+
+/**
+ * 배틀로얄 아이템 (게임성 측정용 PoC — 종류·수치는 가정).
+ * 완성품이 떨어져 있고, 같은 칸 아이템을 주우면 강화(+1, 최대 +7). 죽으면 시체에 남아 다른 사람이 털 수 있다.
+ */
+
+export const ITEM_KINDS = [ 'pipe', 'armor', 'shoes', 'rocket' ] as const;
+export type ItemKind = typeof ITEM_KINDS[number];
+
+export const ITEM_NAMES:Record<ItemKind, string> = { pipe: '쇠파이프', armor: '갑옷', shoes: '신발', rocket: '로켓슈트' };
+
+/** 땅에 뿌릴 때 비율 */
+export const DROP_WEIGHTS:Record<ItemKind, number> = { pipe: 3, armor: 3, shoes: 3, rocket: 1 };
+
+export const MAX_LEVEL = 7;
+
+/** 장비: 칸마다 강화 단계 (0 = 없음) */
+export type Gear = Record<ItemKind, number>;
+
+export const emptyGear = ():Gear => ({ pipe: 0, armor: 0, shoes: 0, rocket: 0 });
+
+/** 주웠을 때 새 단계: 없던 칸이면 주운 단계, 있으면 더 높은 쪽 + 1 */
+export const afterPickup = (cur:number, got:number) => (cur ? Math.min(MAX_LEVEL, Math.max(cur, got) + 1) : got);
+
+/** 신발: 땅 속도 배율 (+1 1.15 → 달리기 5.5m/s = 뛰는 좀비, +7 1.45 → 7.0m/s) */
+export const shoeMul = (lv:number) => (lv ? 1.15 + 0.05 * (lv - 1) : 1);
+
+/** 로켓슈트: 비행 가능 + 비행 속도 배율 (+1 0.4 → 달려 날기 14m/s, +7 0.88 → 32m/s) */
+export const rocketMul = (lv:number) => (lv ? 0.4 + 0.08 * (lv - 1) : 0);
+
+/** 갑옷: 받는 근접 피해 감소 비율 (+1 10%, +7 46%) — 전장 밖 피해는 못 막는다 */
+export const armorCut = (lv:number) => (lv ? 0.1 + 0.06 * (lv - 1) : 0);
+
+export interface MeleeStats {
+  range: number; cosArc: number; damage: number; cooldownMs: number; swingMs: number;
+}
+
+/** 근접 무기: 없으면 맨손, 쇠파이프는 단계마다 피해↑·대기↓ (+1 18, +7 42) */
+export const meleeStats = (lv:number):MeleeStats => (lv
+  ? { range: 2.2, cosArc: 0.5, damage: 18 + 4 * (lv - 1), cooldownMs: 700 - 30 * (lv - 1), swingMs: 350 }
+  : FIST);
+
+/** 땅에 떨어진 아이템: [id, 종류 번호(ITEM_KINDS), 단계, x, y, z, 건물, 층] */
+export type GroundItem = [number, number, number, number, number, number, number, number];
+
+/** 시체에 남은 아이템: [종류 번호, 단계] */
+export type CorpseItem = [number, number];
+
+/** 줍는 거리 (m) */
+export const PICK_RANGE = 1.3;

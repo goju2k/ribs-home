@@ -4,7 +4,7 @@
  * 모두 리틀 엔디언. 첫 바이트가 종류.
  *
  * 스냅숏 (서버 → 클라이언트)
- *   u8 1 | u32 tick | u32 ack | me: f64 × ME (x y z f spd a b l lw fly vy — 예측 보정용이라 정밀값) | u8 내 상태 비트 | u8 내 게이지
+ *   u8 1 | u32 tick | u32 ack | me: f64 × ME (x y z f spd a b l lw fly vy sm fm — 예측 보정용이라 정밀값) | u8 내 상태 비트 | u8 내 게이지
  *   u16 행 수 | 행마다 19바이트:
  *     u16 id | i32 x(cm) | i32 z(cm) | u16 y(cm) | u8 방향(256단계) | u8 걷는 속도(×10, 25.5m/s까지) | i16 건물 | u8 층 | u8 상태 비트 | u8 게이지
  * 입력 (클라이언트 → 서버)
@@ -18,7 +18,7 @@ export const BIN_INPUT = 2;
 
 const ROW = 19;
 /** 내 상태 값 개수 (BodyTuple 길이) */
-const ME = 11;
+const ME = 13;
 const HEAD = 1 + 4 + 4 + ME * 8 + 2;
 const IN = 11;
 const TAU = Math.PI * 2;

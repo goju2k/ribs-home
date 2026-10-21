@@ -1,9 +1,10 @@
 /* eslint-disable no-bitwise -- 행동 비트 */
 import { MouseEvent, MutableRefObject, PointerEvent } from 'react';
 import styled from 'styled-components';
-import { ACT_MELEE, STAGES } from 'yeouido-br';
+import { ACT_MELEE, ITEM_KINDS, ITEM_NAMES, STAGES } from 'yeouido-br';
 
 import type { BrHudState } from './br-client';
+import { ITEM_COLORS } from './item-meshes';
 
 import { capturePointer, InputState } from '../../input';
 import { Panel, PIXEL_FONT, pixelBorder } from '../../ui/pixel';
@@ -45,12 +46,27 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
           <span>{state.hp}</span>
           {state.shield && <Shield>무적</Shield>}
         </HpPanel>
+        <GearRow>
+          {ITEM_KINDS.map((k) => (
+            <Slot key={k} $on={state.gear[k] > 0} title={ITEM_NAMES[k]}>
+              <i style={{ background: ITEM_COLORS[k] }} />
+              <span>{ITEM_NAMES[k]}</span>
+              <b>{state.gear[k] ? `+${state.gear[k]}` : '-'}</b>
+            </Slot>
+          ))}
+        </GearRow>
       </Left>
 
       {state.feed.length > 0 && (
         <Feed>
           {state.feed.map((f) => <div key={f.id}>{f.text}</div>)}
         </Feed>
+      )}
+
+      {state.got.length > 0 && (
+        <Got>
+          {state.got.map((g) => <div key={g.id}>{g.text}</div>)}
+        </Got>
       )}
 
       {state.hits.map((h) => (
@@ -120,6 +136,29 @@ const HpBar = styled.div({ width: 110, height: 8, background: '#0b0e22', boxShad
 const HpFill = styled.div({ height: '100%', transition: 'width 120ms steps(4)' });
 
 const Shield = styled.span({ color: '#7fd0ff', animation: 'brBlink 0.5s steps(2) infinite', ...BLINK });
+
+const GearRow = styled.div({ display: 'flex', gap: 4, flexWrap: 'wrap' });
+
+const Slot = styled(Panel)<{ $on: boolean; }>(({ $on }) => ({
+  padding: '3px 6px',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 4,
+  opacity: $on ? 1 : 0.5,
+  i: { display: 'inline-block', width: 8, height: 8 },
+  b: { fontWeight: 'normal', color: $on ? '#ffd84a' : '#8a90b8' },
+}));
+
+const Got = styled(Panel)({
+  position: 'absolute',
+  left: '50%',
+  top: '24%',
+  transform: 'translateX(-50%)',
+  padding: '5px 10px',
+  textAlign: 'center',
+  color: '#ffd84a',
+  pointerEvents: 'none',
+});
 
 const Feed = styled(Panel)({
   position: 'absolute',

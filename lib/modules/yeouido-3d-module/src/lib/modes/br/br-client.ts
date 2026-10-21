@@ -1,6 +1,11 @@
 /* eslint-disable no-bitwise -- 상태·행동 비트 */
 import * as THREE from 'three';
-import { ACT_MELEE, BrServerMsg, Corpse, FIST, gaugeHp, isBrMsg, MatchPlan, ST_DEAD, ST_HURT, ST_SHIELD, ST_SWING, zoneAt, ZoneNow } from 'yeouido-br';
+import {
+  ACT_MELEE, BrServerMsg, Corpse, emptyGear, gaugeHp, Gear, isBrMsg, ITEM_KINDS, ITEM_NAMES, MatchPlan, meleeStats, ST_DEAD, ST_HURT, ST_SHIELD, ST_SWING,
+  zoneAt, ZoneNow,
+} from 'yeouido-br';
+
+import { ITEM_COLORS, ItemMeshes } from './item-meshes';
 
 import { createPerson, Person } from '../../player/person';
 import { Look, ModeClient, ModeFrame, ModeHostClient } from '../mode-client';
@@ -11,6 +16,10 @@ const WALL_H = 600;
 const FEED_MS = 6000;
 /** 때린 피해 숫자 보여 주는 시간 (ms) */
 const HIT_MS = 700;
+/** 다른 사람 휘두르는 동작 길이 (ms) — 무기마다 조금 다르지만 화면용이라 하나로 */
+const REMOTE_SWING_MS = 320;
+/** 주운 것 알림 시간 (ms) */
+const GOT_MS = 2500;
 
 /** HUD가 읽는 상태 (BrHud만 뜻을 안다) */
 export interface BrHudState {
@@ -24,10 +33,16 @@ export interface BrHudState {
   hits: { id: number; dmg: number; age: number; }[];
   /** 방금 맞음 (0~1, 화면 가장자리 붉게) */
   hurt: number;
+  /** 내 장비 (칸마다 단계, 0 = 없음) */
+  gear: Gear;
+  /** 방금 주운 것 */
+  got: { id: number; text: string; }[];
 }
 
 interface ShownCorpse {
   c: Corpse; person: Person;
+  /** 아이템이 남아 있으면 위에 반짝이는 표시 */
+  loot: THREE.Mesh;
 }
 
 /**
@@ -64,6 +79,16 @@ export class BrClient implements ModeClient {
 
   private zoneNow:ZoneNow | null = null;
 
+  private items:ItemMeshes;
+
+  private gear:Gear = emptyGear();
+
+  private got:{ id: number; text: string; at: number; }[] = [];
+
+  private lootGeo = new THREE.OctahedronGeometry(0.22);
+
+  private lootMat = new THREE.MeshBasicMaterial({ color: '#ffd84a' });
+
   constructor(host:ModeHostClient) {
     this.host = host;
     // 전장 경계: 반경 1짜리 열린 원통을 원 크기로 늘린다 (안팎 모두 보이게, 안개 없이)
@@ -74,6 +99,7 @@ export class BrClient implements ModeClient {
     this.wall.renderOrder = 10;
     this.wall.visible = false;
     host.scene.add(this.wall);
+    this.items = new ItemMeshes(host.scene);
   }
 
   receive(d:unknown, now:number) {
@@ -96,6 +122,23 @@ export class BrClient implements ModeClient {
     } else if (m.k === 'hurt') this.hurtAt = now;
     else if (m.k === 'dead') this.deadInfo = { by: m.by, until: now + m.wait };
     else if (m.k === 'respawn') this.deadInfo = null;
+    else if (m.k === 'items') {
+      this.items.clear();
+      m.list.forEach((it) => this.items.add(it));
+    } else if (m.k === 'itemAdd') m.list.forEach((it) => this.items.add(it));
+    else if (m.k === 'itemGone') m.ids.forEach((id) => this.items.remove(id));
+    else if (m.k === 'looted') {
+      const sc = this.corpses.get(m.id);
+      if (sc) {
+        sc.c.items = [];
+        sc.loot.visible = false;
+      }
+    } else if (m.k === 'gear') this.gear = m.gear;
+    else if (m.k === 'got') {
+      const k = ITEM_KINDS[m.kind];
+      this.got.push({ id: ++this.seq, text: `${ITEM_NAMES[k]} +${m.lv}${m.from === 'corpse' ? ' (시체)' : ''}`, at: now });
+      if (this.got.length > 4) this.got.shift();
+    }
   }
 
   private pushFeed(text:string, now:number) {
@@ -111,13 +154,18 @@ export class BrClient implements ModeClient {
     person.animate(0, 0);
     person.pose({ swing: 0, down: true, flash: false });
     this.host.scene.add(person.root);
-    this.corpses.set(c.id, { c, person });
+    const loot = new THREE.Mesh(this.lootGeo, this.lootMat);
+    loot.position.set(c.x, c.y + 0.9, c.z);
+    loot.visible = c.items.length > 0;
+    this.host.scene.add(loot);
+    this.corpses.set(c.id, { c, person, loot });
   }
 
   private removeCorpse(id:number) {
     const s = this.corpses.get(id);
     if (!s) return;
     this.host.scene.remove(s.person.root);
+    this.host.scene.remove(s.loot);
     s.person.root.traverse((o) => {
       if (o instanceof THREE.Mesh) o.geometry.dispose();
     });
@@ -134,26 +182,30 @@ export class BrClient implements ModeClient {
       this.wall.scale.set(zone.r, WALL_H, zone.r);
     }
     // 시체: 실외 것은 늘, 실내 것은 같은 건물·층일 때만
-    this.corpses.forEach(({ c, person }) => {
+    const spin = f.now / 400;
+    this.corpses.forEach(({ c, person, loot }) => {
       person.root.visible = c.b < 0 || (c.b === f.me.b && c.l === f.me.l);
+      loot.visible = person.root.visible && c.items.length > 0;
+      loot.rotation.y = spin;
     });
+    this.items.update(f.now, f.me);
   }
 
   acted(act:number, now:number) {
     // 누른 순간 바로 휘두른다 (서버 확인을 기다리면 늦어 보인다) — 대기 시간은 서버와 같게
     if (act & ACT_MELEE && now >= this.localNextAt && !this.deadInfo) {
       this.localSwingAt = now;
-      this.localNextAt = now + FIST.cooldownMs;
+      this.localNextAt = now + meleeStats(this.gear.pipe).cooldownMs;
     }
   }
 
   look(st:number, gv:number, now:number, mine:boolean, key = 0):Look {
     let swing = 0;
     if (mine) {
-      if (now - this.localSwingAt < FIST.swingMs) swing = (now - this.localSwingAt) / FIST.swingMs;
+      if (now - this.localSwingAt < meleeStats(this.gear.pipe).swingMs) swing = (now - this.localSwingAt) / meleeStats(this.gear.pipe).swingMs;
     } else if (st & ST_SWING) {
       if (!this.swingAt.has(key)) this.swingAt.set(key, now);
-      swing = Math.min(1, (now - this.swingAt.get(key)!) / FIST.swingMs);
+      swing = Math.min(1, (now - this.swingAt.get(key)!) / REMOTE_SWING_MS);
     } else this.swingAt.delete(key);
     const hp = gaugeHp(gv);
     return {
@@ -188,6 +240,12 @@ export class BrClient implements ModeClient {
       g.stroke();
       g.setLineDash([]);
     }
+    // 땅 아이템: 종류 색 점
+    const dot = (1.5 * dpr) / k;
+    this.items.list.forEach(({ it }) => {
+      g.fillStyle = ITEM_COLORS[ITEM_KINDS[it[1]] ?? 'pipe'];
+      g.fillRect(it[3] - dot, it[5] - dot, dot * 2, dot * 2);
+    });
     // 시체: 작은 회색 ×
     g.strokeStyle = '#d0d0d8';
     g.lineWidth = (1.5 * dpr) / k;
@@ -208,6 +266,7 @@ export class BrClient implements ModeClient {
     const outside = z && me ? Math.max(0, Math.hypot(me.x - z.cx, me.z - z.cz) - z.r) : 0;
     this.feed = this.feed.filter((x) => now - x.at < FEED_MS);
     this.hits = this.hits.filter((x) => now - x.at < HIT_MS);
+    this.got = this.got.filter((x) => now - x.at < GOT_MS);
     return {
       zone: z ? { stage: z.stage, shrinking: z.shrinking, untilChange: Math.ceil(z.untilChange / 1000), remain: Math.ceil(z.remain / 1000), outside } : null,
       hp: me ? gaugeHp(me.gv) : 100,
@@ -216,6 +275,8 @@ export class BrClient implements ModeClient {
       feed: this.feed.map(({ id, text }) => ({ id, text })),
       hits: this.hits.map(({ id, dmg, at }) => ({ id, dmg, age: (now - at) / HIT_MS })),
       hurt: Math.max(0, 1 - (now - this.hurtAt) / 400),
+      gear: this.gear,
+      got: this.got.map(({ id, text }) => ({ id, text })),
     };
   }
 
@@ -223,6 +284,9 @@ export class BrClient implements ModeClient {
     this.host.scene.remove(this.wall);
     this.wall.geometry.dispose();
     [ ...this.corpses.keys() ].forEach((id) => this.removeCorpse(id));
+    this.items.dispose();
+    this.lootGeo.dispose();
+    this.lootMat.dispose();
   }
 
 }

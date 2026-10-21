@@ -9,7 +9,7 @@
  * - 자기 메시지는 { t: 'mode' } 통로로만 주고받는다 (형식은 모드 모듈이 정한다).
  */
 
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 
 /** 상태 비트 중 엔진이 쓰는 것: 움직일 수 없음 (입력은 받되 이동하지 않는다 — 클라이언트 예측도 멈춘다). 나머지 비트는 모드가 쓴다 */
 export const ST_FROZEN = 0x80;
@@ -40,8 +40,8 @@ export const INTERP_DELAY_MS = 120;
 /** 실외면 -1, 실내면 건물 번호 */
 export const OUTDOOR = -1;
 
-/** 내 시뮬레이션 상태 전부: [x, y, z, f, spd, a, b, l, lw, fly, vy] (yeouido-sim Body와 같은 순서) */
-export type BodyTuple = [number, number, number, number, number, number, number, number, number, number, number];
+/** 내 시뮬레이션 상태 전부: [x, y, z, f, spd, a, b, l, lw, fly, vy, sm, fm] (yeouido-sim Body와 같은 순서) */
+export type BodyTuple = [number, number, number, number, number, number, number, number, number, number, number, number, number];
 
 /** 입력 한 걸음: [순번, mx, mz, 달리기(0/1), 높이(-1/0/1), 보는 방향(라디안, 없으면 NO_FACE), 행동 비트(0~7)] */
 export type InputTuple = [number, number, number, number, number, number, number];
@@ -108,12 +108,12 @@ export const toRow = (id:number, p:Omit<PlayerState, 's' | 'v'>, s:number, v:num
 export const fromRow = (r:SnapRow):{ id: number; } & PlayerState => ({ id: r[0], x: r[1], y: r[2], z: r[3], f: r[4], a: r[5], b: r[6], l: r[7], s: r[8], v: r[9] });
 
 export interface BodyLike {
-  x: number; y: number; z: number; f: number; spd: number; a: number; b: number; l: number; lw: number; fly: number; vy: number;
+  x: number; y: number; z: number; f: number; spd: number; a: number; b: number; l: number; lw: number; fly: number; vy: number; sm: number; fm: number;
 }
 
-export const toBody = (b:BodyLike):BodyTuple => [ b.x, b.y, b.z, b.f, b.spd, b.a, b.b, b.l, b.lw, b.fly, b.vy ];
+export const toBody = (b:BodyLike):BodyTuple => [ b.x, b.y, b.z, b.f, b.spd, b.a, b.b, b.l, b.lw, b.fly, b.vy, b.sm, b.fm ];
 
-export const fromBody = (t:BodyTuple):BodyLike => ({ x: t[0], y: t[1], z: t[2], f: t[3], spd: t[4], a: t[5], b: t[6], l: t[7], lw: t[8], fly: t[9], vy: t[10] });
+export const fromBody = (t:BodyTuple):BodyLike => ({ x: t[0], y: t[1], z: t[2], f: t[3], spd: t[4], a: t[5], b: t[6], l: t[7], lw: t[8], fly: t[9], vy: t[10], sm: t[11], fm: t[12] });
 
 const num = (v:unknown, lim:number) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= lim;
 

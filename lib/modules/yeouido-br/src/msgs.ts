@@ -1,10 +1,12 @@
+import type { CorpseItem, Gear, GroundItem } from './items';
+
 /**
  * 배틀로얄 모드 메시지 (엔진의 { t: 'mode', d } 통로 안에 담긴다).
  */
 
-/** 시체: 죽은 자리 (3단계부터 가진 아이템도 담긴다) */
+/** 시체: 죽은 자리와 남은 아이템 (다른 사람이 지나가면 털린다) */
 export interface Corpse {
-  id: number; name: string; x: number; y: number; z: number; f: number; b: number; l: number;
+  id: number; name: string; x: number; y: number; z: number; f: number; b: number; l: number; items: CorpseItem[];
 }
 
 /** 서버 → 클라이언트 */
@@ -23,6 +25,16 @@ export type BrServerMsg =
   | { k: 'hurt'; dmg: number; from: string | null; }
   /** 내가 죽음: 누구에게, 다시 시작까지 남은 시간(ms) */
   | { k: 'dead'; by: string | null; wait: number; }
-  | { k: 'respawn'; };
+  | { k: 'respawn'; }
+  /** 땅 아이템 전부 (입장·새 판) */
+  | { k: 'items'; list: GroundItem[]; }
+  | { k: 'itemAdd'; list: GroundItem[]; }
+  | { k: 'itemGone'; ids: number[]; }
+  /** 시체가 털림 (아이템 없음) */
+  | { k: 'looted'; id: number; }
+  /** 내 장비 (바뀔 때) */
+  | { k: 'gear'; gear: Gear; }
+  /** 내가 주움: 종류 번호, 바뀐 단계, 어디서 */
+  | { k: 'got'; kind: number; lv: number; from: 'ground' | 'corpse'; };
 
 export const isBrMsg = (d:unknown):d is BrServerMsg => typeof d === 'object' && d !== null && typeof (d as { k?: unknown; }).k === 'string';
