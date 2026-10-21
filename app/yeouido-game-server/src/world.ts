@@ -14,6 +14,13 @@ const MAX_QUEUE = SIM_HZ;
 /** 스냅숏 우선순위: 가까운 순 이 등수까지 매번, 그다음 등수까지 두 번에 한 번, 그 뒤는 네 번에 한 번 */
 const NEAR_COUNT = 24;
 const MID_COUNT = 64;
+/** 관심 영역 격자 한 칸 (m) */
+const CELL = 128;
+const cellKey = (cx:number, cz:number) => (cx + 1000) * 4096 + (cz + 1000);
+/** 정렬 키에서 번호 자리 (사람 수가 이보다 적어야 한다) */
+const KEY = 65536;
+/** 시뮬레이션 몇 틱에 스냅숏 한 번인지 (30Hz / 15Hz = 2) */
+const SPLIT = Math.round(SIM_HZ / SNAP_HZ);
 
 interface Player {
   id: number;
@@ -29,6 +36,8 @@ interface Player {
   rtc: RtcLink | null;
   /** 이 사람 화면에 보이는 반경(m) — 이 안의 사람만 보낸다 */
   view: number;
+  /** 이 사람에게 보낸 스냅숏 수 (먼 사람을 몇 번에 한 번 보낼지 정할 때) */
+  sent: number;
 }
 
 /**
@@ -41,6 +50,9 @@ export class World {
 
   readonly sim:SimWorld;
 
+  /** 정렬용 임시 배열 (거리·번호를 한 숫자로 묶어 담는다 — 받는 사람마다 객체를 만들지 않게) */
+  private keys = new Float64Array(256);
+
   private players = new Map<number, Player>();
 
   private nextId = 1;
@@ -51,13 +63,12 @@ export class World {
 
   private lastAt = 0;
 
-  private lastSnap = 0;
-
-  /** 마지막 틱 처리 시간 (ms) — 한계 점검용 */
+  /** 마지막 틱 처리 시간 (ms) — 한계 점검용. 시뮬레이션·스냅숏 나눠서도 */
   lastTickMs = 0;
 
-  /** 스냅숏 번호 (먼 사람을 두 번에 한 번 보낼 때 쓴다) */
-  private snapNo = 0;
+  lastSimMs = 0;
+
+  lastSnapMs = 0;
 
   /** 지난 1초 동안 보낸 스냅숏 바이트 (한계 점검용) */
   sentPerSec = 0;
@@ -138,6 +149,7 @@ export class World {
         return;
       }
       if (msg.t === 'input') World.inputCmds(me, msg.cmds);
+      else if (msg.t === 'ping' && typeof msg.c === 'number') ws.send(JSON.stringify({ t: 'pong', c: msg.c } satisfies ServerMsg));
       else if (msg.t === 'view' && typeof msg.r === 'number' && Number.isFinite(msg.r)) me.view = Math.max(VIEW_MIN, Math.min(VIEW_MAX, msg.r));
       else if (msg.t === 'rtc') this.rtcSignal(me, msg);
     });
@@ -172,6 +184,8 @@ export class World {
           try {
             const m = JSON.parse(data) as ClientMsg;
             if (m.t === 'input') World.inputCmds(p, m.cmds);
+            // 데이터채널로 온 ping은 같은 길로 돌려준다 (실제로 스냅숏이 오가는 길의 지연)
+            else if (m.t === 'ping' && typeof m.c === 'number') p.rtc?.send(JSON.stringify({ t: 'pong', c: m.c } satisfies ServerMsg));
           } catch {
             // 깨진 패킷
           }
@@ -183,7 +197,7 @@ export class World {
   }
 
   private join(ws:WebSocket, name:string, body:Body) {
-    const p:Player = { id: this.nextId++, name, ws, body, queue: [], budget: 0, ack: 0, rtc: null, view: VIEW_DEFAULT };
+    const p:Player = { id: this.nextId++, name, ws, body, queue: [], budget: 0, ack: 0, rtc: null, view: VIEW_DEFAULT, sent: 0 };
     this.players.set(p.id, p);
     this.send(p, {
       t: 'welcome',
@@ -223,10 +237,11 @@ export class World {
         p.budget -= 1;
       }
     });
-    if (t0 - this.lastSnap >= 1000 / SNAP_HZ - 2) {
-      this.lastSnap = t0;
-      if (this.players.size) this.snapshot();
-    }
+    const t1 = performance.now();
+    this.lastSimMs = t1 - t0;
+    // 받는 사람을 SPLIT 묶음으로 나눠 틱마다 번갈아 보낸다 → 각자 SNAP_HZ, 한 틱의 부담은 1/SPLIT
+    if (this.players.size) this.snapshot(this.tick % SPLIT);
+    this.lastSnapMs = performance.now() - t1;
     this.lastTickMs = performance.now() - t0;
   }
 
@@ -236,28 +251,62 @@ export class World {
    * - 보이는 반경 밖은 빼고, 가까운 순으로 줄 세워 멀수록 덜 자주
    *   (가까운 24명 매번, 64명까지 두 번에 한 번, 그 뒤는 네 번에 한 번 — 사람이 몰려도 양이 일정 이상 안 늘게)
    */
-  private snapshot() {
-    this.snapNo++;
+  private snapshot(half:number) {
     const all = [ ...this.players.values() ];
-    const rows = new Map<number, SnapRow>(all.map((p) => [ p.id, toRow(p.id, p.body) ]));
+    const n = all.length;
+    if (this.keys.length < n) this.keys = new Float64Array(n * 2);
+    const rows = all.map((o) => toRow(o.id, o.body));
+    // 공간 격자: 실외는 CELL m 칸, 실내는 "건물:층" 묶음 (번호 목록) — 받는 사람마다 전원을 훑지 않고 근처만 본다
+    const cells = new Map<number, number[]>();
+    const rooms = new Map<string, number[]>();
+    all.forEach((o, i) => {
+      const room = o.body.b >= 0;
+      const key = room ? `${o.body.b}:${o.body.l}` : cellKey(Math.floor(o.body.x / CELL), Math.floor(o.body.z / CELL));
+      const map = (room ? rooms : cells) as Map<string | number, number[]>;
+      const list = map.get(key);
+      if (list) list.push(i);
+      else map.set(key, [ i ]);
+    });
+    const { keys } = this;
     let sent = 0;
-    all.forEach((p) => {
-      const near:{ o: Player; d: number; }[] = [];
-      all.forEach((o) => {
-        if (o === p) return;
-        if (o.body.b >= 0 && (o.body.b !== p.body.b || o.body.l !== p.body.l)) return;
-        const d = Math.hypot(o.body.x - p.body.x, o.body.z - p.body.z);
-        if (d <= p.view) near.push({ o, d });
-      });
-      near.sort((a, b) => a.d - b.d);
+    all.forEach((p, i) => {
+      if (p.id % SPLIT !== half) return;
+      p.sent++;
+      const px = p.body.x;
+      const pz = p.body.z;
+      const r = p.view;
+      let count = 0;
+      const consider = (list:number[] | undefined) => {
+        if (!list) return;
+        for (let k = 0; k < list.length; k++) {
+          const j = list[k];
+          if (j !== i) {
+            const o = all[j].body;
+            const d = Math.hypot(o.x - px, o.z - pz);
+            // 거리(1/16 m)와 번호를 한 숫자로: 숫자 정렬만으로 가까운 순이 된다
+            if (d <= r) keys[count++] = Math.floor(d * 16) * KEY + j;
+          }
+        }
+      };
+      // 실내에 있으면 같은 건물·층 사람도 (실외 사람은 실내에서도 창밖으로 보인다)
+      if (p.body.b >= 0) consider(rooms.get(`${p.body.b}:${p.body.l}`));
+      const cx1 = Math.floor((px + r) / CELL);
+      const cz0 = Math.floor((pz - r) / CELL);
+      const cz1 = Math.floor((pz + r) / CELL);
+      for (let cx = Math.floor((px - r) / CELL); cx <= cx1; cx++) {
+        for (let cz = cz0; cz <= cz1; cz++) consider(cells.get(cellKey(cx, cz)));
+      }
+      const sorted = keys.subarray(0, count).sort();
       const list:SnapRow[] = [];
-      near.forEach(({ o, d }, rank) => {
+      for (let rank = 0; rank < count; rank++) {
+        const j = sorted[rank] % KEY;
+        const d = Math.floor(sorted[rank] / KEY) / 16;
         let every = 1;
         if (rank >= NEAR_COUNT) every = 2;
         if (rank >= MID_COUNT) every = 4;
         if (d > NEAR) every = Math.max(every, 2);
-        if ((this.snapNo + o.id) % every === 0) list.push(rows.get(o.id)!);
-      });
+        if ((p.sent + all[j].id) % every === 0) list.push(rows[j]);
+      }
       const buf = encodeSnap(this.tick, p.ack, toBody(p.body), list);
       sent += buf.byteLength;
       // 데이터채널이 열려 있으면 그쪽(UDP처럼)으로

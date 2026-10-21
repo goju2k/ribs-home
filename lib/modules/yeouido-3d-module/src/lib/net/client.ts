@@ -58,6 +58,15 @@ export class GameClient {
 
   transport:Transport = 'ws';
 
+  /** 서버까지 왕복 시간(ms, 부드럽게)과 흔들림(연속한 왕복 시간 차이, ms) */
+  rtt = 0;
+
+  jitter = 0;
+
+  private lastRtt = 0;
+
+  private pingTimer:ReturnType<typeof setInterval> | null = null;
+
   private pc:RTCPeerConnection | null = null;
 
   private dc:RTCDataChannel | null = null;
@@ -136,6 +145,9 @@ export class GameClient {
     };
     ws.onclose = () => {
       this.ws = null;
+      if (this.pingTimer) clearInterval(this.pingTimer);
+      this.rtt = 0;
+      this.lastRtt = 0;
       this.sentView = 0;
       this.closeRtc();
       this.lastTick = 0;
@@ -157,12 +169,14 @@ export class GameClient {
     const now = performance.now();
     if (msg.t === 'welcome') {
       this.state = 'online';
+      this.startPing();
       this.myId = msg.id;
       msg.players.forEach((p) => this.names.set(p.id, p.name));
       this.auth = { ack: msg.ack, me: msg.me, reset: true };
       if (msg.rtc && !new URLSearchParams(window.location.search).has('nortc')) this.startRtc();
     } else if (msg.t === 'rtc') this.rtcSignal(msg);
     else if (msg.t === 'error') this.error = msg.msg;
+    else if (msg.t === 'pong') this.pong(msg.c);
     else if (msg.t === 'join') this.names.set(msg.id, msg.name);
     else if (msg.t === 'leave') {
       this.names.delete(msg.id);
@@ -199,6 +213,24 @@ export class GameClient {
     if (this.state !== 'online' || (this.sentView && Math.abs(v - this.sentView) < this.sentView * 0.15)) return;
     this.sentView = v;
     this.send({ t: 'view', r: v });
+  }
+
+  /** 1초마다 ping — 데이터채널이 열려 있으면 그 길로 (스냅숏이 오가는 길의 실제 지연) */
+  private startPing() {
+    if (this.pingTimer) clearInterval(this.pingTimer);
+    this.pingTimer = setInterval(() => {
+      const m = JSON.stringify({ t: 'ping', c: performance.now() } satisfies ClientMsg);
+      if (this.dc?.readyState === 'open') this.dc.send(m);
+      else if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(m);
+    }, 1000);
+  }
+
+  private pong(c:number) {
+    const r = performance.now() - c;
+    if (r < 0 || r > 10000) return;
+    this.jitter = this.lastRtt ? this.jitter + (Math.abs(r - this.lastRtt) - this.jitter) * 0.3 : 0;
+    this.rtt = this.rtt ? this.rtt + (r - this.rtt) * 0.3 : r;
+    this.lastRtt = r;
   }
 
   /**
@@ -310,6 +342,7 @@ export class GameClient {
 
   close() {
     this.closed = true;
+    if (this.pingTimer) clearInterval(this.pingTimer);
     this.closeRtc();
     if (this.timer) clearTimeout(this.timer);
     this.ws?.close();

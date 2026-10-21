@@ -2,6 +2,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { PROTOCOL_VERSION } from 'yeouido-net';
 
 import http from 'http';
+import { monitorEventLoopDelay, performance } from 'perf_hooks';
 
 import { rtcAvailable } from './rtc';
 import { World } from './world';
@@ -14,12 +15,21 @@ import { World } from './world';
  */
 const PORT = Number(process.env.PORT) || 3200;
 
+const lag = monitorEventLoopDelay({ resolution: 10 });
+lag.enable();
+let lastElu = performance.eventLoopUtilization();
+
 const world = new World('yeouido');
 world.start();
 
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
-  res.end(JSON.stringify({ ok: true, world: world.id, players: world.size, protocol: PROTOCOL_VERSION, tickMs: Math.round(world.lastTickMs * 100) / 100, sentKBps: Math.round(world.sentPerSec / 102.4) / 10, rtc: rtcAvailable() }));
+  // 한계 점검: 이벤트 루프가 바쁜 비율(1이면 포화)과 지연(타이머가 늦게 도는 정도)
+  const elu = performance.eventLoopUtilization(lastElu);
+  lastElu = performance.eventLoopUtilization();
+  const loop = { busy: Math.round(elu.utilization * 100) / 100, lagP99: Math.round(lag.percentile(99) / 1e6), lagMax: Math.round(lag.max / 1e6) };
+  lag.reset();
+  res.end(JSON.stringify({ loop, ok: true, world: world.id, players: world.size, protocol: PROTOCOL_VERSION, tickMs: Math.round(world.lastTickMs * 100) / 100, simMs: Math.round(world.lastSimMs * 100) / 100, snapMs: Math.round(world.lastSnapMs * 100) / 100, sentKBps: Math.round(world.sentPerSec / 102.4) / 10, rtc: rtcAvailable() }));
 });
 
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 4096 });

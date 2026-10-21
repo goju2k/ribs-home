@@ -57,6 +57,8 @@ export type ClientMsg =
   | { t: 'input'; cmds: InputTuple[]; }
   /** 화면에 보이는 반경(m) — 바뀔 때만 보낸다 */
   | { t: 'view'; r: number; }
+  /** 왕복 시간 재기: 보낸 시각(클라이언트 시계)을 서버가 그대로 돌려준다 */
+  | { t: 'ping'; c: number; }
   /** WebRTC 신호 (offer 또는 ICE 후보) */
   | ({ t: 'rtc'; } & RtcSignal);
 
@@ -77,7 +79,8 @@ export type ServerMsg =
   | { t: 'leave'; id: number; }
   /** ack: 이 상태까지 반영한 내 입력 순번, me: 그 시점 내 상태 (정밀값) */
   | { t: 'snap'; tick: number; ack: number; me: BodyTuple; ps: SnapRow[]; }
-  | { t: 'error'; msg: string; };
+  | { t: 'error'; msg: string; }
+  | { t: 'pong'; c: number; };
 
 const round = (n:number, k = 100) => Math.round(n * k) / k;
 

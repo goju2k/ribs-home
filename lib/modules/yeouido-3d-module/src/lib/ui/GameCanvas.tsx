@@ -44,7 +44,7 @@ export interface GameStatus {
   /** 지금 시점 */
   mode: CamMode;
   /** 게임 서버 접속 상태, 접속자 수(나 포함), 오류, 마지막 서버 보정 크기(m)와 확인 대기 입력 수 */
-  net: { state: NetState; count: number; error: string; correction: number; pending: number; transport: Transport; };
+  net: { state: NetState; count: number; error: string; correction: number; pending: number; transport: Transport; rtt: number; jitter: number; };
 }
 
 /** 머리 위 ▼ 표식 — 9×9 도트 그림 */
@@ -207,6 +207,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       inputRef.current.zoom *= Math.exp(e.deltaY * 0.0012);
     };
     const onDown = (e:PointerEvent) => {
+      if (e.pointerType === 'mouse') inputRef.current.mouse = e.buttons;
       // 1인칭은 마우스를 잠가 움직임만으로 둘러본다 (Esc로 풀림)
       if (e.pointerType === 'mouse' && inputRef.current.mode === 'fp' && document.pointerLockElement !== canvas) canvas.requestPointerLock?.();
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -216,6 +217,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       }
     };
     const onMove = (e:PointerEvent) => {
+      if (e.pointerType === 'mouse') inputRef.current.mouse = e.buttons; // 두 번째 버튼은 pointermove로만 알려 온다
       if (document.pointerLockElement === canvas) {
         inputRef.current.look.dx += e.movementX;
         inputRef.current.look.dy += e.movementY;
@@ -237,9 +239,13 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       }
     };
     const onUp = (e:PointerEvent) => {
+      if (e.pointerType === 'mouse') inputRef.current.mouse = e.buttons;
       pointers.delete(e.pointerId);
       if (pointers.size < 2) pinch = null;
     };
+    // 오른쪽 버튼은 둘러보기에 쓰므로 메뉴를 막는다
+    const noMenu = (e:Event) => e.preventDefault();
+    canvas.addEventListener('contextmenu', noMenu);
     canvas.addEventListener('wheel', onWheel, { passive: false });
     canvas.addEventListener('pointerdown', onDown);
     canvas.addEventListener('pointermove', onMove);
@@ -258,7 +264,10 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         if (e.code === 'Minus' || e.code === 'NumpadSubtract') inputRef.current.zoom *= 1.25;
       } else inputRef.current.keys.delete(e.code);
     };
-    const clearKeys = () => inputRef.current.keys.clear();
+    const clearKeys = () => {
+      inputRef.current.keys.clear();
+      inputRef.current.mouse = 0;
+    };
     window.addEventListener('keydown', onKey);
     window.addEventListener('keyup', onKey);
     window.addEventListener('blur', clearKeys);
@@ -309,9 +318,12 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       const rx = Math.cos(yaw);
       const rz = -Math.sin(yaw);
       const q = (n:number) => Math.round(n * 1000) / 1000; // 서버와 똑같은 값으로 계산하게 반올림
-      // 1인칭은 카메라가 보는 쪽 = 몸이 보는 쪽 (카메라 앞 (-sin yaw, -cos yaw) = 몸 앞 (sin f, cos f) → f = yaw + π)
+      // 1인칭, 그리고 3인칭에서 오른쪽 버튼을 누르고 있으면 몸이 카메라가 보는 쪽을 본다 (옆걸음질)
+      // eslint-disable-next-line no-bitwise -- 마우스 버튼 비트
+      const steer = mode === 'fp' || (mode === 'chase' && (input.mouse & 2) !== 0);
+      // 카메라가 보는 쪽 = 몸이 보는 쪽 (카메라 앞 (-sin yaw, -cos yaw) = 몸 앞 (sin f, cos f) → f = yaw + π)
       const look = Math.atan2(Math.sin(yaw + Math.PI), Math.cos(yaw + Math.PI));
-      const inp:Input = { mx: q(rx * mv.x - fx * mv.y), mz: q(rz * mv.x - fz * mv.y), run: mv.run, lift: readLift(input), face: mode === 'fp' ? Math.round(look * 10000) / 10000 : undefined };
+      const inp:Input = { mx: q(rx * mv.x - fx * mv.y), mz: q(rz * mv.x - fz * mv.y), run: mv.run, lift: readLift(input), face: steer ? Math.round(look * 10000) / 10000 : undefined };
       // 서버 확정 상태가 오면 (이번 걸음들보다 먼저 — 입장 직후 보낸 입력을 버리지 않게): 그 상태에서 서버가 아직 안 본 입력만 다시 돌려 지금 자리를 맞춘다
       const auth = net.takeAuthority();
       if (auth) {
@@ -511,7 +523,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         flying,
         onRoof: !room && !flying && floor > 1,
         indoor: room ? { name: room.name, level, elevator: cab >= 0 } : null,
-        net: { state: net.state, count: net.count, error: net.error, correction, pending: pending.length, transport: net.transport },
+        net: { state: net.state, count: net.count, error: net.error, correction, pending: pending.length, transport: net.transport, rtt: net.rtt, jitter: net.jitter },
         mode,
       };
       if (!readySent) {
@@ -529,6 +541,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       others.dispose();
       observer.disconnect();
       canvas.removeEventListener('wheel', onWheel);
+      canvas.removeEventListener('contextmenu', noMenu);
       canvas.removeEventListener('pointerdown', onDown);
       canvas.removeEventListener('pointermove', onMove);
       canvas.removeEventListener('pointerup', onUp);

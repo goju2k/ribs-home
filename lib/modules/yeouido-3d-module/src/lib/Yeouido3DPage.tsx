@@ -20,7 +20,10 @@ const DEBUG = typeof window !== 'undefined' && new URLSearchParams(window.locati
 
 const netLabel = (s:GameStatus) => {
   if (s.net.error) return s.net.error;
-  if (s.net.state === 'online') return `접속 ${s.net.count}명${DEBUG ? ` (${s.net.transport === 'rtc' ? 'UDP' : 'TCP'}·보정 ${Math.round(s.net.correction * 100)}cm·대기 ${s.net.pending})` : ''}`;
+  if (s.net.state === 'online') {
+    const ping = s.net.rtt ? ` · ${Math.round(s.net.rtt)}ms${DEBUG ? `±${Math.round(s.net.jitter)}` : ''}` : '';
+    return `접속 ${s.net.count}명${ping}${DEBUG ? ` (${s.net.transport === 'rtc' ? 'UDP' : 'TCP'}·보정 ${Math.round(s.net.correction * 100)}cm·대기 ${s.net.pending})` : ''}`;
+  }
   return s.net.state === 'connecting' ? '접속 중…' : '오프라인';
 };
 
@@ -31,7 +34,7 @@ const isTouch = () => typeof window !== 'undefined' && ('ontouchstart' in window
 export function Yeouido3DPage() {
   useGalmuriFont();
   const inputRef = useRef(createInput());
-  const statusRef = useRef<GameStatus>({ ready: false, buildMs: 0, pixel: 0, x: 0, z: 0, running: false, alt: 0, flying: false, onRoof: false, indoor: null, net: { state: 'connecting', count: 0, error: '', correction: 0, pending: 0, transport: 'ws' }, mode: 'top' });
+  const statusRef = useRef<GameStatus>({ ready: false, buildMs: 0, pixel: 0, x: 0, z: 0, running: false, alt: 0, flying: false, onRoof: false, indoor: null, net: { state: 'connecting', count: 0, error: '', correction: 0, pending: 0, transport: 'ws', rtt: 0, jitter: 0 }, mode: 'top' });
   const [ ready, setReady ] = useState(false);
   const [ touch ] = useState(isTouch);
   const [ status, setStatus ] = useState<GameStatus>(statusRef.current);
