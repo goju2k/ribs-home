@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import { fromBody, InputTuple } from 'yeouido-net';
 import { Body, copyBody, createSimWorld, describe, FLY, Input, newBody, STEP, step, WORLD } from 'yeouido-sim';
 
+import { Minimap } from './minimap';
+
 import { createIndoorViews } from '../indoor/indoor-building';
 import { InputState, readLift, readMove } from '../input';
 import { GameClient, myName, NetState, serverUrl, Transport } from '../net/client';
@@ -80,6 +82,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const tagRef = useRef<HTMLDivElement>(null);
+  const miniRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current!;
@@ -142,6 +145,15 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     // 다중접속: 입력을 보내고, 서버가 확정한 내 상태와 다른 사람들을 받는다 (재접속하면 지금 자리에서 이어서)
     const net = new GameClient(serverUrl(), myName(), () => ({ x: body.x, y: body.y, z: body.z, b: body.b, l: body.l }));
     const others = new RemotePlayers(scene, tagRef.current!);
+
+    // 미니맵: 누를 때마다 배율 변경
+    const mini = new Minimap(miniRef.current!, WORLD, sim.indoors.map((g) => g.bid));
+    const onMini = (e:PointerEvent) => {
+      e.stopPropagation();
+      mini.cycle();
+    };
+    miniRef.current!.addEventListener('pointerdown', onMini);
+    let miniFrame = 0;
 
     // 멀리서도 보이게: 머리 위 ▼ 표식(항상 맨 위에 그림) + 발밑 땅까지 내린 선
     const marker = new THREE.Sprite(new THREE.SpriteMaterial({ map: markerTexture(), depthTest: false, depthWrite: false }));
@@ -323,7 +335,11 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       player.root.rotation.y = facing;
       player.animate(dt, flying ? 0 : actual, flying ? Math.min(1, body.spd / FLY) : 0);
       // 실외 사람은 늘, 실내 사람은 나와 같은 건물·층일 때만
-      others.update(net.remotes(now), dt, (r) => r.b < 0 || (r.b === body.b && r.l === body.l), big, (r) => r.b < 0 && r.y - collision.floorAt(r.x, r.z, r.y) > 0.5);
+      const remotes = net.remotes(now);
+      const seen = (r:{ b: number; l: number; }) => r.b < 0 || (r.b === body.b && r.l === body.l);
+      others.update(remotes, dt, seen, big, (r) => r.b < 0 && r.y - collision.floorAt(r.x, r.z, r.y) > 0.5);
+      // 미니맵은 두 프레임에 한 번
+      if (miniFrame++ % 2 === 0) mini.draw(pos.x, pos.z, yaw, facing, remotes.filter(seen));
       const tall = 1.72 * big;
       const onScreen = tall * Math.cos(PITCH); // 내려다보니 화면에선 키가 줄어 보인다
       const mk = onScreen * 1.2; // 화면에서 사람보다 살짝 크게
@@ -418,6 +434,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     return () => {
       cancelAnimationFrame(raf);
       net.close();
+      miniRef.current?.removeEventListener('pointerdown', onMini);
       others.dispose();
       observer.disconnect();
       canvas.removeEventListener('wheel', onWheel);
@@ -436,9 +453,25 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     <>
       <Canvas ref={canvasRef} />
       <TagLayer ref={tagRef} />
+      <MiniCanvas ref={miniRef} aria-label='미니맵 (누르면 배율 변경)' />
     </>
   );
 }
+
+/** 미니맵: 상단 바 아래 오른쪽 */
+const MiniCanvas = styled.canvas({
+  position: 'absolute',
+  top: 74,
+  right: 10,
+  width: 'min(34vw, 150px)',
+  aspectRatio: '1 / 1',
+  imageRendering: 'pixelated',
+  touchAction: 'none',
+  cursor: 'pointer',
+  boxShadow: 'inset -2px -2px 0 rgba(0,0,0,0.45), inset 2px 2px 0 rgba(255,255,255,0.22), 0 0 0 2px #0b0e22',
+  // 좁은 화면에선 상단 바가 두 줄이 된다
+  '@media (max-width: 560px)': { top: 126 },
+});
 
 /** 다른 사람 이름표 (HTML 글자) */
 const TagLayer = styled.div({

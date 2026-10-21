@@ -46,10 +46,10 @@ export function VirtualJoystick({ inputRef }:{ inputRef: MutableRefObject<InputS
         if (e.pointerId === pointerId.current) update(e.clientX, e.clientY);
       }}
       onPointerUp={(e) => {
-        if (e.pointerId === pointerId.current) end(); 
+        if (e.pointerId === pointerId.current) end();
       }}
       onPointerCancel={(e) => {
-        if (e.pointerId === pointerId.current) end(); 
+        if (e.pointerId === pointerId.current) end();
       }}
     >
       {base ? (
