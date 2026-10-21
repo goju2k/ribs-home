@@ -45,6 +45,9 @@ export const BOSS = {
   slamWindupMs: 900,
   /** 도약: 이 시간 동안 목표에게 2m도 못 다가가면(건물에 막힘) 목표 근처로 뛰어오른다 (ms) */
   stuckMs: 3000,
+  /** 도약: 날아가는 시간 (ms)·가장 높을 때 (m) — 날아오르는 순간 착지 자리에 경고 원 */
+  leapMs: 1300,
+  leapHeight: 18,
   /** 좀비 부르기: 간격·마리 수 */
   summonEveryMs: 25_000,
   summonCount: 3,

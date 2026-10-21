@@ -317,7 +317,7 @@ export class World {
         if (!(p.st & ST_FROZEN)) step(this.sim, p.body, { mx, mz, run: run === 1, lift, face: face === NO_FACE ? undefined : face }); // eslint-disable-line no-bitwise
         p.ack = seq;
         p.budget -= 1;
-        this.mode.act(p, act, now, { face: face === NO_FACE ? p.body.f : face, pitch });
+        this.mode.act(p, act, now, { face: face === NO_FACE ? p.body.f : face, pitch, seq });
       }
     });
     // NPC: 모드가 정한 입력으로 한 걸음

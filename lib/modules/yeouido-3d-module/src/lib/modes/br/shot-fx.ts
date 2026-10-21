@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 
+import { pixelSnap } from '../../ui/pixel-snap';
+
 /** 총 궤적이 보이는 시간 (ms) */
 const TRACER_MS = 140;
 /** 박힌 화살이 남아 있는 시간 (ms) */
@@ -23,6 +25,13 @@ export class ShotFx {
   private tracers:Tracer[] = [];
 
   private arrows = new Map<number, Flying>();
+
+  /** 내가 먼저 그린 화살 (번호 음수) 중 서버 번호를 아직 못 받은 것, 서버 번호 → 내 번호 */
+  private ownWaiting:number[] = [];
+
+  private alias = new Map<number, number>();
+
+  private ownSeq = 0;
 
   private tracerMat = new THREE.LineBasicMaterial({ color: '#ffe27a', transparent: true, opacity: 0.9 });
 
@@ -48,12 +57,28 @@ export class ShotFx {
     mesh.position.set(...o);
     mesh.lookAt(mesh.position.clone().add(dir));
     this.scene.add(mesh);
+    pixelSnap.add(mesh);
     this.arrows.set(id, { mesh, o: new THREE.Vector3(...o), d: dir, v, range, at: now, stuckAt: 0 });
+  }
+
+  /** 내 화살을 먼저 그린다 (지금 내 자리에서). 서버 알림이 오면 bindOwn으로 번호를 잇는다 */
+  ownArrow(o:[number, number, number], d:[number, number, number], v:number, range:number, now:number) {
+    const id = -(++this.ownSeq);
+    this.arrow(id, o, d, v, range, now);
+    this.ownWaiting.push(id);
+    if (this.ownWaiting.length > 20) this.ownWaiting.shift();
+  }
+
+  /** 서버가 알려 준 내 화살 번호를 먼저 그린 화살에 (쏜 순서대로) */
+  bindOwn(serverId:number) {
+    const local = this.ownWaiting.shift();
+    if (local !== undefined) this.alias.set(serverId, local);
   }
 
   /** 화살이 멈춘 자리 (서버 기준으로 맞춘다) */
   arrowEnd(id:number, at:[number, number, number], now:number) {
-    const a = this.arrows.get(id);
+    const a = this.arrows.get(this.alias.get(id) ?? id);
+    this.alias.delete(id);
     if (!a) return;
     a.mesh.position.set(...at);
     a.stuckAt = now;

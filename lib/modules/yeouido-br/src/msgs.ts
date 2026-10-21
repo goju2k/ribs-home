@@ -58,6 +58,8 @@ export type BrServerMsg =
   | { k: 'fired'; reloadMs: number; }
   /** 보스 상태 (나타나 있는 동안 0.5초마다): 체력·최대, 남은 시간(ms) */
   | { k: 'boss'; id: number; hp: number; max: number; remain: number; }
+  /** 보스가 날아오름: 착지 자리(x, z)와 걸리는 시간(ms) — 그 자리에 경고 원, 착지하며 땅 울리기 */
+  | { k: 'bossLeap'; x: number; z: number; ms: number; }
   /** 판 끝: 승리(보스 쓰러짐)·패배(시간 초과), 마지막 일격, 보스에게 준 피해 순위, 새 판까지(ms) */
   /** why: 패배 이유 — time 시간 초과, wiped 참가자가 모두 쓰러짐 */
   | { k: 'end'; result: 'win' | 'lose'; why?: 'time' | 'wiped'; killer: string | null; top: [string, number][]; next: number; }

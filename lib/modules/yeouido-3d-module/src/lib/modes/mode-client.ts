@@ -45,6 +45,15 @@ export interface ModeHostClient {
   sim: SimWorld;
   /** 모드 요청 보내기 */
   send: (d:unknown) => void;
+  /** 내 번호 (서버 알림 중 내 것을 가려낼 때) */
+  myId: () => number;
+}
+
+/** 행동을 보낸 그 걸음의 내 자리·조준 (예측한 값 — 서버도 같은 걸음에서 같은 자리) */
+export interface ActAim {
+  x: number; y: number; z: number; f: number; pitch: number; b: number; l: number;
+  /** 입력 걸음 번호 (서버도 같은 번호로 재장전을 잰다) */
+  seq: number;
 }
 
 export interface ModeClient {
@@ -52,8 +61,18 @@ export interface ModeClient {
   receive(d:unknown, now:number): void;
   /** 매 프레임: 장면 물체(경계 벽, 시체 등) 갱신 */
   frame(f:ModeFrame): void;
-  /** 내가 행동 비트를 보냈다 (누른 순간 바로 동작을 보여 주려고) */
-  acted(act:number, now:number): void;
+  /** 내가 행동 비트를 보낸다 (누른 순간 바로 동작을 보여 주려고) — 돌려준 비트를 실제로 보낸다 (없으면 그대로) */
+  acted(act:number, now:number, aim:ActAim): number | void;
+  /**
+   * 짧게 누른 행동을 얼마나 붙잡아 둘지 (ms): 아직 대기(재장전 등) 중이면 그만큼 기다렸다 그때 겨눈 곳으로 나가게.
+   * 없으면 한 걸음만
+   */
+  pendingMs?(bit:number, now:number): number;
+  /**
+   * 조준선이 겨누는 거리 (m): 든 무기 사거리 — 조준선 광선 위 이 거리의 점을 향해 쏘게 해야 사거리 끝에서도 조준선과 맞는다.
+   * 없으면 기본 거리
+   */
+  aimRange?(): number;
   /** 상태 비트·게이지 → 모습 (mine: 나 자신, key: 사람 번호 — 동작 진행을 사람마다 잰다) */
   look(st:number, gv:number, now:number, mine:boolean, key?:number): Look;
   /** 모습 종류(k, 0 = 사람) → NPC 모습. null이면 사람 모습 */

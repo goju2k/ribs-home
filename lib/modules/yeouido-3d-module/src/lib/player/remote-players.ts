@@ -141,6 +141,11 @@ export class RemotePlayers {
     [ ...this.shown.keys() ].filter((id) => !seen.has(id)).forEach((id) => this.remove(id));
   }
 
+  /** 보이는 사람·NPC 모두에 (예: 도트 격자에 맞추기) */
+  eachRoot(fn:(o:THREE.Object3D) => void) {
+    this.shown.forEach((s) => fn(s.person.root));
+  }
+
   /** 카메라를 맞춘 뒤: 이름표를 머리 위 화면 위치로 (w, h = 캔버스 CSS 크기) */
   placeTags(camera:THREE.Camera, w:number, h:number) {
     this.shown.forEach((s) => {

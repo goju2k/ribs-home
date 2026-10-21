@@ -5,17 +5,24 @@ import { fromBody, InputTuple, NO_FACE, ST_FROZEN, ST_HIDDEN } from 'yeouido-net
 import { Body, castRay, copyBody, createSimWorld, describe, FLY, Input, newBody, STEP, step, WORLD } from 'yeouido-sim';
 
 import { Minimap } from './minimap';
+import { snapToGrid } from './pixel-snap';
 
 import { createIndoorViews } from '../indoor/indoor-building';
 import { CamMode, InputState, nextMode, readLift, readMove } from '../input';
-import { MODE_CLIENTS, ModeClient, PLAIN_LOOK } from '../modes';
-import { GameClient, myName, NetState, serverUrl, Transport } from '../net/client';
+import { Look, MODE_CLIENTS, ModeClient, PLAIN_LOOK } from '../modes';
+import { GameClient, myName, NetState, Remote, serverUrl, Transport } from '../net/client';
 import { createPerson } from '../player/person';
 import { RemotePlayers } from '../player/remote-players';
 import { buildCity } from '../world/build-city';
 import { SEE } from '../world/see-through';
 
 const PITCH = THREE.MathUtils.degToRad(48);
+/** Q/E 화면 회전 (잠시 뺌 — 다시 넣으려면 true) */
+const ROTATE_KEYS = false;
+/** 위 시점 확대 단계 비율: 도트 하나가 담는 m는 이 비율의 거듭제곱으로만 (연속으로 바뀌면 도트 크기가 매 장면 달라져 화면 전체가 일렁인다) */
+const ZOOM_STEP = 1.25;
+/** 확대 단계를 바꾸는 문턱 (단계 수): 바랄 확대가 지금 단계에서 이만큼 벗어나야 넘어간다 (경계에서 왔다 갔다 안 하게) */
+const ZOOM_HOLD = 0.75;
 const MIN_VIEW = 8; // 화면 세로가 담는 미터
 const MAX_VIEW = 900;
 const ALT_ZOOM = 60; // 이만큼(m) 오를 때마다 보이는 범위가 기본만큼 넓어진다
@@ -53,10 +60,16 @@ export interface GameStatus {
 
 /** 터치: 짧은 탭 = 행동(공격), 이보다 길거나 끌면 카메라 조작 (마우스는 누르는 순간 행동) */
 const TAP_MS = 250;
+/** 1인칭 눈높이 (m) */
+const EYE_Y = 1.62;
+/** 휴대폰 자동 조준 거리 (m) */
+const AIM_ASSIST_R = 40;
 /** 조준 광선 길이 (m) — 이 안에서 벽·땅에 닿는 곳을 겨눈다 */
 const AIM_RANGE = 80;
 /** 총구 높이 (발에서, m) — 서버 판정과 같아야 한다 */
 const MUZZLE_Y = 1.4;
+/** 3인칭 카메라가 바라보는 점: 캐릭터 앞 이 거리 (m) */
+const CHASE_AIM = 10;
 const TAP_MOVE = 8;
 
 /** 머리 위 ▼ 표식 — 9×9 도트 그림 */
@@ -138,6 +151,9 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     sun.shadow.bias = -0.0005;
     scene.add(sun, sun.target);
     const SUN_DIR = new THREE.Vector3(-0.55, 1, 0.45).normalize(); // 남서쪽 높이 뜬 해
+    // 빛에서 본 가로·세로 방향 (그림자 칸 맞추기용)
+    const LIGHT_R = new THREE.Vector3().crossVectors(SUN_DIR.clone().negate(), new THREE.Vector3(0, 1, 0)).normalize();
+    const LIGHT_U = new THREE.Vector3().crossVectors(LIGHT_R, SUN_DIR.clone().negate()).normalize();
 
     const player = createPerson({ shirt: '#e2574c', pants: '#2f4a7a', skin: '#f1c7a0', hair: '#2a1d14' });
     // 시작 위치: 시험하기 좋게 샘플 건물 옥상 가운데 ±3m (서버에 붙으면 서버가 정한 자리를 따른다)
@@ -168,6 +184,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     const err = { x: 0, y: 0, z: 0 }; // 서버 보정으로 생긴 화면상 어긋남 (서서히 0으로)
     let correction = 0;
     const pos = { x: body.x, y: body.y, z: body.z }; // 화면에 그리는 위치
+    const lastPos = { ...pos }; // 지난 장면에 그린 위치 (1인칭 조준: 이번 장면 눈 위치 내다보기)
     let facing = body.f;
     player.root.position.set(pos.x, pos.y, pos.z);
     scene.add(player.root);
@@ -179,6 +196,9 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     const others = new RemotePlayers(scene, tagRef.current!);
     // 게임 모드 화면: 서버가 알려 준 모드 이름으로 고른다 (엔진은 뜻을 모른다)
     let modeClient:ModeClient | null = null;
+    // 지난 장면에 보인 다른 사람·NPC와 모습 (자동 조준용)
+    let lastRemotes:Remote[] = [];
+    let lastLooks = new Map<number, Look>();
     let modeName:string | null = null;
 
     // 미니맵: 누를 때마다 배율 변경
@@ -199,12 +219,16 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     drop.frustumCulled = false;
     scene.add(drop);
     let autoZoom = 1;
+    let zoomLevel = NaN; // 위 시점 자동 확대(높이·실내) 단계
     const bufSize = new THREE.Vector2();
     let seeFade = 0;
 
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 6000);
     // 3인칭·1인칭용 원근 카메라 (멀리는 안개로 덮고 가시거리에서 자른다)
     const persp = new THREE.PerspectiveCamera(60, 1, 0.1, FAR);
+    // 확인용(?debug): 카메라·렌더러도 들여다볼 수 있게
+    const dbg = (window as unknown as { y3d?: Record<string, unknown>; }).y3d;
+    if (dbg) Object.assign(dbg, { camera, persp, renderer });
     const aimDirV = new THREE.Vector3();
     const fog = new THREE.Fog(SKY, FOG_NEAR, FAR);
     let { mode } = inputRef.current;
@@ -228,6 +252,13 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
      */
     let mouseAct = 0;
     let aimPt:{ x: number; y: number; } | null = null;
+    /** 위 시점 마우스 커서 (늘 기억 — 예약한 발사가 지금 커서 쪽으로 나가게) */
+    let cursor:{ x: number; y: number; } | null = null;
+    /** 짧게 누른 행동 예약: 비트마다 이 시각까지 붙잡아 둔다 (대기 중 누른 클릭이 사라지지 않게) */
+    const queued = new Map<number, number>();
+    const queue = (bit:number, now:number) => {
+      queued.set(bit, now + (modeClient?.pendingMs?.(bit, now) ?? 0) + 150);
+    };
     let aimTap:{ x: number; y: number; } | null = null;
     let usedMouse = false;
     const locked = () => document.pointerLockElement === canvas;
@@ -247,16 +278,37 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     const aimHit = new THREE.Vector3();
     const aimNdc = new THREE.Vector2();
 
+    // 낮은 해상도로 그리고 CSS로 늘려서(image-rendering: pixelated) 도트 느낌을 낸다.
+    // 한 도트 = 화면의 실제 픽셀 정수 개 (화면 배율 150%·4K 등에서 9.01픽셀처럼 들쭉날쭉하면 움직일 때 사선의 점이 흘러 보인다):
+    // 그림 크기를 도트 수로 정하고 캔버스를 그 정수배로 놓는다 (남는 1도트 미만은 화면 밖으로, 가운데 맞춤)
+    // 위 시점 카메라는 도트 격자에 맞춰 그리고(건물 도트가 반짝이지 않게), 남는 1도트 미만은 완성된 화면을 실제 픽셀 단위로 밀어
+    // 부드럽게 따라간다 — 그래서 그림을 사방 1도트씩 여유 있게 그린다
+    const host = canvas.parentElement!;
+    const scr = { bw: 1, bh: 1, visH: 1, dot: 1, dpr: 1 };
     const resize = () => {
-      const { clientWidth: w, clientHeight: h } = canvas;
-      pix = pixelSize(w, h);
-      // 낮은 해상도로 그리고 CSS로 늘려서(image-rendering: pixelated) 도트 느낌을 낸다
-      renderer.setPixelRatio(1 / pix);
-      renderer.setSize(w, h, false);
+      const w = host.clientWidth;
+      const h = host.clientHeight;
+      const dpr = window.devicePixelRatio || 1;
+      const dot = Math.max(1, Math.round(pixelSize(w, h) * dpr));
+      const bw = Math.max(1, Math.ceil((w * dpr) / dot) + 2);
+      const bh = Math.max(1, Math.ceil((h * dpr) / dot) + 2);
+      Object.assign(scr, { bw, bh, visH: (h * dpr) / dot, dot, dpr });
+      pix = dot / dpr;
+      renderer.setPixelRatio(1);
+      renderer.setSize(bw, bh, false);
+      const cw = (bw * dot) / dpr;
+      const ch = (bh * dot) / dpr;
+      const box = { width: `${cw}px`, height: `${ch}px`, left: `${(w - cw) / 2}px`, top: `${(h - ch) / 2}px`, right: 'auto', bottom: 'auto' };
+      Object.assign(canvas.style, box);
+      // 이름표 층도 캔버스와 같은 자리·크기 (화면 밀기도 같이)
+      if (tagRef.current) Object.assign(tagRef.current.style, box);
     };
     resize();
     const observer = new ResizeObserver(resize);
-    observer.observe(canvas);
+    observer.observe(host);
+    // 화면 배율만 바뀌어도(창을 다른 모니터로) 다시 맞춘다
+    const onDpr = () => resize();
+    window.addEventListener('resize', onDpr);
 
     // 휠·두 손가락 확대
     const onWheel = (e:WheelEvent) => {
@@ -270,6 +322,8 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         if (!top) lock();
         mouseAct |= e.button === 2 ? 2 : e.button === 0 ? 1 : 0; // eslint-disable-line no-bitwise, no-nested-ternary
         if (top && (e.button === 0 || e.button === 2)) aimPt = { x: e.clientX, y: e.clientY };
+        cursor = { x: e.clientX, y: e.clientY };
+        if (e.button === 0 || e.button === 2) queue(e.button === 2 ? 2 : 1, performance.now());
         return;
       }
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -289,6 +343,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
           inputRef.current.look.dx += dx;
           inputRef.current.look.dy += dy;
         } else if (aimPt) aimPt = { x: e.clientX, y: e.clientY };
+        cursor = { x: e.clientX, y: e.clientY };
         lastMouse = { x: e.clientX, y: e.clientY };
         return;
       }
@@ -344,8 +399,9 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
           // 키 누름은 사용자 동작이라 여기서 바로 조용히 잠글 수 있다 (가장자리에서 안 멈추게)
           if (inputRef.current.mode !== 'top' && usedMouse) lock();
         }
-        if (e.code === 'KeyQ') inputRef.current.rotate -= 1;
-        if (e.code === 'KeyE') inputRef.current.rotate += 1;
+        // Q/E 화면 회전은 잠시 뺐다: 부드럽게 도는 동안 도트가 흘러내린다 (픽셀 퍼펙트) — 나중에 고쳐 다시 넣는다
+        if (ROTATE_KEYS && e.code === 'KeyQ') inputRef.current.rotate -= 1;
+        if (ROTATE_KEYS && e.code === 'KeyE') inputRef.current.rotate += 1;
         if (e.code === 'Equal' || e.code === 'NumpadAdd') inputRef.current.zoom *= 0.8;
         if (e.code === 'Minus' || e.code === 'NumpadSubtract') inputRef.current.zoom *= 1.25;
       } else inputRef.current.keys.delete(e.code);
@@ -411,22 +467,38 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       const rz = -Math.sin(yaw);
       const q = (n:number) => Math.round(n * 1000) / 1000; // 서버와 똑같은 값으로 계산하게 반올림
       // 행동 비트: 모드 버튼(누르는 동안) + 마우스(누르는 동안) + 탭(한 번)
-      const held = input.act | mouseAct; // eslint-disable-line no-bitwise
+      // 행동: 누르고 있는 것 + 예약해 둔 것 (짧은 클릭도 대기가 끝날 때 나간다)
+      let pend = 0;
+      queued.forEach((until, bit) => {
+        if (now < until) pend |= bit; // eslint-disable-line no-bitwise
+        else queued.delete(bit);
+      });
+      const held = input.act | mouseAct | pend; // eslint-disable-line no-bitwise
       // 몸이 보는 쪽:
       // - 1인칭, 마우스로 잠근 3인칭, 3인칭에서 행동 중 → 카메라가 보는 쪽 (카메라 앞 (-sin yaw, -cos yaw) = 몸 앞 (sin f, cos f) → f = yaw + π)
       // - 위 시점에서 행동 중 → 마우스·탭이 가리키는 땅 쪽
       let face:number | undefined;
       // 뒤·1인칭: 화면 가운데(조준선)에서 나가는 카메라 광선이 벽·땅에 닿는 곳을 겨눈다 → 총구에서 그곳으로 (조준선과 맞는 방향·높이각)
       let aimPitch = 0;
-      if (persp3) {
-        persp.getWorldDirection(aimDirV);
-        const c = persp.position;
-        // 3인칭은 카메라가 캐릭터 뒤에 있어 그 사이 벽에 닿지 않게, 광선 위에서 캐릭터와 가장 가까운 점부터 잰다
+      // 겨눈 점 (세상 좌표, pitch: 높이각까지 맞출지): 걸음마다 그 걸음 뒤 자리에서 이 점을 향하게 다시 잰다
+      // (걸음 전 자리에서 잰 방향을 걸음 뒤 자리에서 쏘면 한 걸음만큼 옆으로 비껴 나간다)
+      let aimPoint:{ x: number; y: number; z: number; pitch: boolean; } | null = null;
+      // 3인칭: 캐릭터가 보는 쪽(카메라 방향)으로 수평으로 쏜다 — 카메라가 캐릭터 앞 CHASE_AIM m 총구 높이를 보니 조준선이 그 선 위에 있다
+      if (mode === 'chase' && (usedMouse || held || input.actTap)) face = Math.atan2(Math.sin(yaw + Math.PI), Math.cos(yaw + Math.PI));
+      // 1인칭: 조준선(화면 가운데) 광선이 닿는 곳으로 — 위아래까지 그대로
+      if (mode === 'fp') {
+        // 이번 장면에서 보는 방향 그대로 (지난 장면 카메라를 쓰면 마우스를 돌리는 중엔 한 장면만큼 옆을 겨눈다)
+        const cp = Math.cos(fpPitch);
+        aimDirV.set(-Math.sin(yaw) * cp, -Math.sin(fpPitch), -Math.cos(yaw) * cp);
+        // 눈은 이번 장면에 그릴 자리로 (지난 장면 자리 + 지난 장면만큼 움직인 것) — 옆으로 걸으며 쏠 때 조준선과 어긋나지 않게
+        const c = { x: pos.x + (pos.x - lastPos.x), y: pos.y + EYE_Y + (pos.y - lastPos.y), z: pos.z + (pos.z - lastPos.z) };
+        // 카메라와 캐릭터 사이 벽에 닿지 않게, 광선 위에서 캐릭터와 가장 가까운 점부터 잰다
         const t0 = Math.max(0, (body.x - c.x) * aimDirV.x + (body.y + MUZZLE_Y - c.y) * aimDirV.y + (body.z - c.z) * aimDirV.z);
         const sx = c.x + aimDirV.x * t0;
         const sy = c.y + aimDirV.y * t0;
         const sz = c.z + aimDirV.z * t0;
-        const hit = castRay(sim, sx, sy, sz, aimDirV.x, aimDirV.y, aimDirV.z, AIM_RANGE, body.b, body.l);
+        // 무기 사거리까지만: 그보다 먼 점을 향하면 총구(눈보다 아래·옆)에서 나간 선이 사거리 끝에서 조준선을 벗어난다
+        const hit = castRay(sim, sx, sy, sz, aimDirV.x, aimDirV.y, aimDirV.z, modeClient?.aimRange?.() || AIM_RANGE, body.b, body.l);
         const tx = sx + aimDirV.x * hit - body.x;
         const ty = sy + aimDirV.y * hit - (body.y + MUZZLE_Y);
         const tz = sz + aimDirV.z * hit - body.z;
@@ -434,23 +506,40 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         if (flat > 0.5) {
           const yawAim = Math.atan2(tx, tz);
           aimPitch = Math.max(-1.5, Math.min(1.5, Math.atan2(-ty, flat)));
+          if (mode === 'fp') aimPoint = { x: body.x + tx, y: body.y + MUZZLE_Y + ty, z: body.z + tz, pitch: true };
           if (mode === 'fp' || (mode === 'chase' && (usedMouse || held || input.actTap))) face = yawAim;
         } else if (mode === 'fp' || (mode === 'chase' && (usedMouse || held || input.actTap))) face = Math.atan2(Math.sin(yaw + Math.PI), Math.cos(yaw + Math.PI));
       }
-      const aimAt = mode === 'top' ? (aimTap ?? (held ? aimPt : null)) : null;
+      const aimAt = mode === 'top' ? (aimTap ?? (held ? aimPt ?? cursor : null)) : null;
+      // 휴대폰(마우스 없음) 위 시점에서 버튼으로 공격할 때: 보이는 가장 가까운 대상(사람·NPC)을 자동으로 겨눈다 — 없으면 움직이는 쪽
+      if (mode === 'top' && !usedMouse && !aimAt && (held || input.actTap)) {
+        let best = AIM_ASSIST_R;
+        lastRemotes.forEach((r) => {
+          if (lastLooks.get(r.id)?.hidden || r.b !== body.b || (r.b >= 0 && r.l !== body.l) || (r.b < 0 && Math.abs(r.y - body.y) > 3)) return;
+          const d = Math.hypot(r.x - body.x, r.z - body.z);
+          if (d < best && d > 0.3) {
+            best = d;
+            face = Math.atan2(r.x - body.x, r.z - body.z);
+          }
+        });
+      }
       if (aimAt) {
         const rect = canvas.getBoundingClientRect();
         aimNdc.set(((aimAt.x - rect.left) / rect.width) * 2 - 1, -((aimAt.y - rect.top) / rect.height) * 2 + 1);
         raycaster.setFromCamera(aimNdc, camera);
         aimPlane.constant = -pos.y;
-        if (raycaster.ray.intersectPlane(aimPlane, aimHit) && Math.hypot(aimHit.x - pos.x, aimHit.z - pos.z) > 0.2) face = Math.atan2(aimHit.x - pos.x, aimHit.z - pos.z);
+        if (raycaster.ray.intersectPlane(aimPlane, aimHit) && Math.hypot(aimHit.x - pos.x, aimHit.z - pos.z) > 0.2) {
+          face = Math.atan2(aimHit.x - pos.x, aimHit.z - pos.z);
+          aimPoint = { x: aimHit.x, y: aimHit.y, z: aimHit.z, pitch: false };
+        }
       }
       const inp:Input = { mx: q(rx * mv.x - fx * mv.y), mz: q(rz * mv.x - fz * mv.y), run: mv.run, lift: readLift(input), face: face === undefined ? undefined : Math.round(face * 10000) / 10000 };
       // 게임 모드 화면: 서버가 알려 준 모드가 바뀌면 새로 만들고, 받은 모드 메시지를 넘긴다
       if (net.modeName !== modeName) {
         modeClient?.dispose();
         modeName = net.modeName;
-        modeClient = modeName && MODE_CLIENTS[modeName] ? MODE_CLIENTS[modeName]({ scene, sim, send: (d) => net.sendMode(d) }) : null;
+        modeClient = modeName && MODE_CLIENTS[modeName] ? MODE_CLIENTS[modeName]({ scene, sim, send: (d) => net.sendMode(d), myId: () => net.myId }) : null;
+        if (dbg) dbg.mode = modeClient;
       }
       net.takeModeMessages().forEach((d) => modeClient?.receive(d, now));
       // 서버 확정 상태가 오면 (이번 걸음들보다 먼저 — 입장 직후 보낸 입력을 버리지 않게): 그 상태에서 서버가 아직 안 본 입력만 다시 돌려 지금 자리를 맞춘다
@@ -489,13 +578,27 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         acc -= STEP;
         seq++;
         prev = copyBody(body);
+        // 이 걸음의 입력: 겨눈 점이 있으면 걸음 뒤 자리에서 그 점을 향하는 방향·높이각으로 (보는 쪽은 움직임에 영향이 없어 서버도 같은 자리가 된다)
+        let si = inp;
+        let sp = pitch;
         if (!frozen) step(sim, body, inp);
+        if (aimPoint && !frozen) {
+          const ax = aimPoint.x - body.x;
+          const az = aimPoint.z - body.z;
+          const flat = Math.hypot(ax, az);
+          if (flat > 0.5) {
+            si = { ...inp, face: Math.round(Math.atan2(ax, az) * 10000) / 10000 };
+            body.f = si.face!;
+            if (aimPoint.pitch) sp = Math.round(Math.max(-1.5, Math.min(1.5, Math.atan2(-(aimPoint.y - (body.y + MUZZLE_Y)), flat))) * 10000) / 10000;
+          }
+        }
         // 행동: 누르고 있는 것 + 짧게 누른 것(한 걸음에만 싣는다)
-        const act = held | input.actTap; // eslint-disable-line no-bitwise
+        let act = held | input.actTap; // eslint-disable-line no-bitwise
         input.actTap = 0;
         aimTap = null;
-        if (act) modeClient?.acted(act, now);
-        const c = { seq, inp, act, pitch, frozen };
+        // 내 행동은 이 걸음의 예측 자리·조준으로 바로 보여 준다 (서버 알림은 왕복 시간만큼 늦게 오고 그사이 나는 더 가 있다)
+        if (act) act = modeClient?.acted(act, now, { x: body.x, y: body.y, z: body.z, f: body.f, pitch: sp, b: body.b, l: body.l, seq }) ?? act;
+        const c = { seq, inp: si, act, pitch: sp, frozen };
         pending.push(c);
         out.push(tuple(c));
       }
@@ -510,6 +613,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       err.x *= decay;
       err.y *= decay;
       err.z *= decay;
+      Object.assign(lastPos, pos);
       pos.x = (smooth ? prev.x + (body.x - prev.x) * k : body.x) + err.x;
       pos.y = (smooth ? prev.y + (body.y - prev.y) * k : body.y) + err.y;
       pos.z = (smooth ? prev.z + (body.z - prev.z) * k : body.z) + err.z;
@@ -529,7 +633,12 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       });
       SEE.cutBid.value = room ? room.bid + 1 : 0;
       SEE.cutY.value = room ? room.baseY(level) + room.floorH - 0.02 : 0;
-      const shown = Math.min(MAX_SHOWN_VIEW, view * autoZoom);
+      // 위 시점은 정해진 확대 단계로만 한 번에 넘어간다 (픽셀 퍼펙트: 도트 하나 = 늘 같은 m)
+      // 손으로 맞춘 배율은 누를 때마다 꼭 한 단계, 자동(높이·실내)은 문턱을 넘어야 한 단계씩
+      const autoLv = Math.log(autoZoom) / Math.log(ZOOM_STEP);
+      if (!(Math.abs(autoLv - zoomLevel) < ZOOM_HOLD)) zoomLevel = Math.round(autoLv);
+      const lv = Math.round(Math.log(view / scr.visH) / Math.log(ZOOM_STEP)) + zoomLevel;
+      const shown = persp3 ? Math.min(MAX_SHOWN_VIEW, view * autoZoom) : Math.min(MAX_SHOWN_VIEW, scr.visH * ZOOM_STEP ** lv);
 
       // 내려다보기에서 축소할수록 캐릭터를 키워 점으로 사라지지 않게 (3인칭·1인칭은 실제 크기)
       const big = persp3 ? 1 : THREE.MathUtils.clamp(shown / 60, 1, 5);
@@ -548,6 +657,8 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       const remotes = net.remotes(now);
       const seen = (r:{ b: number; l: number; }) => r.b < 0 || (r.b === body.b && r.l === body.l);
       const looks = new Map(remotes.map((r) => [ r.id, modeClient?.look(r.s, r.v, now, false, r.id) ?? PLAIN_LOOK ]));
+      lastRemotes = remotes;
+      lastLooks = looks;
       others.update(remotes, dt, seen, big, (r) => r.b < 0 && r.y - collision.floorAt(r.x, r.z, r.y) > 0.5, (r) => {
         const lk = looks.get(r.id) ?? PLAIN_LOOK;
         return lk.blink && blinkOff ? { ...lk, hidden: true } : lk;
@@ -588,12 +699,17 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       let cam:THREE.Camera;
       let shadowAt:THREE.Vector3;
       let shadowSize:number;
+      let shiftX = 0;
+      let unsnap:(() => void) | null = null;
+      let shiftY = 0;
       if (mode === 'top') {
         // 내려다보기: 플레이어를 바라보는 고정 각도 정사영
-        camera.top = shown / 2;
-        camera.bottom = -shown / 2;
-        camera.left = (-shown / 2) * aspect;
-        camera.right = (shown / 2) * aspect;
+        // 화면에 보이는 세로가 shown m가 되게 (여유 1도트씩 포함한 그림 전체 크기로)
+        const texelTop = shown / scr.visH;
+        camera.top = (texelTop * scr.bh) / 2;
+        camera.bottom = -camera.top;
+        camera.right = (texelTop * scr.bw) / 2;
+        camera.left = -camera.right;
         camera.updateProjectionMatrix();
         // 서버에 보이는 범위를 알린다: 화면이 담는 땅의 반 대각선(+여유)과 미니맵 반경 중 큰 쪽
         net.setView(Math.max(0.5 * Math.hypot(shown * aspect, shown / Math.sin(PITCH)) + 30, mini.radius));
@@ -605,6 +721,26 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
           target.z + Math.cos(yaw) * Math.cos(PITCH) * dist,
         );
         camera.lookAt(target);
+        // 도트 격자에 맞춰 카메라를 한 도트 단위로만 옮긴다: 가만히 있는 건물·땅이 늘 같은 도트에 찍혀 따라갈 때 반짝이지 않는다
+        camera.updateMatrixWorld();
+        {
+          const e = camera.matrixWorld.elements;
+          const texel = texelTop;
+          const p = camera.position;
+          const pr = p.x * e[0] + p.y * e[1] + p.z * e[2];
+          const pu = p.x * e[4] + p.y * e[5] + p.z * e[6];
+          const dr = Math.round(pr / texel) * texel - pr;
+          const du = Math.round(pu / texel) * texel - pu;
+          p.set(p.x + e[0] * dr + e[4] * du, p.y + e[1] * dr + e[5] * du, p.z + e[2] * dr + e[6] * du);
+          camera.updateMatrixWorld();
+          // 움직이는 것(나·남·NPC·모드가 등록한 화살·아이템 등)도 같은 도트 격자에 맞춰 그린다: 격자 사이에 걸치면 매 장면 다른 도트로 찍혀 뿌옇게 보인다
+          const roots:THREE.Object3D[] = [ player.root ];
+          others.eachRoot((o) => roots.push(o));
+          unsnap = snapToGrid(e, texel, roots);
+          // 카메라를 dr만큼 옮겨 그렸으니 화면을 그만큼 되밀어 실제 자리로 (실제 픽셀 단위로 반올림 — 1도트 안에서 부드럽게)
+          shiftX = Math.round((dr / texel) * scr.dot) / scr.dpr;
+          shiftY = -Math.round((du / texel) * scr.dot) / scr.dpr;
+        }
         cam = camera;
         // 그림자는 화면에 보이는 범위만. 높이 날면 화면 가운데 보이는 땅이 발밑과 달라져 그 땅을 기준으로
         shadowSize = Math.min(500, shown * aspect * 0.75 + 20);
@@ -622,10 +758,11 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
           persp.position.y = Math.max(persp.position.y, under + 0.4);
           // 실내에선 천장 아래에서만 (천장 위로 가면 천장에 가려 안 보인다)
           if (room) persp.position.y = Math.min(persp.position.y, room.baseY(level) + room.floorH - 0.35);
-          persp.lookAt(head);
+          // 머리가 아니라 캐릭터 앞 CHASE_AIM m 총구 높이를 본다: 캐릭터는 화면 아래쪽에, 조준선은 쏘는 선 위에
+          persp.lookAt(pos.x - Math.sin(yaw) * CHASE_AIM, pos.y + MUZZLE_Y, pos.z - Math.cos(yaw) * CHASE_AIM);
         } else {
           // 1인칭: 눈높이에서 보는 방향으로
-          const eye = new THREE.Vector3(pos.x, pos.y + 1.62, pos.z);
+          const eye = new THREE.Vector3(pos.x, pos.y + EYE_Y, pos.z);
           const cp = Math.cos(fpPitch);
           persp.position.copy(eye);
           persp.lookAt(eye.x - Math.sin(yaw) * cp, eye.y - Math.sin(fpPitch), eye.z - Math.cos(yaw) * cp);
@@ -634,6 +771,14 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         cam = persp;
         shadowSize = mode === 'fp' ? 70 : Math.min(160, 40 + camDist * 3);
         shadowAt = new THREE.Vector3(pos.x, room ? room.baseY(level) : 0, pos.z);
+      }
+      // 그림자도 그림자 칸 단위로: 크기는 16m 단위, 자리는 빛 방향 기준 칸에 맞춘다 (그림자 가장자리가 출렁이지 않게)
+      shadowSize = Math.ceil(shadowSize / 16) * 16;
+      {
+        const texel = (shadowSize * 2) / sun.shadow.mapSize.width;
+        const pr = shadowAt.dot(LIGHT_R);
+        const pu = shadowAt.dot(LIGHT_U);
+        shadowAt.addScaledVector(LIGHT_R, Math.round(pr / texel) * texel - pr).addScaledVector(LIGHT_U, Math.round(pu / texel) * texel - pu);
       }
       const sc = sun.shadow.camera;
       sc.left = -shadowSize;
@@ -674,10 +819,16 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       SEE.foot.value.set(pos.x, pos.y, pos.z);
       SEE.toCam.value.set(toCamX, toCamZ);
 
+      const shift = shiftX || shiftY ? `translate(${shiftX}px, ${shiftY}px)` : '';
+      if (canvas.style.transform !== shift) {
+        canvas.style.transform = shift;
+        if (tagRef.current) tagRef.current.style.transform = shift;
+      }
       others.placeTags(cam, w, h);
       // 뒤·1인칭: 화면 가운데 조준선 (원거리가 정확히 여기로 간다)
       if (crossRef.current) crossRef.current.style.display = persp3 && !away ? 'block' : 'none';
       renderer.render(scene, cam);
+      unsnap?.();
 
       statusRef.current = {
         ready: true,
@@ -710,6 +861,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       miniRef.current?.removeEventListener('pointerdown', onMini);
       others.dispose();
       observer.disconnect();
+      window.removeEventListener('resize', onDpr);
       canvas.removeEventListener('wheel', onWheel);
       canvas.removeEventListener('contextmenu', noMenu);
       canvas.removeEventListener('pointerdown', onDown);

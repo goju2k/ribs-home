@@ -1,7 +1,8 @@
 /** 시점: 내려다보기(정사영) / 3인칭 추적 / 1인칭 */
 export type CamMode = 'top' | 'chase' | 'fp';
 
-export const CAM_MODES:CamMode[] = [ 'top', 'chase', 'fp' ];
+/** 3인칭(chase)은 조준선과 캐릭터가 안 맞아 잠시 뺐다 — 다시 넣으려면 여기에 'chase' */
+export const CAM_MODES:CamMode[] = [ 'top', 'fp' ];
 
 /** 키보드·가상 조이스틱·버튼이 함께 쓰는 입력 상태 (React 렌더와 무관하게 매 프레임 읽는다) */
 export interface InputState {

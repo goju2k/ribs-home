@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { GroundItem, ITEM_KINDS, ItemKind } from 'yeouido-br';
 
+import { pixelSnap, stepAngle } from '../../ui/pixel-snap';
+
 /** 아이템 색 (미니맵 점·HUD 칸도 같은 색) */
 export const ITEM_COLORS:Record<ItemKind, string> = { pipe: '#c9ced6', armor: '#4a8fe0', shoes: '#c98a4a', rocket: '#e2574c', hammer: '#e0b84a', pistol: '#c04ad9', bow: '#4ad9a0' };
 
@@ -63,6 +65,7 @@ export class ItemMeshes {
     const beam = new THREE.Mesh(this.beamGeo, this.beamMats[kind]);
     beam.position.set(it[3], it[4], it[5]);
     this.scene.add(mesh, beam);
+    pixelSnap.add(mesh);
     this.shown.set(it[0], { it, mesh, beam, base: it[4] + 0.5, phase: Math.random() * 6 });
   }
 
@@ -86,7 +89,7 @@ export class ItemMeshes {
       s.beam.visible = on;
       if (!on) return;
       s.mesh.position.y = s.base + Math.sin(t * 2 + s.phase) * 0.12;
-      s.mesh.rotation.y = t * 1.5 + s.phase;
+      s.mesh.rotation.y = stepAngle(t * 1.5 + s.phase);
     });
   }
 

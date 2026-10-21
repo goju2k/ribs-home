@@ -27,6 +27,8 @@ export interface ModePlayer {
 /** 입력 한 걸음의 조준: 보는 방향(없으면 몸 방향)과 높이각(+는 아래) */
 export interface Aim {
   face: number; pitch: number;
+  /** 이 행동이 실린 입력 걸음 번호 — 재장전을 받은 시각이 아니라 걸음 수로 재야 클라이언트와 같은 걸음에서 쏜다 */
+  seq: number;
 }
 
 /** 지난 위치 (지연 보정) */

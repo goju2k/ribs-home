@@ -1,10 +1,10 @@
 import {
   ACT_MELEE, ACT_RANGED, BOSS_LIMIT_MS, BrClientMsg, Difficulty, DIFFICULTY, RESULT_MS, afterPickup, heldRanged, RANGED_KINDS, rangedStats, armorCut, BR_MODE, dayNight, breakPower, PROP_KINDS, PROP_RADIUS, rollDrops, BrServerMsg, Corpse, CorpseItem, emptyGear, Gear, HP_MAX, HURT_MS, hpGauge, insideZone,
-  ITEM_KINDS, makeMatchPlan, MATCH_MS, MatchPlan, meleeReaches, meleeStats, PICK_RANGE, pickSpawn, respawnDelay, rocketMul, shoeMul,
+  ITEM_KINDS, insideZone as inZoneCircle, makeMatchPlan, pickRoofOf, MATCH_MS, MatchPlan, meleeReaches, meleeStats, PICK_RANGE, pickSpawn, respawnDelay, rocketMul, shoeMul,
   SPAWN_SHIELD_MS, ST_DEAD, ST_FROZEN, ST_HIDDEN, ST_HURT, ST_SHIELD, ST_SWING, zoneAt, zoneDps,
 } from 'yeouido-br';
 import { SIM_HZ } from 'yeouido-net';
-import { Body, newBody } from 'yeouido-sim';
+import { Body, newBody, STEP } from 'yeouido-sim';
 
 import { Boss } from './br-boss';
 import { ItemField } from './br-items';
@@ -21,6 +21,11 @@ const DAY_OFFSET = Number(process.env.BR_DAY_OFFSET_MS) || 0;
 const DEBUG_GEAR = (process.env.BR_DEBUG_GEAR ?? '').split(',').map((s) => s.split(':')).filter(([ k, v ]) => k && Number(v) > 0);
 /** 보스전 중에 쓰러지면 이만큼 누워 있다가 관전으로 바뀐다 (ms) */
 const SPECTATE_AFTER_MS = 3000;
+/**
+ * 여럿이 시험하는 동안: 모두 KB 옥상에서 시작 (서로 만나기 쉽게). 원 밖이 되면 원 안 무작위 자리.
+ * 끄려면 BR_SPAWN=random (나중에 기본값을 random으로 되돌린다)
+ */
+const SPAWN_KB = (process.env.BR_SPAWN ?? 'kb') === 'kb';
 /** 개발용: 판 시계를 당겨 시작 (예: BR_TIME_OFFSET_MS=1190000 → 10초 뒤 보스) */
 const TIME_OFFSET = Number(process.env.BR_TIME_OFFSET_MS) || 0;
 /** 난이도 (보스 체력·피해 배율): easy·normal·hard */
@@ -64,7 +69,8 @@ interface Fighter {
   zoneAt: number;
   gear: Gear;
   /** 다음 원거리 발사 가능 시각 */
-  nextShotAt: number;
+  /** 다음 발사 가능 걸음 번호 (입력 걸음 수로 잰다 — 입력이 몰려 와도 클라이언트와 같은 걸음에서 쏘게) */
+  nextShotSeq: number;
   /**
    * 관전: 이번 판은 다시 시작 못 함 (보스전 중 쓰러짐·늦게 들어옴). respawnAt = Infinity로 두어 '살아 있지 않음'으로 취급되고,
    * specFrom부터 산 사람(없으면 보스)을 따라간다. 다음 판에 다시 참여
@@ -169,6 +175,7 @@ export class BattleRoyale implements GameMode {
         this.damage(p, Math.max(1, Math.round(dmg * DIFFICULTY[DIFF] * (1 - armorCut(f.gear.armor)))), null, now, '최종 보스');
       },
       summon: (x, z, n, now) => this.horde.summon(x, z, n, now),
+      leap: (x, z, ms) => this.broadcast({ k: 'bossLeap', x: Math.round(x * 10) / 10, z: Math.round(z * 10) / 10, ms }),
     });
   }
 
@@ -215,7 +222,9 @@ export class BattleRoyale implements GameMode {
 
   /** 지금 원 안 무작위 자리 (지상·옥상·실내) */
   private spawnBody():Body {
-    const s = pickSpawn(this.host.sim, this.zone());
+    const zone = this.zone();
+    const kb = this.host.sim.indoors[0];
+    const s = (SPAWN_KB && kb && pickRoofOf(this.host.sim, kb, Math.random, (x, z) => inZoneCircle(zone, x, z))) || pickSpawn(this.host.sim, zone);
     const body = newBody(s.x, s.y, s.z);
     body.b = s.b;
     body.l = s.l;
@@ -226,7 +235,7 @@ export class BattleRoyale implements GameMode {
   private revive(p:ModePlayer, body:Body, now:number) {
     p.body = body;
     p.queue.length = 0;
-    const f:Fighter = { hp: HP_MAX, respawnAt: 0, shieldUntil: now + SPAWN_SHIELD_MS, nextAttackAt: 0, nextShotAt: 0, swingUntil: 0, hurtUntil: 0, zoneAt: 0, gear: emptyGear(), spectator: null, specFrom: 0, watch: 0, watchSent: false };
+    const f:Fighter = { hp: HP_MAX, respawnAt: 0, shieldUntil: now + SPAWN_SHIELD_MS, nextAttackAt: 0, nextShotSeq: 0, swingUntil: 0, hurtUntil: 0, zoneAt: 0, gear: emptyGear(), spectator: null, specFrom: 0, watch: 0, watchSent: false };
     this.fighters.set(p.id, f);
     if (p.debug) {
       DEBUG_GEAR.forEach(([ k, v ]) => {
@@ -312,9 +321,9 @@ export class BattleRoyale implements GameMode {
   /** 원거리 발사: 총은 바로 판정(지연 보정), 활은 화살을 날린다 */
   private shoot(p:ModePlayer, me:Fighter, now:number, aim:Aim) {
     const kind = heldRanged(me.gear);
-    if (!kind || now < me.nextShotAt) return;
+    if (!kind || aim.seq < me.nextShotSeq) return;
     const st = rangedStats(kind, me.gear[kind]);
-    me.nextShotAt = now + st.reloadMs;
+    me.nextShotSeq = aim.seq + Math.round(st.reloadMs / 1000 / STEP);
     me.swingUntil = now + 200;
     me.shieldUntil = 0;
     this.send(p, { k: 'fired', reloadMs: st.reloadMs });

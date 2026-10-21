@@ -16,7 +16,7 @@ export const PROP_NAMES:Record<PropKind, string> = { crate: '나무 상자', ven
 export const PROP_HP:Record<PropKind, number> = { crate: 30, vending: 80, safe: 220 };
 
 /** 맞는 반경 (사거리에 더한다, m) */
-export const PROP_RADIUS:Record<PropKind, number> = { crate: 0.45, vending: 0.5, safe: 0.4 };
+export const PROP_RADIUS:Record<PropKind, number> = { crate: 0.6, vending: 0.5, safe: 0.5 };
 
 /** 뿌릴 때 비율 */
 export const PROP_WEIGHTS:Record<PropKind, number> = { crate: 12, vending: 4, safe: 1 };

@@ -17,6 +17,8 @@ export interface BossHooks {
   hurt(p:ModePlayer, dmg:number, now:number): void;
   /** 좀비 부르기 */
   summon(x:number, z:number, n:number, now:number): void;
+  /** 날아오름 알림 (착지 자리·시간) */
+  leap(x:number, z:number, ms:number): void;
 }
 
 /**
@@ -55,6 +57,13 @@ export class Boss {
   private stuckAt = 0;
 
   private stuckD = Infinity;
+
+  /** 도약 중: 시작 시각(0 = 아님)·출발·착지 자리 */
+  private leapAt = 0;
+
+  private leapFrom = { x: 0, z: 0 };
+
+  private leapTo = { x: 0, z: 0 };
 
   private swingUntil = 0;
 
@@ -95,6 +104,7 @@ export class Boss {
   }
 
   clear() {
+    this.leapAt = 0;
     if (this.npc) this.host.removeNpc(this.npc.id);
     this.npc = null;
     this.hp = 0;
@@ -149,10 +159,10 @@ export class Boss {
       const x = to.x + Math.cos(a) * d;
       const z = to.z + Math.sin(a) * d;
       if (collision.floorAt(x, z, 1e4) === 0 && collision.at(x, z) !== BLOCK.WATER && !collision.blocked(x, z, 1.2)) {
-        me.x = x;
-        me.z = z;
-        me.y = 0;
-        me.vy = 0;
+        this.leapAt = Date.now();
+        this.leapFrom = { x: me.x, z: me.z };
+        this.leapTo = { x, z };
+        this.hooks.leap(x, z, BOSS.leapMs);
         return true;
       }
     }
@@ -168,6 +178,26 @@ export class Boss {
     }
     const me = npc.body;
     const alive = players.filter((p) => this.hooks.alive(p));
+    // 도약 중: 포물선으로 날아가 착지하면 땅 울리기 (경고 원은 날아오를 때 이미 보였다)
+    if (this.leapAt) {
+      const t = Math.min(1, (now - this.leapAt) / BOSS.leapMs);
+      me.x = this.leapFrom.x + (this.leapTo.x - this.leapFrom.x) * t;
+      me.z = this.leapFrom.z + (this.leapTo.z - this.leapFrom.z) * t;
+      me.y = 4 * BOSS.leapHeight * t * (1 - t);
+      me.vy = 0;
+      npc.st = ST_FROZEN | (now < this.hurtUntil ? ST_HURT : 0);
+      npc.gv = hpGauge((this.hp / this.max) * 100);
+      if (t < 1) return;
+      this.leapAt = 0;
+      me.y = 0;
+      alive.forEach((p) => {
+        if (Math.hypot(p.body.x - me.x, p.body.z - me.z) <= BOSS.slamRange) this.hooks.hurt(p, BOSS.slamDamage, now);
+      });
+      this.slamAt = now + BOSS.slamEveryMs;
+      this.stuckAt = now + BOSS.stuckMs;
+      this.stuckD = Infinity;
+      return;
+    }
     // 쫓을 사람: 가장 가까운 산 사람 (거리 무관 — 최종 원 안을 찾아다닌다). 실내 사람은 못 쫓고, 옥상 사람은 그 밑까지 가서 땅을 울린다
     let target:ModePlayer | null = null;
     let best = Infinity;
@@ -204,10 +234,7 @@ export class Boss {
       }
       // 도약: 길 찾기가 없어 건물에 막히면, 3초 동안 2m도 못 다가가면 목표 근처 빈 땅으로 뛰어올라 착지하며 땅 울리기(예고 원)
       if (now >= this.stuckAt) {
-        if (d > BOSS.smashRange + 2 && this.stuckD - d < 2 && this.leap(t.body)) {
-          this.windupAt = now;
-          this.slamAt = now;
-        }
+        if (d > BOSS.smashRange + 2 && this.stuckD - d < 2) this.leap(t.body);
         this.stuckAt = now + BOSS.stuckMs;
         this.stuckD = d;
       }

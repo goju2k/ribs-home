@@ -109,10 +109,25 @@ export interface Spawn {
   x: number; y: number; z: number; b: number; l: number;
 }
 
+/** 실내가 있는 건물 g의 옥상 위 무작위 자리 (원 안이어야 하면 inZone) */
+export function pickRoofOf(sim:SimWorld, g:SimWorld['indoors'][number], rand:() => number = Math.random, ok:(x:number, z:number) => boolean = () => true):Spawn | null {
+  const { frame } = g.plan;
+  for (let i = 0; i < 200; i++) {
+    const u = (rand() - 0.5) * frame.L;
+    const v = (rand() - 0.5) * frame.W;
+    const x = frame.ox + frame.ux * u - frame.uz * v;
+    const z = frame.oz + frame.uz * u + frame.ux * v;
+    const h = sim.collision.floorAt(x, z, 1e4);
+    if (g.contains(x, z) && ok(x, z) && h > 2) return { x, y: h, z, b: -1, l: 1 };
+  }
+  return null;
+}
+
 /**
  * 원 안의 무작위 시작 자리: 지상 80%, 옥상 10%, 실내 층 10% (실내가 원 안에 없으면 지상). 옥상·실내는 실내가 만들어진 건물만이라 지금은 KB 한 채 — 실내 건물이 늘면(9단계) 옥상 비율을 다시 올린다
  */
-export function pickSpawn(sim:SimWorld, zone:Circle, rand:() => number = Math.random):Spawn {
+/** share: 옥상·실내 비율 (사람 시작은 옥상 10%·실내 10%, 아이템·물건 흩뿌리기는 옥상이 좁아 1%만) */
+export function pickSpawn(sim:SimWorld, zone:Circle, rand:() => number = Math.random, share:{ roof: number; indoor: number; } = { roof: 0.1, indoor: 0.1 }):Spawn {
   const { collision, data } = sim;
   const inZone = (x:number, z:number) => Math.hypot(x - zone.cx, z - zone.cz) <= zone.r * 0.95
     && Math.abs(x) < data.half.w - 5 && Math.abs(z) < data.half.d - 5;
@@ -132,17 +147,7 @@ export function pickSpawn(sim:SimWorld, zone:Circle, rand:() => number = Math.ra
   const roof = ():Spawn | null => {
     const tops = sim.indoors.filter((g) => inZone(g.plan.frame.ox, g.plan.frame.oz));
     if (!tops.length) return null;
-    const g = tops[Math.floor(rand() * tops.length)];
-    const { frame } = g.plan;
-    for (let i = 0; i < 200; i++) {
-      const u = (rand() - 0.5) * frame.L;
-      const v = (rand() - 0.5) * frame.W;
-      const x = frame.ox + frame.ux * u - frame.uz * v;
-      const z = frame.oz + frame.uz * u + frame.ux * v;
-      const h = collision.floorAt(x, z, 1e4);
-      if (g.contains(x, z) && inZone(x, z) && h > 2) return { x, y: h, z, b: -1, l: 1 };
-    }
-    return null;
+    return pickRoofOf(sim, tops[Math.floor(rand() * tops.length)], rand, inZone);
   };
   const indoor = ():Spawn | null => {
     const rooms = sim.indoors.filter((g) => inZone(g.plan.frame.ox, g.plan.frame.oz));
@@ -160,6 +165,6 @@ export function pickSpawn(sim:SimWorld, zone:Circle, rand:() => number = Math.ra
     return null;
   };
   const roll = rand();
-  const first = roll < 0.8 ? ground : roll < 0.9 ? roof : indoor; // eslint-disable-line no-nested-ternary
+  const first = roll < share.roof ? roof : roll < share.roof + share.indoor ? indoor : ground; // eslint-disable-line no-nested-ternary
   return first() ?? ground() ?? roof() ?? { x: zone.cx, y: 0, z: zone.cz, b: -1, l: 1 };
 }

@@ -1,17 +1,21 @@
 /* eslint-disable no-bitwise -- 상태·행동 비트 */
 import * as THREE from 'three';
 import {
-  ACT_MELEE, BOSS, BrClientMsg, BrServerMsg, dayNight, ST_BURN, ST_SLAM, Z_BOSS, Z_RUNNER, Z_WALKER, Corpse, emptyGear, gaugeHp, Gear, isBrMsg, ITEM_KINDS, ITEM_NAMES, MatchPlan, meleeStats, ST_DEAD, ST_HURT, ST_SHIELD, ST_SWING,
+  ACT_MELEE, ACT_RANGED, BOSS, BrClientMsg, heldRanged, rangedStats, BrServerMsg, dayNight, ST_BURN, ST_SLAM, Z_BOSS, Z_RUNNER, Z_WALKER, Corpse, emptyGear, gaugeHp, Gear, isBrMsg, ITEM_KINDS, ITEM_NAMES, MatchPlan, meleeStats, ST_DEAD, ST_HURT, ST_SHIELD, ST_SWING,
   zoneAt, ZoneNow,
 } from 'yeouido-br';
+import { castRay, STEP } from 'yeouido-sim';
 
 import { ITEM_COLORS, ItemMeshes } from './item-meshes';
 import { PropMeshes } from './prop-meshes';
 import { ShotFx } from './shot-fx';
 
 import { createPerson, Person } from '../../player/person';
-import { Appearance, Look, ModeClient, ModeFrame, ModeHostClient } from '../mode-client';
+import { pixelSnap, stepAngle } from '../../ui/pixel-snap';
+import { ActAim, Appearance, Look, ModeClient, ModeFrame, ModeHostClient } from '../mode-client';
 
+/** 총구 높이 (발에서, m) — 서버와 같게 */
+const MUZZLE_Y = 1.4;
 /** 경계 벽 높이 (m) */
 const WALL_H = 600;
 /** 알림(누가 누구를) 보여 주는 시간 (ms) */
@@ -89,6 +93,15 @@ export class BrClient implements ModeClient {
 
   private localNextAt = 0;
 
+  /** 이 화면에서 잰 다음 원거리 발사 가능 시각 */
+  private localShotReady = 0;
+
+  /** 다음 발사 가능 걸음 번호 (서버와 같은 셈) */
+  private localShotSeq = 0;
+
+  /** 이번 장면에 그릴 내 발사 (화면의 내 자리에서) */
+  private ownShot:{ e: [number, number, number]; hitscan: boolean; speed: number; } | null = null;
+
   private me:ModeFrame['me'] | null = null;
 
   private zoneNow:ZoneNow | null = null;
@@ -107,6 +120,11 @@ export class BrClient implements ModeClient {
 
   /** 땅 울리기 경고 원 */
   private slamRing:THREE.Mesh;
+
+  /** 보스 도약 착지 자리 경고 (자리·끝나는 시각) */
+  private landRing:THREE.Mesh;
+
+  private landUntil = 0;
 
   /** 원거리 재장전: 쏜 시각과 걸리는 시간 */
   private reloadAt = 0;
@@ -140,6 +158,13 @@ export class BrClient implements ModeClient {
     );
     this.slamRing.visible = false;
     host.scene.add(this.slamRing);
+    pixelSnap.add(this.slamRing);
+    this.landRing = new THREE.Mesh(
+      new THREE.RingGeometry(BOSS.slamRange - 1.2, BOSS.slamRange, 48).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: '#ff3b30', transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide }),
+    );
+    this.landRing.visible = false;
+    host.scene.add(this.landRing);
   }
 
   /** 관전 대상 바꾸기 요청 */
@@ -199,12 +224,19 @@ export class BrClient implements ModeClient {
       this.hits.push({ id: ++this.seq, dmg: m.dmg, at: now });
       if (this.hits.length > 6) this.hits.shift();
     } else if (m.k === 'boss') this.bossInfo = m.hp > 0 ? { hp: m.hp, max: m.max, remain: m.remain, at: now } : null;
-    else if (m.k === 'end') {
+    else if (m.k === 'bossLeap') {
+      this.landRing.position.set(m.x, 0.08, m.z);
+      this.landUntil = now + m.ms;
+    } else if (m.k === 'end') {
       this.endInfo = { result: m.result, why: m.why, killer: m.killer, top: m.top, until: now + m.next };
       this.bossInfo = null;
-    } else if (m.k === 'shot') this.shots.tracer(m.o, m.e, now);
-    else if (m.k === 'arrow') this.shots.arrow(m.id, m.o, m.d, m.v, m.range, now);
-    else if (m.k === 'arrowEnd') this.shots.arrowEnd(m.id, m.at, now);
+    // 내 총·화살은 쏠 때 이미 그렸다 (서버 알림은 늦게 와서 그사이 지나온 자리에서 나가 보인다) — 화살은 번호만 잇는다
+    } else if (m.k === 'shot') {
+      if (m.by !== this.host.myId()) this.shots.tracer(m.o, m.e, now);
+    } else if (m.k === 'arrow') {
+      if (m.by === this.host.myId()) this.shots.bindOwn(m.id);
+      else this.shots.arrow(m.id, m.o, m.d, m.v, m.range, now);
+    } else if (m.k === 'arrowEnd') this.shots.arrowEnd(m.id, m.at, now);
     else if (m.k === 'fired') {
       this.reloadAt = now;
       this.reloadMs = m.reloadMs;
@@ -257,7 +289,7 @@ export class BrClient implements ModeClient {
       this.wall.scale.set(zone.r, WALL_H, zone.r);
     }
     // 시체: 실외 것은 늘, 실내 것은 같은 건물·층일 때만
-    const spin = f.now / 400;
+    const spin = stepAngle(f.now / 400);
     this.corpses.forEach(({ c, person, loot }) => {
       person.root.visible = c.b < 0 || (c.b === f.me.b && c.l === f.me.l);
       loot.visible = person.root.visible && c.items.length > 0;
@@ -265,19 +297,66 @@ export class BrClient implements ModeClient {
     });
     this.items.update(f.now, f.me);
     this.props.update(f.now, f.me);
+    // 내 발사: 화면에 그린 내 자리(총구 높이)에서, 서버와 같은 방향, 벽에서 멈춤
+    if (this.ownShot) {
+      const { e, hitscan, speed } = this.ownShot;
+      this.ownShot = null;
+      const o:[number, number, number] = [ f.me.x, f.me.y + MUZZLE_Y, f.me.z ];
+      if (hitscan) this.shots.tracer(o, e, f.now);
+      else {
+        const len = Math.max(0.01, Math.hypot(e[0] - o[0], e[1] - o[1], e[2] - o[2]));
+        this.shots.ownArrow(o, [ (e[0] - o[0]) / len, (e[1] - o[1]) / len, (e[2] - o[2]) / len ], speed, len, f.now);
+      }
+    }
     this.shots.update(f.now);
     // 보스가 땅을 울리려 하면 바닥에 붉은 경고 원 (깜빡임)
     const boss = f.others.find((o) => o.k === Z_BOSS && (o.s & ST_SLAM));
     this.slamRing.visible = !!boss && Math.floor(f.now / 120) % 2 === 0;
+    // 보스가 날아오는 동안 착지 자리에 붉은 고리 (안쪽 원도 같이 깜빡여 피할 곳을 알린다)
+    const landing = f.now < this.landUntil;
+    this.landRing.visible = landing;
+    if (landing && !boss) {
+      this.slamRing.position.copy(this.landRing.position);
+      this.slamRing.visible = Math.floor(f.now / 120) % 2 === 0;
+    }
     if (boss) this.slamRing.position.set(boss.x, boss.y + 0.05, boss.z);
   }
 
-  acted(act:number, now:number) {
+  acted(act:number, now:number, aim:ActAim) {
     // 누른 순간 바로 휘두른다 (서버 확인을 기다리면 늦어 보인다) — 대기 시간은 서버와 같게
     if (act & ACT_MELEE && now >= this.localNextAt && !this.deadInfo) {
       this.localSwingAt = now;
       this.localNextAt = now + meleeStats(this.gear.pipe).cooldownMs;
     }
+    // 원거리도 이 화면에서 재장전을 잰다 (예약한 발사를 언제까지 붙잡을지)
+    const kind = heldRanged(this.gear);
+    if (!(act & ACT_RANGED)) return act;
+    // 재장전 중인 걸음에는 사격 비트를 빼고 보낸다 — 서버는 내가 쏜(그린) 그 걸음의 조준으로만 쏜다
+    if (!kind || aim.seq < this.localShotSeq || this.deadInfo) return act & ~ACT_RANGED; // eslint-disable-line no-bitwise
+    const st = rangedStats(kind, this.gear[kind]);
+    this.localShotReady = now + st.reloadMs;
+    this.localShotSeq = aim.seq + Math.round(st.reloadMs / 1000 / STEP);
+    // 이번 장면에서 화면에 그린 내 자리에서 바로 그린다 (frame에서 — 걸음 예측 자리는 화면보다 한 걸음 앞이다)
+    const c = Math.cos(aim.pitch);
+    const d = [ Math.sin(aim.f) * c, -Math.sin(aim.pitch), Math.cos(aim.f) * c ];
+    const o = [ aim.x, aim.y + MUZZLE_Y, aim.z ];
+    // 끝점(벽·땅 또는 사거리 끝)은 서버와 같은 걸음 자리에서 — 화면의 내 자리와 걸음 자리가 조금 달라도 조준선이 가리킨 곳에서 끝난다
+    const wall = castRay(this.host.sim, o[0], o[1], o[2], d[0], d[1], d[2], st.range, aim.b, aim.l);
+    this.ownShot = { e: [ o[0] + d[0] * wall, o[1] + d[1] * wall, o[2] + d[2] * wall ], hitscan: st.hitscan, speed: st.speed };
+    return act;
+  }
+
+  /** 든 원거리 무기 사거리 (없으면 기본) */
+  aimRange() {
+    const kind = heldRanged(this.gear);
+    return kind ? rangedStats(kind, this.gear[kind]).range * 0.98 : 0;
+  }
+
+  /** 근접은 다음 휘두르기까지, 원거리는 재장전이 끝날 때까지 */
+  pendingMs(bit:number, now:number) {
+    if (bit & ACT_RANGED) return Math.min(2000, Math.max(0, this.localShotReady - now));
+    if (bit & ACT_MELEE) return Math.min(1000, Math.max(0, this.localNextAt - now));
+    return 0;
   }
 
   look(st:number, gv:number, now:number, mine:boolean, key = 0):Look {
@@ -391,7 +470,8 @@ export class BrClient implements ModeClient {
     this.items.dispose();
     this.props.dispose();
     this.shots.dispose();
-    this.host.scene.remove(this.slamRing);
+    this.host.scene.remove(this.slamRing, this.landRing);
+    this.landRing.geometry.dispose();
     this.slamRing.geometry.dispose();
     this.lootGeo.dispose();
     this.lootMat.dispose();

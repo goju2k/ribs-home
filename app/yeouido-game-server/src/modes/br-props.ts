@@ -2,6 +2,9 @@ import { Circle, pickSpawn, PROP_HP, PROP_KINDS, PROP_WEIGHTS, PropRow } from 'y
 import { SimWorld } from 'yeouido-sim';
 
 /** 물건 찾기 격자 한 칸 (m) */
+/** 흩뿌리기: 옥상은 실내가 있는 건물 옥상뿐이라(지금 KB 한 채) 1%만 — 좁은 옥상에 쏟아지지 않게 */
+const SCATTER = { roof: 0.01, indoor: 0.1 };
+
 const CELL = 8;
 const key = (cx:number, cz:number) => (cx + 4096) * 8192 + (cz + 4096);
 
@@ -103,7 +106,7 @@ export class PropField {
   scatter(sim:SimWorld, c:Circle, n:number) {
     const added:Prop[] = [];
     for (let i = 0; i < n; i++) {
-      const s = pickSpawn(sim, c);
+      const s = pickSpawn(sim, c, Math.random, SCATTER);
       added.push(this.add(randomPropKind(), s.x, s.y, s.z, s.b, s.l, Math.random() * Math.PI * 2));
     }
     return added.map(propRow);
