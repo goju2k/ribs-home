@@ -41,6 +41,8 @@ export interface BrHudState {
   hits: { id: number; dmg: number; age: number; head: boolean; }[];
   /** 방금 맞음 (0~1, 화면 가장자리 붉게) */
   hurt: number;
+  /** 중독: 남은 초 (0 = 아님, 화면 가장자리 초록) */
+  poison: number;
   /** 내 장비 (칸마다 단계, 0 = 없음) */
   gear: Gear;
   /** 방금 주운 것 */
@@ -145,6 +147,13 @@ export class BrClient implements ModeClient {
 
   private landUntil = 0;
 
+  /** 보스 번호, 독 파이어볼을 모으는 동안 (초록으로 빛남) */
+  private bossId = 0;
+
+  private castUntil = 0;
+
+  private poisonUntil = 0;
+
   private gear:Gear = emptyGear();
 
   private got:{ id: number; text: string; at: number; }[] = [];
@@ -212,8 +221,10 @@ export class BrClient implements ModeClient {
     } else if (m.k === 'hurt') this.hurtAt = now;
     // wait < 0: 이번 판은 다시 시작 못 함 (보스전) — 곧 관전으로 바뀐다
     else if (m.k === 'dead') this.deadInfo = { by: m.by, until: m.wait < 0 ? -1 : now + m.wait };
-    else if (m.k === 'respawn') this.deadInfo = null;
-    else if (m.k === 'spectate') {
+    else if (m.k === 'respawn') {
+      this.deadInfo = null;
+      this.poisonUntil = 0;
+    } else if (m.k === 'spectate') {
       this.specInfo = { target: m.target, reason: m.reason };
       this.deadInfo = null;
     } else if (m.k === 'items') {
@@ -237,7 +248,13 @@ export class BrClient implements ModeClient {
       this.props.hit(m.id, -1, now);
       this.hits.push({ id: ++this.seq, dmg: m.dmg, at: now, head: false });
       if (this.hits.length > 6) this.hits.shift();
-    } else if (m.k === 'boss') this.bossInfo = m.hp > 0 ? { hp: m.hp, max: m.max, remain: m.remain, at: now } : null;
+    } else if (m.k === 'boss') {
+      this.bossId = m.id;
+      this.bossInfo = m.hp > 0 ? { hp: m.hp, max: m.max, remain: m.remain, at: now } : null;
+    } else if (m.k === 'bossCast') this.castUntil = now + m.ms;
+    else if (m.k === 'ball') this.shots.ball(m.id, m.o, m.v, m.g, now);
+    else if (m.k === 'ballEnd') this.shots.ballEnd(m.id, m.at, m.splash, now);
+    else if (m.k === 'poison') this.poisonUntil = now + m.ms;
     else if (m.k === 'bossLeap') {
       this.landRing.position.set(m.x, 0.08, m.z);
       this.landUntil = now + m.ms;
@@ -471,7 +488,8 @@ export class BrClient implements ModeClient {
       down: false,
       // 불탐(새벽 좀비) 주황, 맞음 빨강
       // 불탐(새벽 좀비) 주황, 땅 울리기 준비(보스) 빨강, 맞음 빨강
-      glow: (st & (ST_BURN | ST_SLAM)) ? (st & ST_BURN ? '#ff7a1a' : '#ff2010') : (st & ST_HURT) ? '#a01010' : null, // eslint-disable-line no-nested-ternary
+      // 보스가 독 파이어볼을 모으면 초록
+      glow: !mine && key === this.bossId && now < this.castUntil ? '#5aff3a' : (st & (ST_BURN | ST_SLAM)) ? (st & ST_BURN ? '#ff7a1a' : '#ff2010') : (st & ST_HURT) ? '#a01010' : null, // eslint-disable-line no-nested-ternary
     };
   }
 
@@ -550,6 +568,7 @@ export class BrClient implements ModeClient {
       feed: this.feed.map(({ id, text }) => ({ id, text })),
       hits: this.hits.map(({ id, dmg, at, head }) => ({ id, dmg, age: (now - at) / HIT_MS, head })),
       hurt: Math.max(0, 1 - (now - this.hurtAt) / 400),
+      poison: this.deadInfo ? 0 : Math.max(0, Math.ceil((this.poisonUntil - now) / 1000)),
       gear: this.gear,
       got: this.got.map(({ id, text }) => ({ id, text })),
       boss: this.bossInfo ? { ratio: this.bossInfo.hp / this.bossInfo.max, hp: this.bossInfo.hp, remain: Math.ceil(Math.max(0, this.bossInfo.remain - (now - this.bossInfo.at)) / 1000) } : null,

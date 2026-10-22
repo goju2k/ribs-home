@@ -5,12 +5,14 @@ import { BLOCK, Body, newBody } from 'yeouido-sim';
 import { ModeHost, ModeNpc, ModePlayer } from '../mode';
 
 /** 사람마다 근처(NEAR_R m)에 이만큼 있게 채운다 */
-const PER_PLAYER = 4;
+const PER_PLAYER = 8;
 const NEAR_R = 50;
 /** 전체 상한 (서버 비용) */
 const MAX_ZOMBIES = 350;
-/** 채우는 간격 (ms) */
-const SPAWN_EVERY_MS = 2000;
+/** 채우는 간격 (ms)·한 번에 사람마다 최대 마리, 생기자마자 그 사람을 쫓는 비율 */
+const SPAWN_EVERY_MS = 1200;
+const SPAWN_AT_ONCE = 2;
+const HUNT_RATE = 0.3;
 /** 사람이 이보다 멀면 치운다 (m) */
 const DESPAWN_R = 120;
 /** 생각(목표 찾기) 간격 (ms) */
@@ -264,26 +266,43 @@ export class Horde {
       this.zeds.forEach((z) => {
         if (!z.deadAt && !z.burnAt && Math.hypot(z.npc.body.x - p.body.x, z.npc.body.z - p.body.z) < NEAR_R) near++;
       });
-      // 한 번에 한 마리씩만 (몰려서 생기지 않게)
-      const want = Math.min(1, PER_PLAYER - near, MAX_ZOMBIES - this.zeds.size);
+      // 한 번에 조금씩 (몰려서 생기지 않게), 일부는 생기자마자 이 사람을 쫓는다
+      const want = Math.min(SPAWN_AT_ONCE, PER_PLAYER - near, MAX_ZOMBIES - this.zeds.size);
       for (let i = 0; i < want; i++) {
         const body = this.spot(p.body);
-        if (body) this.add(body, now);
+        const z = body ? this.add(body, now) : null;
+        if (z && Math.random() < HUNT_RATE) {
+          z.target = p;
+          z.lostAt = now;
+        }
       }
     });
   }
 
-  /** (x, z) 둘레 4~10m 땅에 n마리 (보스가 부름) */
+  /** (x, z) 둘레 4~10m 땅에 n마리 (보스가 부름) — 불려 온 좀비는 바로 가장 가까운 산 사람을 쫓는다 */
   summon(x:number, z:number, n:number, now:number) {
     const { collision } = this.host.sim;
     let made = 0;
+    let hunt:ModePlayer | null = null;
+    let best = Infinity;
+    [ ...this.host.players() ].forEach((p) => {
+      const d = Math.hypot(p.body.x - x, p.body.z - z);
+      if (this.hooks.alive(p) && p.body.b < 0 && d < best) {
+        best = d;
+        hunt = p;
+      }
+    });
     for (let i = 0; i < n * 10 && made < n && this.zeds.size < MAX_ZOMBIES; i++) {
       const a = Math.random() * Math.PI * 2;
       const d = 4 + Math.random() * 6;
       const px = x + Math.cos(a) * d;
       const pz = z + Math.sin(a) * d;
       if (collision.floorAt(px, pz, 1e4) === 0 && collision.at(px, pz) !== BLOCK.WATER && !collision.blocked(px, pz, 0.4)) {
-        this.add(newBody(px, 0, pz), now);
+        const zed = this.add(newBody(px, 0, pz), now);
+        if (hunt) {
+          zed.target = hunt;
+          zed.lostAt = now;
+        }
         made++;
       }
     }
@@ -293,7 +312,9 @@ export class Horde {
     const k = Math.random() < RUNNER_RATE ? Z_RUNNER : Z_WALKER;
     body.f = Math.random() * Math.PI * 2;
     const npc = this.host.addNpc(k, body);
-    this.zeds.set(npc.id, { npc, hp: ZOMBIES[k].hp, target: null, lostAt: 0, smell: NaN, thinkAt: now, attackAt: now + 1000, wander: 0, wanderAt: 0, burnAt: 0, deadAt: 0, swingUntil: 0, hurtUntil: 0 });
+    const z:Zed = { npc, hp: ZOMBIES[k].hp, target: null, lostAt: 0, smell: NaN, thinkAt: now, attackAt: now + 1000, wander: 0, wanderAt: 0, burnAt: 0, deadAt: 0, swingUntil: 0, hurtUntil: 0 };
+    this.zeds.set(npc.id, z);
+    return z;
   }
 
   /** 사람 근처 좀비 자리 */

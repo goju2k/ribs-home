@@ -4,6 +4,8 @@ import { pixelSnap } from '../../ui/pixel-snap';
 
 /** 총 궤적이 보이는 시간 (ms) */
 const TRACER_MS = 140;
+/** 독 파이어볼 터짐이 보이는 시간 (ms) */
+const BURST_MS = 450;
 /** 박힌 화살이 남아 있는 시간 (ms) */
 const STUCK_MS = 2500;
 
@@ -35,6 +37,17 @@ export class ShotFx {
 
   private tracerMat = new THREE.LineBasicMaterial({ color: '#ffe27a', transparent: true, opacity: 0.9 });
 
+  /** 독 파이어볼 (날아가는 것)·터짐 (커지며 사라지는 구) */
+  private balls = new Map<number, { mesh: THREE.Mesh; o: THREE.Vector3; v: THREE.Vector3; g: number; at: number; }>();
+
+  private bursts:{ mesh: THREE.Mesh; at: number; r: number; }[] = [];
+
+  private ballGeo = new THREE.IcosahedronGeometry(0.6, 0);
+
+  private ballMat = new THREE.MeshBasicMaterial({ color: '#7dff4a' });
+
+  private burstGeo = new THREE.SphereGeometry(1, 10, 6);
+
   private arrowGeo = new THREE.BoxGeometry(0.05, 0.05, 0.8);
 
   private arrowMat = new THREE.MeshLambertMaterial({ color: '#d9c38a', emissive: '#3a2a10' });
@@ -61,6 +74,27 @@ export class ShotFx {
     this.arrows.set(id, { mesh, o: new THREE.Vector3(...o), d: dir, v, range, g, at: now, stuckAt: 0 });
   }
 
+  ball(id:number, o:[number, number, number], v:[number, number, number], g:number, now:number) {
+    const mesh = new THREE.Mesh(this.ballGeo, this.ballMat);
+    mesh.position.set(...o);
+    this.scene.add(mesh);
+    pixelSnap.add(mesh);
+    this.balls.set(id, { mesh, o: new THREE.Vector3(...o), v: new THREE.Vector3(...v), g, at: now });
+  }
+
+  ballEnd(id:number, at:[number, number, number], r:number, now:number) {
+    const b = this.balls.get(id);
+    if (b) {
+      this.scene.remove(b.mesh);
+      this.balls.delete(id);
+    }
+    const mesh = new THREE.Mesh(this.burstGeo, new THREE.MeshBasicMaterial({ color: '#7dff4a', transparent: true, opacity: 0.55, depthWrite: false }));
+    mesh.position.set(...at);
+    mesh.scale.setScalar(0.3);
+    this.scene.add(mesh);
+    this.bursts.push({ mesh, at: now, r });
+  }
+
   /** 내 화살을 먼저 그린다 (지금 내 자리에서). 서버 알림이 오면 bindOwn으로 번호를 잇는다 */
   ownArrow(o:[number, number, number], d:[number, number, number], v:number, range:number, now:number, g = 0) {
     const id = -(++this.ownSeq);
@@ -85,6 +119,26 @@ export class ShotFx {
   }
 
   update(now:number) {
+    this.balls.forEach((b, id) => {
+      const t = (now - b.at) / 1000;
+      b.mesh.position.set(b.o.x + b.v.x * t, b.o.y + b.v.y * t - 0.5 * b.g * t * t, b.o.z + b.v.z * t);
+      // 서버의 터짐 알림을 못 받으면 오래 날다 사라진다
+      if (t > 8) {
+        this.scene.remove(b.mesh);
+        this.balls.delete(id);
+      }
+    });
+    this.bursts = this.bursts.filter((x) => {
+      const k = (now - x.at) / BURST_MS;
+      if (k >= 1) {
+        this.scene.remove(x.mesh);
+        (x.mesh.material as THREE.Material).dispose();
+        return false;
+      }
+      x.mesh.scale.setScalar(0.3 + (x.r - 0.3) * Math.sqrt(k));
+      (x.mesh.material as THREE.MeshBasicMaterial).opacity = 0.55 * (1 - k);
+      return true;
+    });
     this.tracers = this.tracers.filter((t) => {
       const k = (now - t.at) / TRACER_MS;
       if (k >= 1) {
@@ -118,6 +172,13 @@ export class ShotFx {
   dispose() {
     this.tracers.forEach((t) => this.scene.remove(t.line));
     this.arrows.forEach((a) => this.scene.remove(a.mesh));
+    this.balls.forEach((b) => this.scene.remove(b.mesh));
+    this.bursts.forEach((x) => this.scene.remove(x.mesh));
+    this.balls.clear();
+    this.bursts = [];
+    this.ballGeo.dispose();
+    this.ballMat.dispose();
+    this.burstGeo.dispose();
     this.tracers = [];
     this.arrows.clear();
     this.arrowGeo.dispose();

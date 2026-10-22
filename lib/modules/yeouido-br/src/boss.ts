@@ -13,12 +13,11 @@ export const RESULT_MS = 15_000;
 
 /**
  * 체력 = 기준 × 살아 있는 사람 수 × 난이도.
- * 기준: 20분 동안 아이템을 모아 평균 +3 장비라고 보면 한 사람이 내는 실제 초당 피해가 약 25 (파이프 +3 40/s·권총 +3 26/s를
- * 계속 맞히진 못하니 절반 남짓) → 한 사람이 약 90초 때려야 잡히는 2250.
- * 실제 판 기록(누가 몇 강으로 얼마나 때렸는지)이 쌓이면 이 기준을 다시 맞춘다 (10단계 밸런스 도구).
+ * 기준(슈터): 총 +3이면 한 사람이 실제로 내는 초당 피해가 약 60~90 (기관단총·돌격소총을 절반쯤 맞힌다고 보면) →
+ * 혼자 약 90~130초 쏴야 잡히는 8000. 실제 판 기록이 쌓이면 다시 맞춘다 (밸런스는 뒤로 미룸).
  */
-export const BOSS_HP_PER_PLAYER = 2250;
-export const BOSS_HP_MIN = 2250;
+export const BOSS_HP_PER_PLAYER = 8000;
+export const BOSS_HP_MIN = 8000;
 
 export const DIFFICULTY = { easy: 0.6, normal: 1, hard: 1.6 } as const;
 export type Difficulty = keyof typeof DIFFICULTY;
@@ -48,9 +47,33 @@ export const BOSS = {
   /** 도약: 날아가는 시간 (ms)·가장 높을 때 (m) — 날아오르는 순간 착지 자리에 경고 원 */
   leapMs: 1300,
   leapHeight: 18,
-  /** 좀비 부르기: 간격·마리 수 */
-  summonEveryMs: 25_000,
-  summonCount: 3,
+  /** 좀비 부르기: 간격·마리 수 (불려 온 좀비는 바로 가까운 사람을 쫓는다) */
+  summonEveryMs: 10_000,
+  summonCount: 6,
+} as const;
+
+/**
+ * 독 파이어볼 난사: 간격마다 예고(보스가 초록으로 빛나며 멈춤) 뒤 부채꼴로 여러 발. 포물선으로 날아가 사람·땅·벽에 닿으면 터진다.
+ * 터진 자리 반경 안 사람은 피해 + 중독(초당 피해, 시간). 멀리서 쏘는 사람(저격)도 노린다.
+ */
+export const BALL = {
+  everyMs: 5000,
+  windupMs: 700,
+  count: 7,
+  /** 부채꼴 전체 각 (라디안) */
+  fan: 0.6,
+  speed: 24,
+  gravity: 6,
+  /** 이 거리 안 사람만 노린다 (m) */
+  range: 140,
+  /** 공 크기(맞는 반지름)·터지는 반경 (m) */
+  radius: 0.6,
+  splash: 3,
+  damage: 10,
+  poisonDps: 4,
+  poisonMs: 5000,
+  /** 이보다 오래 날면 사라진다 (ms) */
+  lifeMs: 7000,
 } as const;
 
 /** 상태 비트: 땅 울리기 준비 중 (화면에 경고 원) — 좀비 비트(16 불탐)와 겹치지 않게 */

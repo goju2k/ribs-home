@@ -1,5 +1,5 @@
 import {
-  ACT_FARM, ACT_FIRE, ACT_RELOAD, BOSS_LIMIT_MS, BrClientMsg, Difficulty, DIFFICULTY, FARM, RESULT_MS, afterPickup, armorCut, BR_MODE, dayNight, breakPower, PROP_KINDS, PROP_RADIUS, rollDrops, rollZombieDrop, BrServerMsg, Corpse, CorpseItem, emptyGear, Gear, HP_MAX, HURT_MS, hpGauge, insideZone,
+  ACT_FARM, ACT_FIRE, ACT_RELOAD, BALL, BOSS_LIMIT_MS, BrClientMsg, Difficulty, DIFFICULTY, FARM, RESULT_MS, afterPickup, armorCut, BR_MODE, dayNight, breakPower, PROP_KINDS, PROP_RADIUS, rollDrops, rollZombieDrop, BrServerMsg, Corpse, CorpseItem, emptyGear, Gear, HP_MAX, HURT_MS, hpGauge, insideZone,
   ITEM_KINDS, insideZone as inZoneCircle, makeMatchPlan, pickRoofOf, MATCH_MS, MatchPlan, meleeReaches, pickSpawn, respawnDelay, rocketMul, shoeMul,
   canFire, falloff, fire, FireState, fullMag, heldWeapon, isWeapon, MOVING_SPEED, reload, shotDirs, WEAPON_KINDS, weaponStats,
   SPAWN_SHIELD_MS, ST_DEAD, ST_FROZEN, ST_HIDDEN, ST_HURT, ST_SHIELD, ST_SWING, zoneAt, zoneDps,
@@ -70,6 +70,9 @@ interface Fighter {
   hurtUntil: number;
   /** 전장 밖이면 다음 피해 시각 */
   zoneAt: number;
+  /** 중독: 끝나는 시각·다음 피해 시각 */
+  poisonUntil: number;
+  poisonAt: number;
   gear: Gear;
   /** 든 무기의 탄창 (입력 걸음 수로 잰다 — 입력이 몰려 와도 클라이언트와 같은 걸음에서 쏘게), 무기가 없으면 null */
   fire: FireState | null;
@@ -182,6 +185,16 @@ export class BattleRoyale implements GameMode {
         this.damage(p, Math.max(1, Math.round(dmg * DIFFICULTY[DIFF] * (1 - armorCut(f.gear.armor)))), null, now, '최종 보스');
       },
       summon: (x, z, n, now) => this.horde.summon(x, z, n, now),
+      // 독 파이어볼: 무적이면 안 들어가고, 피해는 갑옷이 줄인다. 중독은 시간을 새로 채운다 (초당 피해는 갑옷 무시)
+      poison: (p, dmg, now) => {
+        const f = this.fighters.get(p.id);
+        if (!f || f.respawnAt || now < f.shieldUntil) return;
+        this.damage(p, Math.max(1, Math.round(dmg * (1 - armorCut(f.gear.armor)))), null, now, '독 파이어볼');
+        if (f.respawnAt) return;
+        if (f.poisonUntil <= now) f.poisonAt = now + 1000;
+        f.poisonUntil = now + BALL.poisonMs;
+        this.send(p, { k: 'poison', ms: BALL.poisonMs, dps: BALL.poisonDps });
+      },
       leap: (x, z, ms) => this.broadcast({ k: 'bossLeap', x: Math.round(x * 10) / 10, z: Math.round(z * 10) / 10, ms }),
     });
   }
@@ -242,7 +255,7 @@ export class BattleRoyale implements GameMode {
   private revive(p:ModePlayer, body:Body, now:number) {
     p.body = body;
     p.queue.length = 0;
-    const f:Fighter = { hp: HP_MAX, respawnAt: 0, shieldUntil: now + SPAWN_SHIELD_MS, nextFarmAt: 0, farmPrev: false, farmFresh: false, fire: null, swingUntil: 0, hurtUntil: 0, zoneAt: 0, gear: emptyGear(), spectator: null, specFrom: 0, watch: 0, watchSent: false };
+    const f:Fighter = { hp: HP_MAX, respawnAt: 0, shieldUntil: now + SPAWN_SHIELD_MS, nextFarmAt: 0, farmPrev: false, farmFresh: false, fire: null, swingUntil: 0, hurtUntil: 0, zoneAt: 0, poisonUntil: 0, poisonAt: 0, gear: emptyGear(), spectator: null, specFrom: 0, watch: 0, watchSent: false };
     this.fighters.set(p.id, f);
     if (p.debug) {
       DEBUG_GEAR.forEach(([ k, v ]) => {
@@ -729,7 +742,8 @@ export class BattleRoyale implements GameMode {
       if (propLack > 0) this.broadcast({ k: 'propAdd', list: this.props.scatter(this.host.sim, zone, propLack) });
     }
     // 밤이면 좀비 (해 뜨면 불탄다)
-    this.horde.tick(now, dayNight(this.elapsed + DAY_OFFSET).night, all);
+    // 보스전 중에는 낮에도 좀비가 생긴다 (끝나면 해가 떠 있으면 불탄다)
+    this.horde.tick(now, dayNight(this.elapsed + DAY_OFFSET).night || this.boss.alive, all);
     const tA = performance.now();
     this.flyArrows(now);
     this.arrowMs = Math.max(this.arrowMs * 0.98, performance.now() - tA);
@@ -744,6 +758,11 @@ export class BattleRoyale implements GameMode {
         this.revive(p, this.spawnBody(), now);
         this.send(p, { k: 'respawn' });
         return;
+      }
+      // 중독: 1초마다 피해
+      if (!f.respawnAt && f.poisonUntil > now && now >= f.poisonAt) {
+        f.poisonAt += 1000;
+        this.damage(p, BALL.poisonDps, null, now, '독');
       }
       // 전장 밖: 1초마다 피해 (무적이어도 맞는다 — 원 밖에 버티는 걸 막는다)
       if (!f.respawnAt && !insideZone(zone, p.body.x, p.body.z)) {

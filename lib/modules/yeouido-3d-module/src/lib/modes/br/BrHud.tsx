@@ -55,7 +55,10 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
   const z = state.zone;
   return (
     <>
+      {/* 스코프는 HUD 맨 아래층 (스코프 중에도 체력·탄창이 보이게) */}
+      {state.weapon?.scoped && <Scope />}
       {state.hurt > 0 && <Hurt style={{ opacity: state.hurt }} />}
+      {state.poison > 0 && <Poison />}
       <Left>
         {z && (
           <ZoneBar $warn={z.outside > 0}>
@@ -71,6 +74,7 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
               <HpBar><HpFill style={{ width: `${state.hp}%`, background: hpColor(state.hp) }} /></HpBar>
               <span>{state.hp}</span>
               {state.shield && <Shield>무적</Shield>}
+              {state.poison > 0 && <PoisonTag>중독 {state.poison}초</PoisonTag>}
             </>
           )}
         </HpPanel>
@@ -89,22 +93,18 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
             </Slot>
           ))}
         </GearRow>
+        {state.weapon && (
+          <Ammo>
+            <b>{state.weapon.name} +{state.weapon.lv}</b>
+            {state.weapon.reload !== null ? (
+              <>
+                <span>재장전</span>
+                <HpBar><HpFill style={{ width: `${Math.round(state.weapon.reload * 100)}%`, background: '#ffd84a' }} /></HpBar>
+              </>
+            ) : <big>{state.weapon.ammo} / {state.weapon.mag}</big>}
+          </Ammo>
+        )}
       </Left>
-
-      {/* 스코프는 탄창 표시 아래에 깐다 (스코프 중에도 남은 탄이 보이게) */}
-      {state.weapon?.scoped && <Scope />}
-
-      {state.weapon && (
-        <Ammo>
-          <b>{state.weapon.name} +{state.weapon.lv}</b>
-          {state.weapon.reload !== null ? (
-            <>
-              <span>재장전</span>
-              <HpBar><HpFill style={{ width: `${Math.round(state.weapon.reload * 100)}%`, background: '#ffd84a' }} /></HpBar>
-            </>
-          ) : <big>{state.weapon.ammo} / {state.weapon.mag}</big>}
-        </Ammo>
-      )}
 
       {state.prompt && <Prompt>{state.prompt}</Prompt>}
 
@@ -272,19 +272,14 @@ const HitNum = styled.div<{ $head: boolean; }>(({ $head }) => ({
   pointerEvents: 'none',
 }));
 
-/** 탄창: 오른쪽 위 미니맵 아래 (터치 버튼·저작권 표시와 안 겹치게) */
+/** 탄창: 왼쪽 장비 줄 아래 (화면 크기·터치 버튼과 안 겹치게) */
 const Ammo = styled(Panel)({
-  position: 'absolute',
-  right: 10,
-  top: 146,
-  minWidth: 120,
-  padding: '6px 10px',
+  alignSelf: 'flex-start',
+  padding: '5px 10px',
   display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'flex-end',
-  gap: 4,
-  pointerEvents: 'none',
-  big: { fontSize: 22, color: '#f4f4f8' },
+  alignItems: 'center',
+  gap: 8,
+  big: { fontSize: 20, color: '#f4f4f8' },
 });
 
 /** 스코프: 가운데 원만 보이고 둘레는 검게 + 십자선 */
@@ -306,6 +301,16 @@ const Prompt = styled(Panel)({
   whiteSpace: 'nowrap',
   pointerEvents: 'none',
 });
+
+/** 중독: 가장자리 초록 (깜빡임) */
+const Poison = styled.div({
+  position: 'absolute',
+  inset: 0,
+  pointerEvents: 'none',
+  boxShadow: 'inset 0 0 60px 18px rgba(90, 255, 58, 0.35)',
+});
+
+const PoisonTag = styled.b({ color: '#7dff4a' });
 
 const Hurt = styled.div({
   position: 'absolute',
