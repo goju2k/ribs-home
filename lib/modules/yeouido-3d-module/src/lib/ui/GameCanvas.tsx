@@ -8,7 +8,7 @@ import { Minimap } from './minimap';
 import { snapToGrid } from './pixel-snap';
 
 import { createIndoorViews } from '../indoor/indoor-building';
-import { CamMode, InputState, nextMode, readLift, readMove } from '../input';
+import { CamMode, InputState, nextMode, readLift, readMove, ROTATE_ENABLED } from '../input';
 import { Look, MODE_CLIENTS, ModeClient, PLAIN_LOOK } from '../modes';
 import { GameClient, myName, NetState, Remote, serverUrl, Transport } from '../net/client';
 import { createPerson } from '../player/person';
@@ -17,8 +17,6 @@ import { buildCity } from '../world/build-city';
 import { SEE } from '../world/see-through';
 
 const PITCH = THREE.MathUtils.degToRad(48);
-/** Q/E 화면 회전 (잠시 뺌 — 다시 넣으려면 true) */
-const ROTATE_KEYS = false;
 /** 위 시점 확대 단계 비율: 도트 하나가 담는 m는 이 비율의 거듭제곱으로만 (연속으로 바뀌면 도트 크기가 매 장면 달라져 화면 전체가 일렁인다) */
 const ZOOM_STEP = 1.25;
 /** 확대 단계를 바꾸는 문턱 (단계 수): 바랄 확대가 지금 단계에서 이만큼 벗어나야 넘어간다 (경계에서 왔다 갔다 안 하게) */
@@ -400,8 +398,8 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
           if (inputRef.current.mode !== 'top' && usedMouse) lock();
         }
         // Q/E 화면 회전은 잠시 뺐다: 부드럽게 도는 동안 도트가 흘러내린다 (픽셀 퍼펙트) — 나중에 고쳐 다시 넣는다
-        if (ROTATE_KEYS && e.code === 'KeyQ') inputRef.current.rotate -= 1;
-        if (ROTATE_KEYS && e.code === 'KeyE') inputRef.current.rotate += 1;
+        if (ROTATE_ENABLED && e.code === 'KeyQ') inputRef.current.rotate -= 1;
+        if (ROTATE_ENABLED && e.code === 'KeyE') inputRef.current.rotate += 1;
         if (e.code === 'Equal' || e.code === 'NumpadAdd') inputRef.current.zoom *= 0.8;
         if (e.code === 'Minus' || e.code === 'NumpadSubtract') inputRef.current.zoom *= 1.25;
       } else inputRef.current.keys.delete(e.code);

@@ -4,6 +4,9 @@ export type CamMode = 'top' | 'chase' | 'fp';
 /** 3인칭(chase)은 조준선과 캐릭터가 안 맞아 잠시 뺐다 — 다시 넣으려면 여기에 'chase' */
 export const CAM_MODES:CamMode[] = [ 'top', 'fp' ];
 
+/** 화면 회전(Q/E·회전 버튼): 부드럽게 도는 동안 도트가 흘러내려(픽셀 퍼펙트) 잠시 뺐다 — 고친 뒤 true로 */
+export const ROTATE_ENABLED = false;
+
 /** 키보드·가상 조이스틱·버튼이 함께 쓰는 입력 상태 (React 렌더와 무관하게 매 프레임 읽는다) */
 export interface InputState {
   /** 지금 시점 */

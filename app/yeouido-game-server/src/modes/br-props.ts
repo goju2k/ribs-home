@@ -2,8 +2,8 @@ import { Circle, pickSpawn, PROP_HP, PROP_KINDS, PROP_WEIGHTS, PropRow } from 'y
 import { SimWorld } from 'yeouido-sim';
 
 /** 물건 찾기 격자 한 칸 (m) */
-/** 흩뿌리기: 옥상은 실내가 있는 건물 옥상뿐이라(지금 KB 한 채) 1%만 — 좁은 옥상에 쏟아지지 않게 */
-const SCATTER = { roof: 0.01, indoor: 0.1 };
+/** 흩뿌리기: 옥상은 실내가 있는 건물 옥상뿐이라(지금 5채) 3%만 — 좁은 옥상에 쏟아지지 않게 */
+const SCATTER = { roof: 0.03, indoor: 0.1 };
 
 const CELL = 8;
 const key = (cx:number, cz:number) => (cx + 4096) * 8192 + (cz + 4096);

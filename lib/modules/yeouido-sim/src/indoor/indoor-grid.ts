@@ -14,7 +14,7 @@ export const WALL_T = 0.14;
 
 /**
  * 들어갈 수 있는 건물 하나의 실내 판정 (그리기 없음 — 서버·클라이언트 공용).
- * 층마다 0.2m 격자를 처음 필요할 때 만든다 (한 층 수십 ms, 서버는 시작할 때 미리 만든다).
+ * 0.2m 격자를 처음 필요할 때 만든다 (한 층 수십 ms, 서버는 시작할 때 미리 만든다). 2층부터는 평면이 같아 하나를 같이 쓴다.
  */
 export class IndoorGrid {
 
@@ -67,14 +67,16 @@ export class IndoorGrid {
 
   /** 모든 층 격자를 미리 만든다 (서버 시작 시) */
   prepare() {
-    for (let l = 1; l <= this.levels; l++) this.grid(l);
+    for (let l = 1; l <= Math.min(2, this.levels); l++) this.grid(l);
   }
 
+  /** 1층(로비)만 다르고 2층부터는 평면이 같아 격자 하나를 같이 쓴다 (50~60층 건물도 시작이 빠르게) */
   private grid(level:number) {
-    let g = this.grids.get(level);
+    const key = level === 1 ? 1 : 2;
+    let g = this.grids.get(key);
     if (!g) {
-      g = this.buildGrid(this.plan.floor(level));
-      this.grids.set(level, g);
+      g = this.buildGrid(this.plan.floor(key));
+      this.grids.set(key, g);
     }
     return g;
   }

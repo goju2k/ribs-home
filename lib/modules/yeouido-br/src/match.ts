@@ -124,10 +124,10 @@ export function pickRoofOf(sim:SimWorld, g:SimWorld['indoors'][number], rand:() 
 }
 
 /**
- * 원 안의 무작위 시작 자리: 지상 80%, 옥상 10%, 실내 층 10% (실내가 원 안에 없으면 지상). 옥상·실내는 실내가 만들어진 건물만이라 지금은 KB 한 채 — 실내 건물이 늘면(9단계) 옥상 비율을 다시 올린다
+ * 원 안의 무작위 시작 자리: 지상 70%, 옥상 15%, 실내 층 15% (실내가 원 안에 없으면 지상). 옥상·실내는 실내가 만들어진 건물(지금 5채)만
  */
-/** share: 옥상·실내 비율 (사람 시작은 옥상 10%·실내 10%, 아이템·물건 흩뿌리기는 옥상이 좁아 1%만) */
-export function pickSpawn(sim:SimWorld, zone:Circle, rand:() => number = Math.random, share:{ roof: number; indoor: number; } = { roof: 0.1, indoor: 0.1 }):Spawn {
+/** share: 옥상·실내 비율 (사람 시작은 옥상 15%·실내 15%, 아이템·물건 흩뿌리기는 옥상이 좁아 3%만) */
+export function pickSpawn(sim:SimWorld, zone:Circle, rand:() => number = Math.random, share:{ roof: number; indoor: number; } = { roof: 0.15, indoor: 0.15 }):Spawn {
   const { collision, data } = sim;
   const inZone = (x:number, z:number) => Math.hypot(x - zone.cx, z - zone.cz) <= zone.r * 0.95
     && Math.abs(x) < data.half.w - 5 && Math.abs(z) < data.half.d - 5;

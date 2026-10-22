@@ -450,6 +450,7 @@ export function makePlan(spec:IndoorSpec, osmId:number, flat:number[], height:nu
     floor: (level) => {
       const hit = cache.get(level);
       if (hit) return hit;
+      // 2층부터는 층과 상관없이 같은 평면 (판정 격자도 하나를 같이 쓴다 — 층마다 달라지게 바꾸면 IndoorGrid.grid도 고칠 것)
       const body = level === 1 ? lobby(frame, doors, c) : office(frame, c);
       const plan:FloorPlan = { ...body, level, cabs: c.cabs, caps: c.caps, stairs: c.stairs, walls: [ ...c.walls, ...body.walls ] };
       cache.set(level, plan);

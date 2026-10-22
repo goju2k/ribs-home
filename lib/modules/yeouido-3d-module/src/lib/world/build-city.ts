@@ -10,7 +10,10 @@ interface P {
 }
 
 // 바닥 겹침 순서 — 정사영 카메라라 몇 cm 차이로 충분하다
-const Y = { ground: 0, water: 0.02, area: 0.04, bridge: 0.06, path: 0.08, rail: 0.09, road: 0.1, mark: 0.12 };
+// 물은 잔디·숲 등 땅 영역 위에 그린다: 이동 판정(충돌 격자)은 물 영역이면 어디든 막으니 화면에도 물로 보여야 한다
+// (예전엔 땅 영역이 위라 공원 연못·샛강이 잔디에 덮여 안 보이는데 막혔다). 다리·보도·도로는 물 위
+// 물줄기 띠(stream)는 물 영역과 겹치는 곳이 있어 1cm 위 (같은 높이면 겹친 곳이 줄무늬로 깜빡인다)
+const Y = { ground: 0, area: 0.03, water: 0.04, stream: 0.05, bridge: 0.06, path: 0.08, rail: 0.09, road: 0.1, mark: 0.12 };
 
 const AREA_COLORS:Record<string, string> = {
   water: '#4f8fcf',
@@ -54,9 +57,9 @@ function ribbon(pts:P[], width:number, y:number, offset = 0):THREE.BufferGeometr
     const r0 = right[i - 1];
     const l1 = left[i];
     const r1 = right[i];
-    // 위(+y)를 보도록 감는 순서
-    pos.push(l0.x, y, l0.z, r0.x, y, r0.z, l1.x, y, l1.z);
-    pos.push(r0.x, y, r0.z, r1.x, y, r1.z, l1.x, y, l1.z);
+    // 위(+y)에서 봤을 때 앞면이 되도록 감는 순서 (반대로 감으면 양면 재질이 뒷면으로 보고 아래에서 빛을 받은 듯 어둡게 칠한다)
+    pos.push(l0.x, y, l0.z, l1.x, y, l1.z, r0.x, y, r0.z);
+    pos.push(r0.x, y, r0.z, l1.x, y, l1.z, r1.x, y, r1.z);
   }
   return flatGeometry(pos);
 }
@@ -156,6 +159,9 @@ function windowTexture() {
 }
 
 const BAY = 3;
+/** 지붕만 있는 구조물: 지붕 가장자리 띠 높이·기둥 굵기 (m) */
+const CANOPY_EDGE = 0.5;
+const CANOPY_POST = 0.3;
 const FLOOR = 3.4;
 
 function buildBuildings(data:WorldData) {
@@ -171,9 +177,12 @@ function buildBuildings(data:WorldData) {
   let bi = -1;
   for (const row of data.buildings) {
     bi++;
-    const [ h, wallHex, roofHex ] = row;
+    const [ h, wallHex, roofHex, solid ] = row;
     const ring = toPoints(row, 4);
     if (ring.length < 3) continue;
+    // 지붕만 있는 구조물(정자·주유소 캐노피 등)은 이동 판정에서 지나갈 수 있으니 벽 없이: 지붕 가장자리 띠 + 모서리 기둥만
+    // (벽을 그리면 보이는 벽을 통과한다)
+    const y0 = solid ? 0 : Math.max(0, h - CANOPY_EDGE);
     color.setHex(wallHex);
     let u = 0;
     for (let i = 0; i < ring.length; i++) {
@@ -192,12 +201,12 @@ function buildBuildings(data:WorldData) {
       }
       const u0 = u / BAY;
       const u1 = (u + len) / BAY;
-      const v1 = h / FLOOR;
+      const v1 = solid ? h / FLOOR : 0;
       // 법선 방향에 맞게 감기: (b-a)×up = (-dz, dx) 와 같은 쪽이면 a,b 순서 그대로
       const sameSide = nx * -(b.z - a.z) + nz * (b.x - a.x) > 0;
       const quad = sameSide
-        ? [[ a, 0, u0, 0 ], [ b, 0, u1, 0 ], [ b, h, u1, v1 ], [ a, 0, u0, 0 ], [ b, h, u1, v1 ], [ a, h, u0, v1 ]]
-        : [[ a, 0, u0, 0 ], [ b, h, u1, v1 ], [ b, 0, u1, 0 ], [ a, 0, u0, 0 ], [ a, h, u0, v1 ], [ b, h, u1, v1 ]];
+        ? [[ a, y0, u0, 0 ], [ b, y0, u1, 0 ], [ b, h, u1, v1 ], [ a, y0, u0, 0 ], [ b, h, u1, v1 ], [ a, h, u0, v1 ]]
+        : [[ a, y0, u0, 0 ], [ b, h, u1, v1 ], [ b, y0, u1, 0 ], [ a, y0, u0, 0 ], [ a, h, u0, v1 ], [ b, h, u1, v1 ]];
       for (const [ p, y, uu, vv ] of quad as [P, number, number, number][]) {
         wallPos.push(p.x, y, p.z);
         wallNor.push(nx, 0, nz);
@@ -206,6 +215,23 @@ function buildBuildings(data:WorldData) {
         wallBid.push(bi + 1);
       }
       u += len;
+    }
+    if (!solid && y0 > 0) {
+      // 모서리 기둥 (안쪽으로 조금 들여서)
+      const cx = ring.reduce((t, q) => t + q.x, 0) / ring.length;
+      const cz = ring.reduce((t, q) => t + q.z, 0) / ring.length;
+      for (const q of ring) {
+        const dl = Math.hypot(cx - q.x, cz - q.z) || 1;
+        // 지붕 조각과 합치려면 같은 형식(인덱스 없음)이어야 한다
+        const post = new THREE.BoxGeometry(CANOPY_POST, y0, CANOPY_POST).translate(q.x + ((cx - q.x) / dl) * 0.3, y0 / 2, q.z + ((cz - q.z) / dl) * 0.3).toNonIndexed();
+        const n = post.attributes.position.count;
+        const cols = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) cols.set([ color.r, color.g, color.b ], i * 3);
+        post.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+        post.deleteAttribute('uv');
+        post.setAttribute('bid', new THREE.BufferAttribute(new Float32Array(n).fill(bi + 1), 1));
+        roofGeos.push(post);
+      }
     }
     try {
       const roof = polygonGeometry([ row.slice(4) ], h);
@@ -290,7 +316,7 @@ export function buildCity(data:WorldData):THREE.Group {
     const mesh = mergedMesh(geos, flatMat(AREA_COLORS[kind] ?? '#cccccc'), kind);
     if (mesh) city.add(mesh);
   });
-  const streams = (data.areas.waterLine ?? []).map((row) => ribbon(toPoints(row, 1), row[0], Y.water));
+  const streams = (data.areas.waterLine ?? []).map((row) => ribbon(toPoints(row, 1), row[0], Y.stream));
   const streamMesh = mergedMesh(streams, flatMat(AREA_COLORS.water), 'streams');
   if (streamMesh) city.add(streamMesh);
 

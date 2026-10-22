@@ -4,7 +4,7 @@ import { MouseEvent, PointerEvent, useEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
 
 import { useGalmuriFont } from './hooks/use-galmuri-font';
-import { CamMode, capturePointer, createInput, nextMode } from './input';
+import { CamMode, capturePointer, createInput, nextMode, ROTATE_ENABLED } from './input';
 import { MODE_HUDS } from './modes/huds';
 import { GameCanvas, GameStatus } from './ui/GameCanvas';
 import { Panel, PIXEL_FONT, PixelButton } from './ui/pixel';
@@ -104,30 +104,35 @@ export function Yeouido3DPage() {
             aria-label='시점 바꾸기'
           >시점 {MODE_LABEL[status.mode]}
           </PixelButton>
+          {/* 화면 회전은 잠시 뺐다 (ROTATE_ENABLED) */}
+          {ROTATE_ENABLED && (
+            <>
+              <PixelButton
+                {...tap(() => {
+                  inputRef.current.rotate -= 1;
+                })}
+                aria-label='왼쪽으로 회전'
+              >⟲
+              </PixelButton>
+              <PixelButton
+                {...tap(() => {
+                  inputRef.current.rotate += 1;
+                })}
+                aria-label='오른쪽으로 회전'
+              >⟳
+              </PixelButton>
+            </>
+          )}
           <PixelButton
             {...tap(() => {
-              inputRef.current.rotate -= 1;
-            })}
-            aria-label='왼쪽으로 회전'
-          >⟲
-          </PixelButton>
-          <PixelButton
-            {...tap(() => {
-              inputRef.current.rotate += 1;
-            })}
-            aria-label='오른쪽으로 회전'
-          >⟳
-          </PixelButton>
-          <PixelButton
-            {...tap(() => {
-              inputRef.current.zoom *= 0.75;
+              inputRef.current.zoom *= 0.8; // 확대 한 단계 (ZOOM_STEP)
             })}
             aria-label='확대'
           >＋
           </PixelButton>
           <PixelButton
             {...tap(() => {
-              inputRef.current.zoom *= 1.33;
+              inputRef.current.zoom *= 1.25; // 축소 한 단계
             })}
             aria-label='축소'
           >－
