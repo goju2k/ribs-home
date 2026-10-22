@@ -383,12 +383,15 @@ export class BattleRoyale implements GameMode {
     if (st.noise) this.horde.alert(body, st.noise, p, now);
     if (st.hitscan) {
       const targets = this.shotTargets(now, p.lagMs);
+      // 맞은 곳 종류 (화면의 타격 효과용): 0 벽·땅, 1 몸, 2 머리, 3 허공
+      const ht:number[] = [];
       const es = dirs.map((dir) => {
         const { end, target, head, dist } = hitscan(this.host.sim, o, dir, st.range, body.b, body.l, targets, p.id);
         if (target) target.hit(Math.max(1, Math.round(st.damage * falloff(st, dist) * (head ? st.headMul : 1))), p, head);
+        ht.push(target ? (head ? 2 : 1) : dist < st.range - 0.05 ? 0 : 3); // eslint-disable-line no-nested-ternary
         return at3(...end);
       });
-      this.sendNear(body.x, body.z, { k: 'shot', by: p.id, w: WEAPON_KINDS.indexOf(kind), o: at3(...o), es });
+      this.sendNear(body.x, body.z, { k: 'shot', by: p.id, w: WEAPON_KINDS.indexOf(kind), o: at3(...o), es, ht });
       return;
     }
     dirs.forEach((d) => {

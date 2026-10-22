@@ -232,6 +232,8 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 6000);
     // 3인칭·1인칭용 원근 카메라 (멀리는 안개로 덮고 가시거리에서 자른다)
     const persp = new THREE.PerspectiveCamera(FP_FOV, 1, 0.1, FAR);
+    // 장면에 넣어 둔다: 모드가 카메라 자식으로 붙인 것(1인칭 손에 든 총)이 그려지게
+    scene.add(persp);
     // 확인용(?debug): 카메라·렌더러도 들여다볼 수 있게
     const dbg = (window as unknown as { y3d?: Record<string, unknown>; }).y3d;
     if (dbg) Object.assign(dbg, { camera, persp, renderer });
@@ -549,7 +551,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       if (net.modeName !== modeName) {
         modeClient?.dispose();
         modeName = net.modeName;
-        modeClient = modeName && MODE_CLIENTS[modeName] ? MODE_CLIENTS[modeName]({ scene, sim, send: (d) => net.sendMode(d), myId: () => net.myId, myName: () => myName() }) : null;
+        modeClient = modeName && MODE_CLIENTS[modeName] ? MODE_CLIENTS[modeName]({ scene, sim, send: (d) => net.sendMode(d), myId: () => net.myId, myName: () => myName(), camera: persp }) : null;
         if (dbg) dbg.mode = modeClient;
       }
       net.takeModeMessages().forEach((d) => modeClient?.receive(d, now));

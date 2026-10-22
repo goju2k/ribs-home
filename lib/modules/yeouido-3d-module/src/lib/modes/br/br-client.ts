@@ -8,7 +8,8 @@ import { castRay, STEP } from 'yeouido-sim';
 
 import { ITEM_COLORS, ItemMeshes } from './item-meshes';
 import { PropMeshes } from './prop-meshes';
-import { ShotFx } from './shot-fx';
+import { HIT_AIR, HIT_BODY, HIT_HEAD, HIT_SURFACE, ShotFx } from './shot-fx';
+import { ViewGun } from './view-gun';
 
 import { createPerson, Person } from '../../player/person';
 import { pixelSnap, stepAngle } from '../../ui/pixel-snap';
@@ -26,6 +27,8 @@ const FEED_MS = 6000;
 const HIT_MS = 700;
 /** 다른 사람 휘두르는 동작 길이 (ms) — 무기마다 조금 다르지만 화면용이라 하나로 */
 const REMOTE_SWING_MS = 320;
+/** 맞힘 표시(조준선 X)가 보이는 시간 (ms) */
+const HIT_MARK_MS = 180;
 /** 주운 것 알림 시간 (ms) */
 const GOT_MS = 2500;
 
@@ -39,6 +42,8 @@ export interface BrHudState {
   /** 죽었으면: 누구에게(null = 전장), 다시 시작까지 초 */
   dead: { by: string | null; wait: number; } | null;
   feed: { id: number; text: string; }[];
+  /** 맞힘 표시 (조준선 X, 0~1 사라지는 정도·머리) */
+  hitMark: { age: number; head: boolean; } | null;
   /** 방금 내가 준 피해 (사라지는 숫자, 머리면 크게) */
   hits: { id: number; dmg: number; age: number; head: boolean; }[];
   /** 방금 맞음 (0~1, 화면 가장자리 붉게) */
@@ -50,7 +55,8 @@ export interface BrHudState {
   /** 방금 주운 것 */
   got: { id: number; text: string; }[];
   /** 든 무기: 이름·단계, 탄창, 재장전 진행 0~1(재장전 중이 아니면 null), 스코프 중인지·스코프가 있는지 */
-  weapon: { kind: WeaponKind; name: string; lv: number; ammo: number; mag: number; reload: number | null; scoped: boolean; scope: boolean; } | null;
+  /** reloadFrom·reloadTo: 재장전 시작·끝 시각 (performance.now 기준 — 막대를 화면이 직접 애니메이션) */
+  weapon: { kind: WeaponKind; name: string; lv: number; ammo: number; mag: number; reload: number | null; reloadFrom: number; reloadTo: number; scoped: boolean; scope: boolean; } | null;
   /** 좌클릭으로 할 수 있는 것 (앞쪽 가까이) */
   prompt: string | null;
   /** 누름을 모드에 먼저 (터치 버튼: 스코프 켜기·끄기) */
@@ -123,7 +129,12 @@ export class BrClient implements ModeClient {
   private persp = false;
 
   /** 이번 장면에 그릴 내 발사 (화면의 내 자리에서): 알마다 끝, 화살이면 방향·속도·낙차 */
-  private ownShot:{ kind: WeaponKind; es: [number, number, number][]; dirs: [number, number, number][]; hitscan: boolean; speed: number; g: number; range: number; } | null = null;
+  private ownShot:{ kind: WeaponKind; o: [number, number, number]; es: [number, number, number][]; dirs: [number, number, number][]; hitscan: boolean; speed: number; g: number; range: number; } | null = null;
+
+  /** 맞힘 표시 (조준선 X): 서버가 맞혔다고 알린 시각·머리인지 */
+  private hitMarkAt = -1e9;
+
+  private hitMarkHead = false;
 
   private prompt:string | null = null;
 
@@ -136,6 +147,9 @@ export class BrClient implements ModeClient {
   private props:PropMeshes;
 
   private shots:ShotFx;
+
+  /** 1인칭 손에 든 총 */
+  private viewGun:ViewGun;
 
   private bossInfo:{ hp: number; max: number; remain: number; at: number; } | null = null;
 
@@ -186,6 +200,7 @@ export class BrClient implements ModeClient {
     this.items = new ItemMeshes(host.scene);
     this.props = new PropMeshes(host.scene);
     this.shots = new ShotFx(host.scene);
+    this.viewGun = new ViewGun(host.camera);
     this.slamRing = new THREE.Mesh(
       new THREE.CircleGeometry(BOSS.slamRange, 48).rotateX(-Math.PI / 2),
       new THREE.MeshBasicMaterial({ color: '#ff3b30', transparent: true, opacity: 0.25, depthWrite: false }),
@@ -234,6 +249,8 @@ export class BrClient implements ModeClient {
     else if (m.k === 'notice') this.pushFeed(m.text, now);
     else if (m.k === 'kill') this.pushFeed(m.killer ? `${m.killer} ▶ ${m.victim}` : `${m.victim} 전장 밖에서 쓰러짐`, now);
     else if (m.k === 'hit') {
+      this.hitMarkAt = now;
+      this.hitMarkHead = !!m.head;
       this.hits.push({ id: ++this.seq, dmg: m.dmg, at: now, head: !!m.head });
       if (this.hits.length > 6) this.hits.shift();
     } else if (m.k === 'hurt') this.hurtAt = now;
@@ -289,7 +306,7 @@ export class BrClient implements ModeClient {
       if (m.by !== this.host.myId()) {
         const kind = WEAPON_KINDS[m.w] ?? 'pistol';
         this.shots.flash(m.o, kind, now);
-        m.es.forEach((e) => this.shots.tracer(m.o, e, now, kind));
+        m.es.forEach((e, i) => this.shots.impact(e, m.o, kind, m.ht?.[i] ?? HIT_SURFACE, now));
       }
     } else if (m.k === 'arrow') {
       if (m.by === this.host.myId()) this.shots.bindOwn(m.id);
@@ -316,6 +333,28 @@ export class BrClient implements ModeClient {
     this.reloadFrom = 0;
     this.reloadTo = 0;
     this.scoped = false;
+  }
+
+  /** 내 화면에 보이는 사람·NPC 중 광선이 먼저 닿는 것 (세운 원기둥, 서버 판정과 같은 모양) — 맞은 자리·머리인지 */
+  private rayOthers(o:[number, number, number], d:[number, number, number], maxT:number, others:ModeFrame['others']) {
+    let best:{ t: number; at: [number, number, number]; head: boolean; } | null = null;
+    const hl2 = d[0] * d[0] + d[2] * d[2];
+    if (hl2 < 1e-6) return null;
+    others.forEach((p) => {
+      if (p.s & ST_DEAD) return;
+      const boss = p.k === Z_BOSS;
+      const r = boss ? BOSS.radius : 0.4;
+      const h = boss ? BOSS.height : 1.8;
+      const t = ((p.x - o[0]) * d[0] + (p.z - o[2]) * d[2]) / hl2;
+      const dd = Math.hypot(o[0] + d[0] * t - p.x, o[2] + d[2] * t - p.z);
+      if (dd > r) return;
+      const enter = t - Math.sqrt(r * r - dd * dd) / Math.sqrt(hl2);
+      if (enter < 0 || enter > maxT || (best && enter >= best.t)) return;
+      const y = o[1] + d[1] * enter;
+      if (y < p.y || y > p.y + h) return;
+      best = { t: enter, at: [ o[0] + d[0] * enter, y, o[2] + d[2] * enter ], head: y >= p.y + h * 0.82 };
+    });
+    return best as { t: number; at: [number, number, number]; head: boolean; } | null;
   }
 
   private myName() {
@@ -412,7 +451,7 @@ export class BrClient implements ModeClient {
     this.props.update(f.now, f.me);
     // 내 발사: 화면에 그린 내 자리(총구 높이)에서, 서버와 같은 방향, 벽에서 멈춤
     if (this.ownShot) {
-      const { kind, es, dirs, hitscan, speed, g, range } = this.ownShot;
+      const { kind, o: so, es, dirs, hitscan, speed, g, range } = this.ownShot;
       this.ownShot = null;
       const o:[number, number, number] = [ f.me.x, f.me.y + MUZZLE_Y, f.me.z ];
       // 1인칭: 총구를 눈앞 가운데가 아니라 오른쪽 아래·조금 앞에 (불꽃·총알이 조준선을 가리지 않게) — 끝점은 그대로라 조준선으로 모인다
@@ -423,12 +462,23 @@ export class BrClient implements ModeClient {
         o[2] += cf * FP_MUZZLE.forward + sf * FP_MUZZLE.right;
         o[1] -= FP_MUZZLE.down;
       }
+      // 1인칭: 손에 든 총이 튀고 총구에서 불꽃 (화면 오른쪽 아래), 위 시점: 몸 앞 총구 불꽃
+      if (f.persp) this.viewGun.fire(kind, f.now);
       if (hitscan) {
-        this.shots.flash(o, kind, f.now, f.persp ? FP_MUZZLE.flash : 1);
-        es.forEach((e) => this.shots.tracer(o, e, f.now, kind));
+        if (!f.persp) this.shots.flash(o, kind, f.now);
+        // 맞은 자리: 내 화면에 보이는 사람·좀비·보스에 먼저 닿으면 그 자리(피), 아니면 벽·땅(파편), 사거리 끝이면 없음 — 서버 확인을 기다리지 않고 바로
+        dirs.forEach((d, i) => {
+          const wall = Math.hypot(es[i][0] - so[0], es[i][1] - so[1], es[i][2] - so[2]);
+          const hit = this.rayOthers(so, d, wall, f.others);
+          if (hit) this.shots.impact(hit.at, so, kind, hit.head ? HIT_HEAD : HIT_BODY, f.now);
+          else this.shots.impact(es[i], so, kind, wall < range - 0.05 ? HIT_SURFACE : HIT_AIR, f.now);
+        });
       } else dirs.forEach((d) => this.shots.ownArrow(o, d, speed, range, f.now, g));
     }
     this.shots.update(f.now);
+    // 손에 든 총: 1인칭에서 무기가 있고 스코프·죽음·관전이 아닐 때
+    const wn = this.weaponNow();
+    this.viewGun.update(f.now, wn?.w ?? null, f.persp && !this.scoped && !this.deadInfo && !this.specInfo, f.now < this.reloadTo);
     // 보스가 땅을 울리려 하면 바닥에 붉은 경고 원 (깜빡임)
     const boss = f.others.find((o) => o.k === Z_BOSS && (o.s & ST_SLAM));
     this.slamRing.visible = !!boss && Math.floor(f.now / 120) % 2 === 0;
@@ -490,7 +540,7 @@ export class BrClient implements ModeClient {
       const wall = castRay(this.host.sim, o[0], o[1], o[2], d[0], d[1], d[2], st.range, aim.b, aim.l);
       return [ o[0] + d[0] * wall, o[1] + d[1] * wall, o[2] + d[2] * wall ];
     });
-    this.ownShot = { kind: wn.w, es, dirs, hitscan: st.hitscan, speed: st.speed, g: st.gravity, range: st.range };
+    this.ownShot = { kind: wn.w, o: [ o[0], o[1], o[2] ], es, dirs, hitscan: st.hitscan, speed: st.speed, g: st.gravity, range: st.range };
     out = act;
     return out;
   }
@@ -632,6 +682,7 @@ export class BrClient implements ModeClient {
       watch: this.watch,
       feed: this.feed.map(({ id, text }) => ({ id, text })),
       hits: this.hits.map(({ id, dmg, at, head }) => ({ id, dmg, age: (now - at) / HIT_MS, head })),
+      hitMark: now - this.hitMarkAt < HIT_MARK_MS ? { age: (now - this.hitMarkAt) / HIT_MARK_MS, head: this.hitMarkHead } : null,
       hurt: Math.max(0, 1 - (now - this.hurtAt) / 400),
       poison: this.deadInfo ? 0 : Math.max(0, Math.ceil((this.poisonUntil - now) / 1000)),
       gear: this.gear,
@@ -667,6 +718,8 @@ export class BrClient implements ModeClient {
       ammo: reloading ? this.fs.ammo : ammo,
       mag: wn.st.mag,
       reload: reloading ? Math.min(1, (now - this.reloadFrom) / Math.max(1, this.reloadTo - this.reloadFrom)) : null,
+      reloadFrom: this.reloadFrom,
+      reloadTo: this.reloadTo,
       scoped: this.scoped,
       scope: wn.st.scope > 0,
     };
@@ -679,6 +732,7 @@ export class BrClient implements ModeClient {
     this.items.dispose();
     this.props.dispose();
     this.shots.dispose();
+    this.viewGun.dispose();
     this.host.scene.remove(this.slamRing, this.landRing, this.exitRing, this.exitBeam);
     this.exitRing.geometry.dispose();
     this.exitBeam.geometry.dispose();

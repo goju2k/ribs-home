@@ -49,6 +49,8 @@ export interface ModeHostClient {
   myId: () => number;
   /** 내 이름 */
   myName: () => string;
+  /** 원근(1인칭) 카메라 — 장면에 들어 있어 자식으로 붙이면 화면에 붙어 보인다 (손에 든 총 등) */
+  camera: THREE.PerspectiveCamera;
 }
 
 /** 행동을 보낸 그 걸음의 내 자리·조준 (예측한 값 — 서버도 같은 걸음에서 같은 자리) */

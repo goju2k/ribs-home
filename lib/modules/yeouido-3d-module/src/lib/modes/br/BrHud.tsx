@@ -1,5 +1,5 @@
 /* eslint-disable no-bitwise -- 행동 비트 */
-import { MouseEvent, MutableRefObject, PointerEvent } from 'react';
+import { MouseEvent, MutableRefObject, PointerEvent, useRef } from 'react';
 import styled from 'styled-components';
 import { ACT_FARM, ACT_FIRE, ACT_RELOAD, isConsumable, isWeapon, ITEM_KINDS, ITEM_NAMES, STAGES } from 'yeouido-br';
 
@@ -107,7 +107,7 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
             {state.weapon.reload !== null ? (
               <>
                 <span>재장전</span>
-                <HpBar><HpFill style={{ width: `${Math.round(state.weapon.reload * 100)}%`, background: '#ffd84a' }} /></HpBar>
+                <HpBar><ReloadFill key={state.weapon.reloadFrom} from={state.weapon.reloadFrom} to={state.weapon.reloadTo} /></HpBar>
               </>
             ) : <big>{state.weapon.ammo} / {state.weapon.mag}</big>}
           </Ammo>
@@ -127,6 +127,8 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
           {state.got.map((g) => <div key={g.id}>{g.text}</div>)}
         </Got>
       )}
+
+      {state.hitMark && <HitMark $head={state.hitMark.head} style={{ opacity: 1 - state.hitMark.age }}>✕</HitMark>}
 
       {state.hits.map((h) => (
         <HitNum key={h.id} $head={h.head} style={{ transform: `translate(-50%, ${-30 - h.age * 40}px)`, opacity: 1 - h.age }}>{h.head ? '머리 ' : ''}-{h.dmg}</HitNum>
@@ -236,6 +238,24 @@ const HpBar = styled.div({ width: 110, height: 8, background: '#0b0e22', boxShad
 
 const HpFill = styled.div({ height: '100%', transition: 'width 120ms steps(4)' });
 
+/**
+ * 재장전 막대: HUD는 0.25초마다만 다시 그려 계단처럼 찼다 → 재장전마다 새로 만들고(key) 브라우저 애니메이션으로 남은 시간 동안 매끄럽게.
+ * 시작 시점(지난 시간)은 처음 그릴 때 한 번만 잰다 (다시 그려도 애니메이션이 이어지게)
+ */
+function ReloadFill({ from, to }:{ from: number; to: number; }) {
+  const delay = useRef(-(performance.now() - from)).current;
+  return <ReloadBarFill style={{ animationDuration: `${Math.max(1, to - from)}ms`, animationDelay: `${delay}ms` }} />;
+}
+
+const ReloadBarFill = styled.div({
+  height: '100%',
+  width: '100%',
+  background: '#ffd84a',
+  transformOrigin: 'left',
+  animation: 'brFill linear forwards',
+  '@keyframes brFill': { from: { transform: 'scaleX(0)' }, to: { transform: 'scaleX(1)' } },
+});
+
 const Shield = styled.span({ color: '#7fd0ff', animation: 'brBlink 0.5s steps(2) infinite', ...BLINK });
 
 const GearRow = styled.div({ display: 'flex', gap: 4, flexWrap: 'wrap' });
@@ -279,6 +299,20 @@ const HitNum = styled.div<{ $head: boolean; }>(({ $head }) => ({
   fontSize: $head ? 20 : 16,
   color: $head ? '#ff5a4a' : '#ffd84a',
   textShadow: '2px 2px 0 #0b0e22',
+  pointerEvents: 'none',
+}));
+
+/** 맞힘 표시: 조준선 자리에 X (머리면 빨강) */
+const HitMark = styled.div<{ $head: boolean; }>(({ $head }) => ({
+  position: 'absolute',
+  left: '50%',
+  top: '50%',
+  transform: 'translate(-50%, -50%)',
+  fontSize: $head ? 30 : 24,
+  lineHeight: 1,
+  fontWeight: 700,
+  color: $head ? '#ff4a3a' : '#f4f4f8',
+  textShadow: '0 0 2px #0b0e22, 0 0 2px #0b0e22',
   pointerEvents: 'none',
 }));
 
