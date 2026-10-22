@@ -14,7 +14,13 @@ import { createRtcLink, rtcAvailable, RtcLink } from './rtc';
 /** 한 월드에 동시에 들어오는 최대 인원 (넘으면 대기열). 개발용 접속(?debug)은 예외 */
 const MAX_PLAYERS = Number(process.env.MAX_PLAYERS) || 300;
 
-/** 입력 예산: 실제 시간만큼만 걸음을 처리한다 (빨리 보내도 더 빨리 못 감 = 스피드핵 방지). 밀린 것은 이만큼까지 몰아서 */
+/**
+ * 입력 예산: 실제로 흐른 시간만큼만 걸음을 처리한다 (빨리 보내도 더 빨리 못 감 = 스피드핵 방지).
+ * 예산은 MAX_BUDGET(1초)까지 모아 두고 버리지 않는다 — 서버·브라우저가 잠깐 멈췄다 밀린 입력이 한꺼번에 와도 다 따라잡는다.
+ * (예전엔 0.2초까지만 모아 넘는 만큼을 버려서, 한 번 멈추면 밀린 입력이 영영 안 줄어 그만큼 늘 늦게 처리됐다 — 0.5초 멈춤 두 번에 0.6초 지연이 계속)
+ * 한 틱에는 MAX_BURST까지만 처리해 밀린 것을 몇 틱에 나눠 푼다
+ */
+const MAX_BUDGET = SIM_HZ;
 const MAX_BURST = SIM_HZ / 5;
 /** 이보다 많이 밀리면 오래된 입력을 버린다 (1초) */
 const MAX_QUEUE = SIM_HZ;
@@ -418,8 +424,8 @@ export class World {
     this.lastAt = t0;
     const now = Date.now();
     this.players.forEach((p) => {
-      p.budget = Math.min(MAX_BURST, p.budget + gain);
-      while (p.budget >= 1 && p.queue.length) {
+      p.budget = Math.min(MAX_BUDGET, p.budget + gain);
+      for (let n = 0; n < MAX_BURST && p.budget >= 1 && p.queue.length; n++) {
         const [ seq, mx, mz, run, lift, face, act, pitch ] = p.queue.shift()!;
         // 움직일 수 없는 상태(모드가 정함: 예 — 죽음)면 입력은 받아 순번만 넘긴다 (클라이언트 예측도 같은 비트를 보고 멈춘다)
         if (!(p.st & ST_FROZEN)) step(this.sim, p.body, { mx, mz, run: run === 1, lift, face: face === NO_FACE ? undefined : face }); // eslint-disable-line no-bitwise
