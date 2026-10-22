@@ -116,7 +116,7 @@ export class World {
         if (except) this.players.forEach((p) => p !== except && p.modeOut.push(d));
         else this.modeAll.push(d);
       },
-      say: (text, kind) => this.say(text, kind),
+      say: (text, kind, to) => (to ? this.sayTo(to as Player, text, kind) : this.say(text, kind)),
       addNpc: (k, body) => {
         // 비어 있는 번호를 돌려 쓴다
         while (this.npcs.has(this.nextNpcId)) this.nextNpcId = this.nextNpcId >= NPC_LAST ? NPC_FIRST : this.nextNpcId + 1;
@@ -290,7 +290,7 @@ export class World {
       players: [ ...this.players.values() ].filter((o) => o !== p).map((o) => ({ id: o.id, name: o.name })),
     });
     this.broadcast({ t: 'join', id: p.id, name }, p);
-    this.say(`${name}님이 들어왔습니다 · ${this.players.size}명`, 'join', p);
+    this.say(`${name} 님이 접속했습니다. (${this.players.size}명)`, 'join', p);
     console.log(`[${this.id}] join #${p.id} ${name} (${this.players.size}명)`);
     return p;
   }
@@ -300,7 +300,7 @@ export class World {
     p.rtc?.close();
     this.mode.leave(p);
     this.broadcast({ t: 'leave', id: p.id });
-    this.say(`${p.name}님이 나갔습니다 · ${this.players.size}명`, 'leave');
+    this.say(`${p.name} 님이 나갔습니다. (${this.players.size}명)`, 'leave');
     console.log(`[${this.id}] leave #${p.id} ${p.name} (${this.players.size}명)`);
   }
 
@@ -445,6 +445,11 @@ export class World {
 
   private send(p:Player, msg:ServerMsg) {
     if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify(msg));
+  }
+
+  /** 방송: 한 사람에게만 */
+  sayTo(p:Player, text:string, kind?:SayKind) {
+    this.send(p, { t: 'say', text, kind: kind ?? 'info' });
   }
 
   /** 방송: 모두에게 한 줄 (except 빼고) */

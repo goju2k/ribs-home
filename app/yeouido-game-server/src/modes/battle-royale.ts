@@ -7,6 +7,7 @@ import {
 import { SIM_HZ } from 'yeouido-net';
 import { Body, newBody, STEP } from 'yeouido-sim';
 
+import { Announcer } from './br-announce';
 import { Boss } from './br-boss';
 import { ItemField } from './br-items';
 import { Prop, PropField, propRow } from './br-props';
@@ -125,6 +126,9 @@ export class BattleRoyale implements GameMode {
 
   private horde:Horde;
 
+  /** 진행 방송 (멘트는 br-announce) */
+  private announce:Announcer;
+
   private boss:Boss;
 
   /** 판 단계: 진행 → 보스 → 끝(결과 보여 주는 중) */
@@ -159,6 +163,7 @@ export class BattleRoyale implements GameMode {
 
   constructor(host:ModeHost) {
     this.host = host;
+    this.announce = new Announcer((text, kind, to) => this.host.say(text, kind, to));
     this.horde = new Horde(host, {
       alive: (p) => {
         const f = this.fighters.get(p.id);
@@ -243,6 +248,7 @@ export class BattleRoyale implements GameMode {
     this.refillAt = this.matchAt + ITEM_REFILL_MS;
     const last = this.match.circles[this.match.circles.length - 1];
     console.log(`[br] match #${id} start (final ${last.cx.toFixed(0)},${last.cz.toFixed(0)} r${last.r})`);
+    this.announce.newMatch();
   }
 
   /** 지금 원 안 무작위 자리 (지상·옥상·실내) */
@@ -500,6 +506,7 @@ export class BattleRoyale implements GameMode {
     this.revive(p, requested ?? this.spawnBody(), now);
     // 보스전·결과 중에 들어오면 이번 판은 관전, 다음 판에 참여
     if (this.phase !== 'play') this.spectate(p, this.fighters.get(p.id)!, 'late', now);
+    this.announce.welcome(p, this.phase, this.elapsed);
     this.send(p, this.matchMsg());
     this.send(p, { k: 'corpses', list: this.corpses });
     this.send(p, { k: 'items', list: this.items.list() });
@@ -655,6 +662,7 @@ export class BattleRoyale implements GameMode {
     if (bySt) bySt.damage += dmg;
     if (f.hp <= 0) {
       if (bySt) bySt.kills++;
+      if (by) this.announce.kill(by, t, now);
       const st = this.stats.get(t.id);
       if (st) st.deaths++;
       this.die(t, f, by?.name ?? byName, now);
@@ -662,6 +670,7 @@ export class BattleRoyale implements GameMode {
   }
 
   private die(p:ModePlayer, f:Fighter, by:string | null, now:number) {
+    this.announce.died(p);
     // 보스전이 시작되면 다시 시작 못 함 → 잠깐 누워 있다가 관전
     const noRespawn = this.phase !== 'play';
     const wait = noRespawn ? -1 : respawnDelay(this.zone().stage);
@@ -688,12 +697,13 @@ export class BattleRoyale implements GameMode {
       return;
     }
     this.emptyAt = 0;
+    if (this.phase === 'play') this.announce.play(this.elapsed, DAY_OFFSET, this.zone());
     // 20분: 최종 원 가운데에 보스
     if (this.phase === 'play' && this.elapsed >= MATCH_MS) {
       this.phase = 'boss';
       const alive = all.filter((p) => !this.fighters.get(p.id)?.respawnAt).length;
       this.boss.spawn(this.match.circles[this.match.circles.length - 1], alive, DIFF, now);
-      this.host.say('최종 보스가 나타났다! 이제 다시 시작할 수 없다', 'event');
+      this.announce.bossAppear();
       // 기록: 보스가 나온 순간의 장비 (보스 체력을 맞추는 기준)
       all.forEach((p) => {
         const f = this.fighters.get(p.id);
@@ -720,6 +730,7 @@ export class BattleRoyale implements GameMode {
         const f = this.fighters.get(p.id);
         return f && !f.respawnAt;
       });
+      if (this.boss.alive) this.announce.boss(this.boss.hp / this.boss.max, BOSS_LIMIT_MS - (now - this.boss.spawnedAt));
       if (!this.boss.alive) this.openExit(now);
       else if (!standing) this.finish('lose', now, 'wiped');
       else if (now - this.boss.spawnedAt > BOSS_LIMIT_MS) this.finish('lose', now, 'time');
@@ -731,9 +742,9 @@ export class BattleRoyale implements GameMode {
         const f = this.fighters.get(p.id);
         return f && !f.respawnAt;
       });
+      this.announce.escape(now - ex.openAt);
       const winner = now >= ex.openAt ? standing.find((p) => p.body.b < 0 && Math.abs(p.body.y - ex.y) < 3 && Math.hypot(p.body.x - ex.x, p.body.z - ex.z) <= ESCAPE.radius) : undefined;
       if (winner) {
-        this.host.say(`${winner.name} 탈출 성공 · 치킨 획득!`, 'event');
         this.finish('win', now, undefined, winner.name);
       } else if (!standing.length) this.finish('lose', now, 'wiped');
       else if (now - ex.openAt > ESCAPE.limitMs) this.finish('lose', now, 'noescape');
@@ -789,6 +800,7 @@ export class BattleRoyale implements GameMode {
       if (f.respawnAt && now >= f.respawnAt) {
         this.revive(p, this.spawnBody(), now);
         this.send(p, { k: 'respawn' });
+        this.announce.respawn(p);
         return;
       }
       // 중독: 1초마다 피해
@@ -832,7 +844,7 @@ export class BattleRoyale implements GameMode {
     this.exit = { x: b?.x ?? 0, y: 0, z: b?.z ?? 0, openAt: now + ESCAPE.truceMs };
     const r1 = (n:number) => Math.round(n * 10) / 10;
     this.broadcast({ k: 'exit', x: r1(this.exit.x), y: 0, z: r1(this.exit.z), r: ESCAPE.radius, opensIn: ESCAPE.truceMs });
-    this.host.say(`최종 보스 처치! (${this.boss.killer ?? '?'}) ${ESCAPE.truceMs / 1000}초 뒤 휴전 끝 · 보스 자리 탈출구에 먼저 닿으면 치킨`, 'event');
+    this.announce.bossDown(this.boss.killer);
     console.log(`[br] boss down by ${this.boss.killer} → exit at ${Math.round(this.exit.x)},${Math.round(this.exit.z)}`);
   }
 
@@ -849,6 +861,7 @@ export class BattleRoyale implements GameMode {
     // 좀비 처치 순위 (한 마리 이상)
     const zk = [ ...this.stats.values() ].filter((s) => s.zombieKills > 0).sort((a, b) => b.zombieKills - a.zombieKills).slice(0, 5).map((s):[string, number] => [ s.name, s.zombieKills ]);
     this.broadcast({ k: 'end', result, why, killer: this.boss.killer, chicken, top, zk, next: RESULT_MS });
+    this.announce.end(result, why, chicken);
     console.log(`[br] match #${this.match?.id} ${result} (killer ${this.boss.killer}, chicken ${chicken})`);
     this.phase = 'end';
     this.endAt = now + RESULT_MS;

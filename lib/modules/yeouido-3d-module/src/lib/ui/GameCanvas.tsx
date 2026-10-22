@@ -63,7 +63,7 @@ export interface GameStatus {
 /** 터치: 짧은 탭 = 행동(공격), 이보다 길거나 끌면 카메라 조작 (마우스는 누르는 순간 행동) */
 const TAP_MS = 250;
 /** 방송이 보이는 시간 (ms) */
-const SAY_MS = 6000;
+const SAY_MS = 8000;
 /** 1인칭 눈높이 (m) */
 const EYE_Y = 1.62;
 /** 휴대폰 자동 조준 거리 (m) */
