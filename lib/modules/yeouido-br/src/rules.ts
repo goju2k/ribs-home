@@ -13,17 +13,21 @@ export const HP_MAX = 100;
 /** 상태 비트 (엔진의 ST_FROZEN = 0x80과 겹치지 않게) */
 export const ST_DEAD = 1;
 export const ST_SHIELD = 2;
-/** 주먹·무기를 휘두르는 중 (다른 사람 화면의 동작용) */
+/** 손을 쓰는 중: 파밍으로 치기·쏘기 (다른 사람 화면의 동작용) */
 export const ST_SWING = 4;
 /** 방금 맞음 (붉게 번쩍) */
 export const ST_HURT = 8;
 export { ST_FROZEN, ST_HIDDEN };
 
-/** 행동 비트: 왼쪽 클릭·공격 버튼 = 근접, 오른쪽 = 원거리(6단계) */
-export const ACT_MELEE = 1;
-export const ACT_RANGED = 2;
+/** 행동 비트: 좌클릭·파밍 버튼 = 파밍(줍기·시체 털기·물건 부수기), 우클릭·사격 버튼 = 사격, R·재장전 버튼 = 재장전 */
+export const ACT_FARM = 1;
+export const ACT_FIRE = 2;
+export const ACT_RELOAD = 4;
 
-/** 맨손 근접: 사거리(m), 앞쪽 부채꼴(cos 값 — 0.5면 좌우 60°), 피해, 재사용 대기, 휘두르는 동작 시간 */
+/** 파밍: 앞쪽 이 거리·부채꼴(cos) 안의 가장 가까운 것, 줍고 나서·한 번 치고 나서 다음까지 (ms) */
+export const FARM = { range: 2.4, cosArc: 0.55, pickMs: 250, hitMs: 450, swingMs: 300 } as const;
+
+/** 근접 닿기 기본값: 사거리(m), 앞쪽 부채꼴(cos 값 — 0.5면 좌우 60°) — 사람의 근접 공격은 없앴다(슈터), 좀비·보스 판정에 쓴다 */
 export const FIST = { range: 1.7, cosArc: 0.5, damage: 12, cooldownMs: 600, swingMs: 300 } as const;
 
 /** 맞은 표시 시간 (ms) */

@@ -30,12 +30,15 @@ export function aimDir(face:number, pitch:number):[number, number, number] {
   return [ Math.sin(face) * c, -Math.sin(pitch), Math.cos(face) * c ];
 }
 
-/** 맞힐 수 있는 것 하나 (사람·좀비): 지금(또는 되감은) 발 위치와 맞았을 때 할 일 (by = 쏜 사람) */
+/** 머리: 키의 위쪽 이 비율부터 */
+const HEAD_FROM = 0.82;
+
+/** 맞힐 수 있는 것 하나 (사람·좀비): 지금(또는 되감은) 발 위치와 맞았을 때 할 일 (by = 쏜 사람, head = 머리) */
 export interface ShotTarget<P = unknown> {
   id: number; x: number; y: number; z: number; b: number; l: number;
   /** 맞는 원기둥 반지름·키 (없으면 사람 크기) */
   r?: number; h?: number;
-  hit: (dmg:number, by:P) => void;
+  hit: (dmg:number, by:P, head?:boolean) => void;
 }
 
 /**
@@ -56,11 +59,15 @@ export function hitscan<P>(sim:SimWorld, o:[number, number, number], dir:[number
     }
   });
   const end:[number, number, number] = [ o[0] + dir[0] * bestT, o[1] + dir[1] * bestT, o[2] + dir[2] * bestT ];
-  return { end, target: best as ShotTarget<P> | null };
+  const t = best as ShotTarget<P> | null;
+  // 머리: 맞은 높이가 키의 위쪽 18% 안
+  const head = !!t && end[1] >= t.y + (t.h ?? BODY_H) * HEAD_FROM;
+  return { end, target: t, head, dist: bestT };
 }
 
+/** 날아가는 화살: 속도 벡터(m/s)·낙차(m/s²), 남은 사거리(지나온 길이로 줄인다), 피해·머리 배율 */
 export interface Arrow {
-  id: number; by: number; x: number; y: number; z: number; d: [number, number, number]; v: number; left: number; dmg: number; b: number; l: number;
+  id: number; by: number; x: number; y: number; z: number; vel: [number, number, number]; g: number; left: number; dmg: number; headMul: number; b: number; l: number;
 }
 
 const r2 = (n:number) => Math.round(n * 100) / 100;

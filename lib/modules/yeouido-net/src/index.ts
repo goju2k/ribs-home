@@ -9,7 +9,7 @@
  * - 자기 메시지는 { t: 'mode' } 통로로만 주고받는다 (형식은 모드 모듈이 정한다).
  */
 
-export const PROTOCOL_VERSION = 11;
+export const PROTOCOL_VERSION = 12;
 
 /** 클라이언트가 알려 주는 화면 지연(다른 사람을 얼마나 늦게 보는지)의 상한 (ms) — 지연 보정이 이보다 더 되감지 않는다 */
 export const MAX_LAG_MS = 300;
@@ -97,6 +97,9 @@ export interface RtcSignal {
 export type SnapRow = [number, number, number, number, number, number, number, number, number, number, number];
 
 /** 서버 → 클라이언트 */
+/** 방송 종류 (화면이 색·아이콘을 고른다): 입장·퇴장은 엔진이, 나머지는 모드도 쓴다 */
+export type SayKind = 'info' | 'join' | 'leave' | 'event' | 'warn';
+
 export type ServerMsg =
   /** rtc: 서버가 WebRTC 데이터채널을 받을 수 있으면 true (클라이언트가 offer를 보낸다) */
   /** mode: 이 월드에서 돌아가는 게임 모드 이름 (클라이언트가 맞는 화면을 고른다) */
@@ -104,6 +107,8 @@ export type ServerMsg =
   | ({ t: 'rtc'; } & RtcSignal)
   | { t: 'join'; id: number; name: string; }
   | { t: 'leave'; id: number; }
+  /** 방송: 모두에게 한 줄 (입장·퇴장, 게임 모드 알림 — 예: 최종 보스 등장). 화면 위쪽 가운데에 잠깐 */
+  | { t: 'say'; text: string; kind: SayKind; }
   /** ack: 이 상태까지 반영한 내 입력 순번, me: 그 시점 내 상태 (정밀값), ms·mv: 내 상태 비트·게이지 */
   | { t: 'snap'; tick: number; ack: number; me: BodyTuple; ms: number; mv: number; ps: SnapRow[]; }
   | { t: 'error'; msg: string; }

@@ -69,6 +69,11 @@ export class PropMeshes {
     return m;
   }
 
+  /** 보이는 물건들 (파밍 안내용) */
+  get rows() {
+    return [ ...this.shown.values() ].map((s) => s.row);
+  }
+
   add(row:PropRow) {
     if (this.shown.has(row[0])) return;
     const kind = PROP_KINDS[row[1]] ?? 'crate';

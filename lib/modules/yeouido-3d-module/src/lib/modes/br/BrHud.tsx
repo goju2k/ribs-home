@@ -1,7 +1,7 @@
 /* eslint-disable no-bitwise -- 행동 비트 */
 import { MouseEvent, MutableRefObject, PointerEvent } from 'react';
 import styled from 'styled-components';
-import { ACT_MELEE, ACT_RANGED, ITEM_KINDS, ITEM_NAMES, STAGES } from 'yeouido-br';
+import { ACT_FARM, ACT_FIRE, ACT_RELOAD, isWeapon, ITEM_KINDS, ITEM_NAMES, STAGES } from 'yeouido-br';
 
 import type { BrHudState } from './br-client';
 import { ITEM_COLORS } from './item-meshes';
@@ -40,10 +40,11 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
     if (on) inputRef.current.act |= bit;
     else inputRef.current.act &= ~bit;
   };
-  // 누르고 있는 동안 켜지는 버튼 (근접·원거리)
-  const holdProps = (bit:number) => ({
+  // 누르고 있는 동안 켜지는 버튼 (파밍·사격·재장전). press가 있으면 모드가 먼저 받는다 (스코프 켜기·끄기)
+  const holdProps = (bit:number, press?:'left' | 'right') => ({
     onPointerDown: (e:PointerEvent<HTMLButtonElement>) => {
       capturePointer(e.currentTarget, e.pointerId);
+      if (press && state.press(press)) return;
       hold(bit, true);
     },
     onPointerUp: () => hold(bit, false),
@@ -74,7 +75,13 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
           )}
         </HpPanel>
         <GearRow>
-          {ITEM_KINDS.map((k) => (
+          {/* 무기는 한 칸 (1인 1무기), 나머지 장비는 칸마다 */}
+          <Slot $on={!!state.weapon} title='무기'>
+            <i style={{ background: state.weapon ? ITEM_COLORS[state.weapon.kind] : '#3a3f58' }} />
+            <span>{state.weapon ? state.weapon.name : '무기 없음'}</span>
+            <b>{state.weapon ? `+${state.weapon.lv}` : '-'}</b>
+          </Slot>
+          {ITEM_KINDS.filter((k) => !isWeapon(k)).map((k) => (
             <Slot key={k} $on={state.gear[k] > 0} title={ITEM_NAMES[k]}>
               <i style={{ background: ITEM_COLORS[k] }} />
               <span>{ITEM_NAMES[k]}</span>
@@ -82,13 +89,24 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
             </Slot>
           ))}
         </GearRow>
-        {state.reload !== null && state.reload < 1 && (
-          <HpPanel>
-            <span>재장전</span>
-            <HpBar><HpFill style={{ width: `${Math.round(state.reload * 100)}%`, background: '#ffd84a' }} /></HpBar>
-          </HpPanel>
-        )}
       </Left>
+
+      {/* 스코프는 탄창 표시 아래에 깐다 (스코프 중에도 남은 탄이 보이게) */}
+      {state.weapon?.scoped && <Scope />}
+
+      {state.weapon && (
+        <Ammo>
+          <b>{state.weapon.name} +{state.weapon.lv}</b>
+          {state.weapon.reload !== null ? (
+            <>
+              <span>재장전</span>
+              <HpBar><HpFill style={{ width: `${Math.round(state.weapon.reload * 100)}%`, background: '#ffd84a' }} /></HpBar>
+            </>
+          ) : <big>{state.weapon.ammo} / {state.weapon.mag}</big>}
+        </Ammo>
+      )}
+
+      {state.prompt && <Prompt>{state.prompt}</Prompt>}
 
       {state.feed.length > 0 && (
         <Feed>
@@ -103,7 +121,7 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
       )}
 
       {state.hits.map((h) => (
-        <HitNum key={h.id} style={{ transform: `translate(-50%, ${-30 - h.age * 40}px)`, opacity: 1 - h.age }}>-{h.dmg}</HitNum>
+        <HitNum key={h.id} $head={h.head} style={{ transform: `translate(-50%, ${-30 - h.age * 40}px)`, opacity: 1 - h.age }}>{h.head ? '머리 ' : ''}-{h.dmg}</HitNum>
       ))}
 
       {state.boss && (
@@ -122,6 +140,14 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
             <ol>
               {state.end.top.map(([ n, d ]) => <li key={n}>{n} · 보스 피해 {d.toLocaleString()}</li>)}
             </ol>
+          )}
+          {state.end.zk.length > 0 && (
+            <>
+              <span>좀비 처치</span>
+              <ol>
+                {state.end.zk.map(([ n, c ]) => <li key={n}>{n} · {c}마리</li>)}
+              </ol>
+            </>
           )}
           <span>{state.end.next}초 뒤 새 판</span>
         </End>
@@ -148,10 +174,16 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
 
       {touch ? (
         <>
-          <AttackButton {...holdProps(ACT_MELEE)} aria-label='근접 공격'>공격</AttackButton>
-          {state.reload !== null && <ShootButton {...holdProps(ACT_RANGED)} aria-label='원거리 공격'>사격</ShootButton>}
+          <AttackButton {...holdProps(ACT_FARM, 'left')} aria-label='파밍'>{state.weapon?.scoped ? '스코프 끄기' : '파밍'}</AttackButton>
+          {state.weapon && <ShootButton {...holdProps(ACT_FIRE, 'right')} aria-label='사격'>{state.weapon.scope && !state.weapon.scoped ? '스코프' : '사격'}</ShootButton>}
+          {state.weapon && <ReloadButton {...holdProps(ACT_RELOAD)} aria-label='재장전'>장전</ReloadButton>}
         </>
-      ) : <Hint>근접: 왼쪽 클릭 · 원거리: 오른쪽 클릭 (위 시점은 마우스 쪽으로, 뒤·1인칭은 화면 가운데로)</Hint>}
+      ) : (
+        <Hint>
+          좌클릭: 파밍(줍기·시체 털기·부수기) · 우클릭: 사격 · R: 재장전
+          {state.weapon?.scope ? ' · 저격: 우클릭 스코프 → 우클릭 발사, 좌클릭 스코프 끄기' : ''}
+        </Hint>
+      )}
     </>
   );
 }
@@ -229,14 +261,49 @@ const Feed = styled(Panel)({
   '@media (max-width: 560px)': { top: 286 },
 });
 
-const HitNum = styled.div({
+const HitNum = styled.div<{ $head: boolean; }>(({ $head }) => ({
   position: 'absolute',
   left: '50%',
   top: '45%',
   fontFamily: PIXEL_FONT,
-  fontSize: 16,
-  color: '#ffd84a',
+  fontSize: $head ? 20 : 16,
+  color: $head ? '#ff5a4a' : '#ffd84a',
   textShadow: '2px 2px 0 #0b0e22',
+  pointerEvents: 'none',
+}));
+
+/** 탄창: 오른쪽 위 미니맵 아래 (터치 버튼·저작권 표시와 안 겹치게) */
+const Ammo = styled(Panel)({
+  position: 'absolute',
+  right: 10,
+  top: 146,
+  minWidth: 120,
+  padding: '6px 10px',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'flex-end',
+  gap: 4,
+  pointerEvents: 'none',
+  big: { fontSize: 22, color: '#f4f4f8' },
+});
+
+/** 스코프: 가운데 원만 보이고 둘레는 검게 + 십자선 */
+const Scope = styled.div({
+  position: 'absolute',
+  inset: 0,
+  pointerEvents: 'none',
+  background: 'radial-gradient(circle at 50% 50%, transparent 0, transparent 38vmin, #05060c 38.5vmin), linear-gradient(#05060c, #05060c) center / 1px 76vmin no-repeat, linear-gradient(#05060c, #05060c) center / 76vmin 1px no-repeat',
+});
+
+/** 좌클릭으로 할 수 있는 것 (화면 가운데 아래) */
+const Prompt = styled(Panel)({
+  position: 'absolute',
+  left: '50%',
+  top: '58%',
+  transform: 'translateX(-50%)',
+  padding: '4px 10px',
+  color: '#f4f4f8',
+  whiteSpace: 'nowrap',
   pointerEvents: 'none',
 });
 
@@ -286,6 +353,17 @@ const ShootButton = styled(AttackButton)({
   height: 68,
   background: '#4a6fe2',
   '&:active': { transform: 'translateY(1px)', background: '#3a58b8' },
+});
+
+/** 재장전: 파밍 버튼 왼쪽 */
+const ReloadButton = styled(AttackButton)({
+  right: 208,
+  bottom: 48,
+  width: 60,
+  height: 60,
+  fontSize: 13,
+  background: '#5a5f7a',
+  '&:active': { transform: 'translateY(1px)', background: '#454a62' },
 });
 
 const BossBar = styled(Panel)({

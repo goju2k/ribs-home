@@ -1,6 +1,7 @@
 import {
-  ACT_MELEE, ACT_RANGED, BOSS_LIMIT_MS, BrClientMsg, Difficulty, DIFFICULTY, RESULT_MS, afterPickup, heldRanged, RANGED_KINDS, rangedStats, armorCut, BR_MODE, dayNight, breakPower, PROP_KINDS, PROP_RADIUS, rollDrops, BrServerMsg, Corpse, CorpseItem, emptyGear, Gear, HP_MAX, HURT_MS, hpGauge, insideZone,
-  ITEM_KINDS, insideZone as inZoneCircle, makeMatchPlan, pickRoofOf, MATCH_MS, MatchPlan, meleeReaches, meleeStats, PICK_RANGE, pickSpawn, respawnDelay, rocketMul, shoeMul,
+  ACT_FARM, ACT_FIRE, ACT_RELOAD, BOSS_LIMIT_MS, BrClientMsg, Difficulty, DIFFICULTY, FARM, RESULT_MS, afterPickup, armorCut, BR_MODE, dayNight, breakPower, PROP_KINDS, PROP_RADIUS, rollDrops, rollZombieDrop, BrServerMsg, Corpse, CorpseItem, emptyGear, Gear, HP_MAX, HURT_MS, hpGauge, insideZone,
+  ITEM_KINDS, insideZone as inZoneCircle, makeMatchPlan, pickRoofOf, MATCH_MS, MatchPlan, meleeReaches, pickSpawn, respawnDelay, rocketMul, shoeMul,
+  canFire, falloff, fire, FireState, fullMag, heldWeapon, isWeapon, MOVING_SPEED, reload, shotDirs, WEAPON_KINDS, weaponStats,
   SPAWN_SHIELD_MS, ST_DEAD, ST_FROZEN, ST_HIDDEN, ST_HURT, ST_SHIELD, ST_SWING, zoneAt, zoneDps,
 } from 'yeouido-br';
 import { SIM_HZ } from 'yeouido-net';
@@ -10,7 +11,7 @@ import { Boss } from './br-boss';
 import { ItemField } from './br-items';
 import { Prop, PropField, propRow } from './br-props';
 import { newStats, PlayerStats, Records } from './br-records';
-import { aimDir, Arrow, at3, hitscan, MUZZLE_Y, ShotTarget } from './br-shots';
+import { Arrow, at3, hitscan, MUZZLE_Y, ShotTarget } from './br-shots';
 import { Horde } from './br-zombies';
 
 import { Aim, GameMode, ModeHost, ModePlayer } from '../mode';
@@ -52,25 +53,26 @@ const PROP_START = 900;
 const PROP_MIN = 100;
 /** 물건 내구도 알림은 이 거리 안 사람에게만 (m) */
 const PROP_HIT_RANGE = 80;
-/** 총 궤적·화살은 이 거리 안 사람에게만 보낸다 (m) */
-const SHOT_SEND_R = 200;
-/** 줍기·시체 털기 판정은 틱 몇 번에 한 번 (사람×아이템 비용) */
-const PICK_EVERY = 3;
+/** 총 궤적·화살은 이 거리 안 사람에게만 보낸다 (m, 저격 사거리보다 넉넉히) */
+const SHOT_SEND_R = 300;
 
 interface Fighter {
   hp: number;
   /** 죽었으면 다시 시작할 시각, 살아 있으면 0 */
   respawnAt: number;
   shieldUntil: number;
-  nextAttackAt: number;
+  /** 다음 파밍(줍기·치기) 가능 시각 */
+  nextFarmAt: number;
+  /** 지난 걸음에 파밍 비트가 있었나, 새로 누른 뒤 아직 줍지 않았나 (줍기·털기는 새로 누를 때만 — 누른 채 부수다 떨어진 무기를 바꿔 들지 않게) */
+  farmPrev: boolean;
+  farmFresh: boolean;
   swingUntil: number;
   hurtUntil: number;
   /** 전장 밖이면 다음 피해 시각 */
   zoneAt: number;
   gear: Gear;
-  /** 다음 원거리 발사 가능 시각 */
-  /** 다음 발사 가능 걸음 번호 (입력 걸음 수로 잰다 — 입력이 몰려 와도 클라이언트와 같은 걸음에서 쏘게) */
-  nextShotSeq: number;
+  /** 든 무기의 탄창 (입력 걸음 수로 잰다 — 입력이 몰려 와도 클라이언트와 같은 걸음에서 쏘게), 무기가 없으면 null */
+  fire: FireState | null;
   /**
    * 관전: 이번 판은 다시 시작 못 함 (보스전 중 쓰러짐·늦게 들어옴). respawnAt = Infinity로 두어 '살아 있지 않음'으로 취급되고,
    * specFrom부터 산 사람(없으면 보스)을 따라간다. 다음 판에 다시 참여
@@ -148,14 +150,19 @@ export class BattleRoyale implements GameMode {
 
   private sweepAt = 0;
 
-  private tickNo = 0;
-
   constructor(host:ModeHost) {
     this.host = host;
     this.horde = new Horde(host, {
       alive: (p) => {
         const f = this.fighters.get(p.id);
         return !!f && !f.respawnAt;
+      },
+      // 좀비를 쓰러뜨리면 가끔 아이템을 떨군다 (걷는 좀비 10%, 뛰는 좀비 25%)
+      killed: (at, k) => {
+        const got = rollZombieDrop(k);
+        if (!got) return;
+        const it = this.items.add(got[0], got[1], at.x, at.y, at.z, at.b, at.l);
+        this.broadcast({ k: 'itemAdd', list: [ it ] });
       },
       // 좀비에게 물림: 무적이면 안 들어가고, 갑옷이 줄인다
       bite: (p, dmg, now) => {
@@ -235,19 +242,23 @@ export class BattleRoyale implements GameMode {
   private revive(p:ModePlayer, body:Body, now:number) {
     p.body = body;
     p.queue.length = 0;
-    const f:Fighter = { hp: HP_MAX, respawnAt: 0, shieldUntil: now + SPAWN_SHIELD_MS, nextAttackAt: 0, nextShotSeq: 0, swingUntil: 0, hurtUntil: 0, zoneAt: 0, gear: emptyGear(), spectator: null, specFrom: 0, watch: 0, watchSent: false };
+    const f:Fighter = { hp: HP_MAX, respawnAt: 0, shieldUntil: now + SPAWN_SHIELD_MS, nextFarmAt: 0, farmPrev: false, farmFresh: false, fire: null, swingUntil: 0, hurtUntil: 0, zoneAt: 0, gear: emptyGear(), spectator: null, specFrom: 0, watch: 0, watchSent: false };
     this.fighters.set(p.id, f);
     if (p.debug) {
       DEBUG_GEAR.forEach(([ k, v ]) => {
         if (k in f.gear) f.gear[k as keyof Gear] = Math.min(7, Number(v));
       });
     }
+    const w = heldWeapon(f.gear);
+    if (w) f.fire = fullMag(weaponStats(w, f.gear[w]));
     this.applyGear(p, f); // 맨몸 (개발용 장비 빼고)
   }
 
   /** 장비 → 몸 (엔진의 속도 배율·비행) + 알림. 비행은 로켓슈트가 있을 때만 (개발용 접속은 늘, 원래 속도로) */
   private applyGear(p:ModePlayer, f:Fighter) {
-    p.body.sm = shoeMul(f.gear.shoes);
+    // 땅 속도: 신발 × 무기 무게
+    const w = heldWeapon(f.gear);
+    p.body.sm = shoeMul(f.gear.shoes) * (w ? weaponStats(w, f.gear[w]).moveMul : 1);
     p.body.fly = p.debug || f.gear.rocket ? 1 : 0;
     p.body.fm = p.debug ? 1 : rocketMul(f.gear.rocket) || 1;
     this.send(p, { k: 'gear', gear: { ...f.gear } });
@@ -256,9 +267,9 @@ export class BattleRoyale implements GameMode {
   /** 아이템 하나를 장비에 (같은 칸이면 강화) */
   private equip(p:ModePlayer, f:Fighter, kind:number, lv:number, from:'ground' | 'corpse') {
     const k = ITEM_KINDS[kind];
-    // 원거리는 한 종류만: 다른 종류를 주우면 들고 있던 것을 그 자리에 떨어뜨린다 (떨어뜨린 사람은 멀어질 때까지 못 줍는다)
-    if (RANGED_KINDS.includes(k)) {
-      RANGED_KINDS.filter((o) => o !== k && f.gear[o] > 0).forEach((o) => {
+    // 무기는 한 종류만: 다른 종류를 주우면 들고 있던 것을 그 자리에 떨어뜨린다 (떨어뜨린 사람은 멀어질 때까지 못 줍는다)
+    if (isWeapon(k)) {
+      WEAPON_KINDS.filter((o) => o !== k && f.gear[o] > 0).forEach((o) => {
         const { x, y, z, b, l } = p.body;
         const it = this.items.add(ITEM_KINDS.indexOf(o), f.gear[o], x, y, z, b, l);
         this.items.hold(it[0], p.id);
@@ -267,6 +278,8 @@ export class BattleRoyale implements GameMode {
       });
     }
     f.gear[k] = afterPickup(f.gear[k], lv);
+    // 새 무기·강화한 무기는 탄창 가득 (화면도 장비가 바뀌면 같이 채운다)
+    if (isWeapon(k)) f.fire = fullMag(weaponStats(k, f.gear[k]));
     const st = this.stats.get(p.id);
     if (st) {
       st.picks[k]++;
@@ -297,48 +310,57 @@ export class BattleRoyale implements GameMode {
         z: at.z,
         b: o.body.b,
         l: o.body.l,
-        hit: (dmg, by) => this.damage(o, Math.max(1, Math.round(dmg * (1 - armorCut(f.gear.armor)))), by, now),
+        hit: (dmg, by, head) => this.damage(o, Math.max(1, Math.round(dmg * (1 - armorCut(f.gear.armor)))), by, now, null, head),
       });
     });
     // 사람은 damage()가 쏜 사람에게 맞힘 알림을 보내고, 좀비·보스는 여기서
-    const zeds = this.horde.shotTargets(now, (by, id, dmg, killed) => {
-      this.send(by, { k: 'hit', target: id, dmg });
+    const zeds = this.horde.shotTargets(now, (by, id, dmg, killed, head) => {
+      this.send(by, { k: 'hit', target: id, dmg, head });
       const st = this.stats.get(by.id);
       if (killed && st) st.zombieKills++;
     }, pos);
     const boss = this.boss.shotTarget(() => {}, pos, now);
     if (boss) {
       const { hit } = boss;
-      boss.hit = (dmg, by) => {
+      boss.hit = (dmg, by, head) => {
         hit(dmg, by);
-        this.send(by, { k: 'hit', target: boss.id, dmg });
+        this.send(by, { k: 'hit', target: boss.id, dmg, head });
       };
       out.push(boss);
     }
     return out.concat(zeds);
   }
 
-  /** 원거리 발사: 총은 바로 판정(지연 보정), 활은 화살을 날린다 */
+  /**
+   * 쏘기: 탄창·연사는 입력 걸음 수로 (화면과 같은 셈). 총은 바로 판정(지연 보정)하고 알마다 퍼짐·거리 감소·머리 배율,
+   * 석궁은 낙차 있는 화살을 날린다. 소리가 닿는 좀비는 쏜 사람에게 몰려온다
+   */
   private shoot(p:ModePlayer, me:Fighter, now:number, aim:Aim) {
-    const kind = heldRanged(me.gear);
-    if (!kind || aim.seq < me.nextShotSeq) return;
-    const st = rangedStats(kind, me.gear[kind]);
-    me.nextShotSeq = aim.seq + Math.round(st.reloadMs / 1000 / STEP);
-    me.swingUntil = now + 200;
+    const kind = heldWeapon(me.gear);
+    if (!kind || !me.fire || !canFire(me.fire, aim.seq)) return;
+    const st = weaponStats(kind, me.gear[kind]);
+    fire(me.fire, st, aim.seq, STEP);
+    me.swingUntil = now + 120;
     me.shieldUntil = 0;
-    this.send(p, { k: 'fired', reloadMs: st.reloadMs });
     const { body } = p;
     const o:[number, number, number] = [ body.x, body.y + MUZZLE_Y, body.z ];
-    const dir = aimDir(aim.face, aim.pitch);
+    const dirs = shotDirs(st, aim.face, aim.pitch, aim.seq, body.a > MOVING_SPEED);
+    if (st.noise) this.horde.alert(body, st.noise, p, now);
     if (st.hitscan) {
-      const { end, target } = hitscan(this.host.sim, o, dir, st.range, body.b, body.l, this.shotTargets(now, p.lagMs), p.id);
-      if (target) target.hit(st.damage, p);
-      this.sendNear(body.x, body.z, { k: 'shot', by: p.id, o: at3(...o), e: at3(...end) });
+      const targets = this.shotTargets(now, p.lagMs);
+      const es = dirs.map((dir) => {
+        const { end, target, head, dist } = hitscan(this.host.sim, o, dir, st.range, body.b, body.l, targets, p.id);
+        if (target) target.hit(Math.max(1, Math.round(st.damage * falloff(st, dist) * (head ? st.headMul : 1))), p, head);
+        return at3(...end);
+      });
+      this.sendNear(body.x, body.z, { k: 'shot', by: p.id, w: WEAPON_KINDS.indexOf(kind), o: at3(...o), es });
       return;
     }
-    const a:Arrow = { id: this.nextArrowId++, by: p.id, x: o[0], y: o[1], z: o[2], d: dir, v: st.speed, left: st.range, dmg: st.damage, b: body.b, l: body.l };
-    this.arrows.push(a);
-    this.sendNear(body.x, body.z, { k: 'arrow', id: a.id, by: p.id, o: at3(...o), d: at3(...dir), v: a.v, range: a.left });
+    dirs.forEach((d) => {
+      const a:Arrow = { id: this.nextArrowId++, by: p.id, x: o[0], y: o[1], z: o[2], vel: [ d[0] * st.speed, d[1] * st.speed, d[2] * st.speed ], g: st.gravity, left: st.range, dmg: st.damage, headMul: st.headMul, b: body.b, l: body.l };
+      this.arrows.push(a);
+      this.sendNear(body.x, body.z, { k: 'arrow', id: a.id, by: p.id, o: at3(...o), d: at3(...d), v: st.speed, range: a.left, g: a.g });
+    });
   }
 
   /** 화살 날리기: 한 틱만큼 나아가며 벽·사람·좀비 (지금 자리 기준) */
@@ -356,12 +378,16 @@ export class BattleRoyale implements GameMode {
       else grid.set(k, [ t ]);
     });
     this.arrows = this.arrows.filter((a) => {
-      const seg = Math.min(a.left, a.v * dt);
+      // 낙차: 한 틱마다 아래로 g·dt 만큼 빨라진다 → 이번 틱에 갈 방향·길이
+      a.vel[1] -= a.g * dt;
+      const sp = Math.hypot(a.vel[0], a.vel[1], a.vel[2]) || 1;
+      const dir:[number, number, number] = [ a.vel[0] / sp, a.vel[1] / sp, a.vel[2] / sp ];
+      const seg = Math.min(a.left, sp * dt);
       const shooter = this.host.get(a.by) ?? null;
       const near:ShotTarget<ModePlayer>[] = [];
       if (shooter) {
-        const ex = a.x + a.d[0] * seg;
-        const ez = a.z + a.d[2] * seg;
+        const ex = a.x + dir[0] * seg;
+        const ez = a.z + dir[2] * seg;
         const cz0 = Math.floor((Math.min(a.z, ez) - 1) / CELL_A);
         const cz1 = Math.floor((Math.max(a.z, ez) + 1) / CELL_A);
         const cx1 = Math.floor((Math.max(a.x, ex) + 1) / CELL_A);
@@ -369,11 +395,11 @@ export class BattleRoyale implements GameMode {
           for (let cz = cz0; cz <= cz1; cz++) grid.get(key(cx, cz))?.forEach((t) => near.push(t));
         }
       }
-      const { end, target } = hitscan(this.host.sim, [ a.x, a.y, a.z ], a.d, seg, a.b, a.l, near, a.by);
+      const { end, target, head } = hitscan(this.host.sim, [ a.x, a.y, a.z ], dir, seg, a.b, a.l, near, a.by);
       const moved = Math.hypot(end[0] - a.x, end[1] - a.y, end[2] - a.z);
       [ a.x, a.y, a.z ] = end;
       a.left -= seg;
-      if (target && shooter) target.hit(a.dmg, shooter);
+      if (target && shooter) target.hit(Math.round(a.dmg * (head ? a.headMul : 1)), shooter, head);
       // 맞았거나, 벽에 막혀 덜 갔거나, 사거리 끝
       if (target || moved < seg - 0.01 || a.left <= 0) {
         this.sendNear(a.x, a.z, { k: 'arrowEnd', id: a.id, at: at3(a.x, a.y, a.z) });
@@ -383,26 +409,57 @@ export class BattleRoyale implements GameMode {
     });
   }
 
-  /** 근처 땅 아이템 줍기·시체 털기 */
-  private pickups(p:ModePlayer, f:Fighter) {
+  /**
+   * 파밍(좌클릭): 앞쪽 가까이 있는 것 하나 — 땅 아이템 줍기, 시체 털기, 물건 치기(망치가 있으면 세게).
+   * 셋 중 가장 가까운 것. 줍기·털기는 새로 누른 때만(누른 채 부수기만 이어진다), 줍기·털기는 짧게, 치기는 조금 길게 쉰다
+   */
+  private farm(p:ModePlayer, me:Fighter, now:number) {
     const { body } = p;
-    const got = this.items.near(body.x, body.z, 4).filter((it) => this.items.canPick(it, p.id, body.x, body.z) && Math.hypot(it[3] - body.x, it[5] - body.z) <= PICK_RANGE).filter((it) => sameSpace(body, it[4], it[6], it[7]));
-    const gone:number[] = [];
-    got.forEach((it) => {
-      this.items.remove(it[0]);
-      gone.push(it[0]);
-      this.equip(p, f, it[1], it[2], 'ground');
-    });
-    if (gone.length) this.broadcast({ k: 'itemGone', ids: gone });
-    let changed = got.length > 0;
+    const reach = (x:number, y:number, z:number, b:number, l:number, extra = 0) => sameSpace(body, y, b, l) && meleeReaches(body, { x, y, z, f: 0, b, l }, FARM.range + extra, FARM.cosArc);
+    let best:{ d: number; run: () => number; } | null = null;
+    const offer = (x:number, z:number, run:() => number) => {
+      const d = Math.hypot(x - body.x, z - body.z);
+      if (!best || d < best.d) best = { d, run };
+    };
+    // 줍기·털기는 새로 누른 때만 (한 번 주우면 다시 누를 때까지 안 줍는다)
+    const pick = (run:() => number) => () => {
+      me.farmFresh = false;
+      return run();
+    };
+    if (me.farmFresh) {
+      this.items.near(body.x, body.z, FARM.range + 1).forEach((it) => {
+        if (!this.items.canPick(it, p.id, body.x, body.z) || !reach(it[3], it[4], it[5], it[6], it[7])) return;
+        offer(it[3], it[5], pick(() => {
+          this.items.remove(it[0]);
+          this.broadcast({ k: 'itemGone', ids: [ it[0] ] });
+          this.equip(p, me, it[1], it[2], 'ground');
+          this.applyGear(p, me);
+          return FARM.pickMs;
+        }));
+      });
+    }
     this.corpses.forEach((c) => {
-      if (!c.items.length || Math.abs(c.x - body.x) > PICK_RANGE || Math.abs(c.z - body.z) > PICK_RANGE || !sameSpace(body, c.y, c.b, c.l)) return;
-      c.items.forEach(([ kind, lv ]) => this.equip(p, f, kind, lv, 'corpse'));
-      c.items = [];
-      changed = true;
-      this.broadcast({ k: 'looted', id: c.id });
+      if (!me.farmFresh || !c.items.length || !reach(c.x, c.y, c.z, c.b, c.l)) return;
+      offer(c.x, c.z, pick(() => {
+        c.items.forEach(([ kind, lv ]) => this.equip(p, me, kind, lv, 'corpse'));
+        c.items = [];
+        this.broadcast({ k: 'looted', id: c.id });
+        this.applyGear(p, me);
+        return FARM.pickMs;
+      }));
     });
-    if (changed) this.applyGear(p, f);
+    this.props.near(body.x, body.z, FARM.range + 1).forEach((o) => {
+      if (!reach(o.x, o.y, o.z, o.b, o.l, PROP_RADIUS[PROP_KINDS[o.kind]])) return;
+      offer(o.x, o.z, () => {
+        this.hitProp(p, me, o);
+        // 친 뒤에는 이번 누름으로 줍지 않는다 (부서져 떨어진 무기를 누른 채 바꿔 들지 않게)
+        me.farmFresh = false;
+        me.swingUntil = now + FARM.swingMs;
+        return FARM.hitMs;
+      });
+    });
+    const chosen = best as { run: () => number; } | null;
+    if (chosen) me.nextFarmAt = now + chosen.run();
   }
 
   join(p:ModePlayer, requested:Body | null) {
@@ -424,7 +481,6 @@ export class BattleRoyale implements GameMode {
     const now = Date.now();
     if (f && !f.respawnAt && this.match && this.phase !== 'end') {
       this.dropCorpse(p, f);
-      this.broadcast({ k: 'notice', text: `${p.name} 나감 · 시체를 남김` });
     }
     const st = this.stats.get(p.id);
     if (st) st.leftAt = now;
@@ -518,63 +574,18 @@ export class BattleRoyale implements GameMode {
   act(p:ModePlayer, act:number, now:number, aim:Aim) {
     const me = this.fighters.get(p.id);
     if (!me || me.respawnAt) return;
-    // 근접·원거리는 따로 (동시에 쓸 수 있다)
-    if (act & ACT_RANGED) this.shoot(p, me, now, aim); // eslint-disable-line no-bitwise
-    if (!(act & ACT_MELEE) || now < me.nextAttackAt) return; // eslint-disable-line no-bitwise
-    const w = meleeStats(me.gear.pipe);
-    me.nextAttackAt = now + w.cooldownMs;
-    me.swingUntil = now + w.swingMs;
-    me.shieldUntil = 0; // 먼저 때리면 무적이 풀린다
-    // 닿는 사람 중 가장 가까운 한 명
-    let best:ModePlayer | null = null;
-    let bestD = Infinity;
-    // 지난 틱의 명단을 쓴다 (공격마다 배열을 새로 만들지 않게 — 300명이 몰려 주먹질할 때 비용)
-    this.all.forEach((o) => {
-      if (o === p || Math.abs(o.body.x - p.body.x) > w.range || Math.abs(o.body.z - p.body.z) > w.range) return;
-      const f = this.fighters.get(o.id);
-      if (!f || f.respawnAt || now < f.shieldUntil || !meleeReaches(p.body, o.body, w.range, w.cosArc)) return;
-      const d = Math.hypot(o.body.x - p.body.x, o.body.z - p.body.z);
-      if (d < bestD) {
-        best = o;
-        bestD = d;
-      }
-    });
-    // 보스가 닿으면 보스 먼저 (몸이 커서 사거리에 반지름을 더한다)
-    if (this.boss.reaches(p.body, w.range, w.cosArc)) {
-      this.boss.hit(w.damage, p, now);
-      this.send(p, { k: 'hit', target: this.boss.npc!.id, dmg: w.damage });
-      return;
+    /* eslint-disable no-bitwise -- 행동 비트 */
+    if (act & ACT_RELOAD && me.fire) {
+      const w = heldWeapon(me.gear);
+      if (w) reload(me.fire, weaponStats(w, me.gear[w]), aim.seq, STEP);
     }
-    // 좀비가 더 가까우면 좀비를 친다
-    const zed = this.horde.nearest(p.body, (b) => meleeReaches(p.body, b, w.range, w.cosArc));
-    if (zed && Math.hypot(zed.npc.body.x - p.body.x, zed.npc.body.z - p.body.z) < bestD) {
-      if (this.horde.hit(zed, w.damage, now, p)) {
-        const st = this.stats.get(p.id);
-        if (st) st.zombieKills++;
-      }
-      this.send(p, { k: 'hit', target: zed.npc.id, dmg: w.damage });
-      return;
-    }
-    if (best) {
-      const t:ModePlayer = best;
-      // 갑옷은 근접 피해만 줄인다
-      const cut = armorCut(this.fighters.get(t.id)!.gear.armor);
-      this.damage(t, Math.max(1, Math.round(w.damage * (1 - cut))), p, now);
-      return;
-    }
-    // 닿는 사람이 없으면 물건을 친다 (가장 가까운 것)
-    let prop:Prop | null = null;
-    let propD = Infinity;
-    this.props.near(p.body.x, p.body.z, w.range + 0.5).forEach((o) => {
-      const reach = w.range + PROP_RADIUS[PROP_KINDS[o.kind]];
-      if (!meleeReaches(p.body, o, reach, w.cosArc)) return;
-      const d = Math.hypot(o.x - p.body.x, o.z - p.body.z);
-      if (d < propD) {
-        prop = o;
-        propD = d;
-      }
-    });
-    if (prop) this.hitProp(p, me, prop);
+    if (act & ACT_FIRE) this.shoot(p, me, now, aim);
+    const farmBit = (act & ACT_FARM) !== 0;
+    if (!farmBit) me.farmFresh = false;
+    else if (!me.farmPrev) me.farmFresh = true;
+    me.farmPrev = farmBit;
+    if (farmBit && now >= me.nextFarmAt) this.farm(p, me, now);
+    /* eslint-enable no-bitwise */
   }
 
   /** 물건 치기: 망치가 있으면 세게. 부서지면 드롭 표대로 아이템을 떨어뜨린다 */
@@ -601,13 +612,13 @@ export class BattleRoyale implements GameMode {
   }
 
   /** 사람이 피해를 입음. by = 때린 사람, 아니면 byName(예: 좀비), 둘 다 없으면 전장 밖 */
-  private damage(t:ModePlayer, dmg:number, by:ModePlayer | null, now:number, byName:string | null = null) {
+  private damage(t:ModePlayer, dmg:number, by:ModePlayer | null, now:number, byName:string | null = null, head = false) {
     const f = this.fighters.get(t.id);
     if (!f || f.respawnAt || !Number.isFinite(dmg)) return;
     f.hp = Math.max(0, f.hp - dmg);
     f.hurtUntil = now + HURT_MS;
     this.send(t, { k: 'hurt', dmg, from: by?.name ?? byName });
-    if (by) this.send(by, { k: 'hit', target: t.id, dmg });
+    if (by) this.send(by, { k: 'hit', target: t.id, dmg, head });
     // 기록: 준 피해·처치·사망
     const bySt = by ? this.stats.get(by.id) : undefined;
     if (bySt) bySt.damage += dmg;
@@ -651,7 +662,7 @@ export class BattleRoyale implements GameMode {
       this.phase = 'boss';
       const alive = all.filter((p) => !this.fighters.get(p.id)?.respawnAt).length;
       this.boss.spawn(this.match.circles[this.match.circles.length - 1], alive, DIFF, now);
-      this.broadcast({ k: 'notice', text: '최종 보스가 나타났다! 이제 다시 시작할 수 없다' });
+      this.host.say('최종 보스가 나타났다! 이제 다시 시작할 수 없다', 'event');
       // 기록: 보스가 나온 순간의 장비 (보스 체력을 맞추는 기준)
       all.forEach((p) => {
         const f = this.fighters.get(p.id);
@@ -722,7 +733,6 @@ export class BattleRoyale implements GameMode {
     const tA = performance.now();
     this.flyArrows(now);
     this.arrowMs = Math.max(this.arrowMs * 0.98, performance.now() - tA);
-    const pickNow = this.tickNo++ % PICK_EVERY === 0;
     all.forEach((p) => {
       const f = this.fighters.get(p.id);
       if (!f) return;
@@ -735,7 +745,6 @@ export class BattleRoyale implements GameMode {
         this.send(p, { k: 'respawn' });
         return;
       }
-      if (!f.respawnAt && pickNow) this.pickups(p, f);
       // 전장 밖: 1초마다 피해 (무적이어도 맞는다 — 원 밖에 버티는 걸 막는다)
       if (!f.respawnAt && !insideZone(zone, p.body.x, p.body.z)) {
         if (!f.zoneAt) f.zoneAt = now + ZONE_TICK_MS;
@@ -770,7 +779,9 @@ export class BattleRoyale implements GameMode {
     this.saveRecord(result, why ?? null);
     const top = [ ...this.boss.dmgBy.entries() ].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([ n, d ]):[string, number] => [ n, Math.round(d) ]);
     this.broadcast({ k: 'boss', id: this.boss.npc?.id ?? 0, hp: 0, max: this.boss.max, remain: 0 });
-    this.broadcast({ k: 'end', result, why, killer: this.boss.killer, top, next: RESULT_MS });
+    // 좀비 처치 순위 (한 마리 이상)
+    const zk = [ ...this.stats.values() ].filter((s) => s.zombieKills > 0).sort((a, b) => b.zombieKills - a.zombieKills).slice(0, 5).map((s):[string, number] => [ s.name, s.zombieKills ]);
+    this.broadcast({ k: 'end', result, why, killer: this.boss.killer, top, zk, next: RESULT_MS });
     console.log(`[br] match #${this.match?.id} ${result} (killer ${this.boss.killer})`);
     this.phase = 'end';
     this.endAt = now + RESULT_MS;

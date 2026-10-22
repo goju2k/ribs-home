@@ -1,6 +1,6 @@
 import { WebSocket } from 'ws';
 import {
-  ClientMsg, decodeInputs, MAX_LAG_MS, NO_FACE, encodeSnap, ST_FROZEN, ST_HIDDEN, InputTuple, NEAR, PROTOCOL_VERSION, ServerMsg, SIM_HZ, SNAP_HZ, SnapRow, toArrayBuffer, toBody, toRow, validInput,
+  ClientMsg, decodeInputs, MAX_LAG_MS, NO_FACE, encodeSnap, ST_FROZEN, ST_HIDDEN, InputTuple, NEAR, PROTOCOL_VERSION, SayKind, ServerMsg, SIM_HZ, SNAP_HZ, SnapRow, toArrayBuffer, toBody, toRow, validInput,
   VIEW_DEFAULT, VIEW_MAX, VIEW_MIN,
 } from 'yeouido-net';
 import { Body, createSimWorld, newBody, SimWorld, step, WORLD } from 'yeouido-sim';
@@ -116,6 +116,7 @@ export class World {
         if (except) this.players.forEach((p) => p !== except && p.modeOut.push(d));
         else this.modeAll.push(d);
       },
+      say: (text, kind) => this.say(text, kind),
       addNpc: (k, body) => {
         // 비어 있는 번호를 돌려 쓴다
         while (this.npcs.has(this.nextNpcId)) this.nextNpcId = this.nextNpcId >= NPC_LAST ? NPC_FIRST : this.nextNpcId + 1;
@@ -289,6 +290,7 @@ export class World {
       players: [ ...this.players.values() ].filter((o) => o !== p).map((o) => ({ id: o.id, name: o.name })),
     });
     this.broadcast({ t: 'join', id: p.id, name }, p);
+    this.say(`${name}님이 들어왔습니다 · ${this.players.size}명`, 'join', p);
     console.log(`[${this.id}] join #${p.id} ${name} (${this.players.size}명)`);
     return p;
   }
@@ -298,6 +300,7 @@ export class World {
     p.rtc?.close();
     this.mode.leave(p);
     this.broadcast({ t: 'leave', id: p.id });
+    this.say(`${p.name}님이 나갔습니다 · ${this.players.size}명`, 'leave');
     console.log(`[${this.id}] leave #${p.id} ${p.name} (${this.players.size}명)`);
   }
 
@@ -442,6 +445,11 @@ export class World {
 
   private send(p:Player, msg:ServerMsg) {
     if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify(msg));
+  }
+
+  /** 방송: 모두에게 한 줄 (except 빼고) */
+  say(text:string, kind?:SayKind, except?:Player) {
+    this.broadcast({ t: 'say', text, kind: kind ?? 'info' }, except);
   }
 
   private broadcast(msg:ServerMsg, except?:Player) {

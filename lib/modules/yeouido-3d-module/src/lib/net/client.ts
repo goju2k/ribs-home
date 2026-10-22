@@ -1,4 +1,4 @@
-import { BodyTuple, ClientMsg, decodeSnap, encodeInputs, fromRow, INTERP_DELAY_MS, InputTuple, PlayerState, PROTOCOL_VERSION, ServerMsg, VIEW_MAX, VIEW_MIN } from 'yeouido-net';
+import { BodyTuple, ClientMsg, SayKind, decodeSnap, encodeInputs, fromRow, INTERP_DELAY_MS, InputTuple, PlayerState, PROTOCOL_VERSION, ServerMsg, VIEW_MAX, VIEW_MIN } from 'yeouido-net';
 
 /**
  * 게임 서버 접속 (서버 권위): 자동 재접속, 내 입력 보내기, 서버가 확정한 내 상태 받기, 다른 사람 위치 보간.
@@ -71,6 +71,11 @@ export class GameClient {
 
   /** 다른 사람을 받은 때보다 얼마나 늦게 그리는지 (보간 지연, 가운데 값, ms) */
   private viewDelay = INTERP_DELAY_MS;
+
+  /** 받은 방송 (최근 것부터 화면이 고른다) */
+  private says:{ id: number; text: string; kind: SayKind; at: number; }[] = [];
+
+  private sayId = 0;
 
   private pings = 0;
 
@@ -199,6 +204,9 @@ export class GameClient {
     else if (msg.t === 'mode') {
       this.modeInbox.push(...msg.ds);
       if (this.modeInbox.length > 500) this.modeInbox.shift();
+    } else if (msg.t === 'say') {
+      this.says.push({ id: ++this.sayId, text: msg.text, kind: msg.kind, at: now });
+      if (this.says.length > 20) this.says.shift();
     } else if (msg.t === 'join') this.names.set(msg.id, msg.name);
     else if (msg.t === 'leave') {
       this.names.delete(msg.id);
@@ -263,6 +271,11 @@ export class GameClient {
    * 입력 보내기. 웹소켓은 이번 프레임에 만든 것만, 데이터채널은 잃어버릴 수 있으니 아직 확인 안 된 최근 입력을 겹쳐 보낸다
    * (서버는 이미 받은 순번을 버린다)
    */
+  /** 최근 ms 안의 방송 (오래된 것부터, 최대 n줄) */
+  recentSays(now:number, ms:number, n:number) {
+    return this.says.filter((s) => now - s.at < ms).slice(-n).map(({ id, text, kind, at }) => ({ id, text, kind, age: (now - at) / ms }));
+  }
+
   sendInputs(fresh:InputTuple[], unacked:InputTuple[]) {
     if (this.state !== 'online' || !fresh.length) return;
     if (this.dc?.readyState === 'open') this.dc.send(encodeInputs(unacked.slice(-10)));

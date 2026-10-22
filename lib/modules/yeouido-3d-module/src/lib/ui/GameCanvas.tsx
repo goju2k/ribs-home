@@ -1,7 +1,7 @@
 import { MutableRefObject, useEffect, useRef } from 'react';
 import styled from 'styled-components';
 import * as THREE from 'three';
-import { fromBody, InputTuple, NO_FACE, ST_FROZEN, ST_HIDDEN } from 'yeouido-net';
+import { fromBody, InputTuple, NO_FACE, ST_FROZEN, ST_HIDDEN, SayKind } from 'yeouido-net';
 import { Body, castRay, copyBody, createSimWorld, describe, FLY, Input, newBody, STEP, step, WORLD } from 'yeouido-sim';
 
 import { Minimap } from './minimap';
@@ -30,6 +30,8 @@ const SKY = '#a8dcf5';
 const FAR = 450;
 const FOG_NEAR = 140;
 const LOOK_SPEED = 0.005;
+/** 원근 시야각 (세로, 도) */
+const FP_FOV = 60;
 const CHASE_MIN = 2.5;
 const CHASE_MAX = 60;
 
@@ -51,6 +53,8 @@ export interface GameStatus {
   mode: CamMode;
   /** 게임 서버 접속 상태, 접속자 수(나 포함), 오류, 마지막 서버 보정 크기(m)와 확인 대기 입력 수 */
   net: { state: NetState; count: number; error: string; correction: number; pending: number; transport: Transport; rtt: number; jitter: number; };
+  /** 방송 (최근 몇 줄, age 0~1: 사라지는 정도) */
+  says: { id: number; text: string; kind: SayKind; age: number; }[];
   /** 게임 모드 이름과 그 모드 HUD 상태 (뜻은 모드 HUD만 안다) */
   gameMode: string | null;
   game: unknown;
@@ -58,6 +62,8 @@ export interface GameStatus {
 
 /** 터치: 짧은 탭 = 행동(공격), 이보다 길거나 끌면 카메라 조작 (마우스는 누르는 순간 행동) */
 const TAP_MS = 250;
+/** 방송이 보이는 시간 (ms) */
+const SAY_MS = 6000;
 /** 1인칭 눈높이 (m) */
 const EYE_Y = 1.62;
 /** 휴대폰 자동 조준 거리 (m) */
@@ -225,7 +231,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
 
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 6000);
     // 3인칭·1인칭용 원근 카메라 (멀리는 안개로 덮고 가시거리에서 자른다)
-    const persp = new THREE.PerspectiveCamera(60, 1, 0.1, FAR);
+    const persp = new THREE.PerspectiveCamera(FP_FOV, 1, 0.1, FAR);
     // 확인용(?debug): 카메라·렌더러도 들여다볼 수 있게
     const dbg = (window as unknown as { y3d?: Record<string, unknown>; }).y3d;
     if (dbg) Object.assign(dbg, { camera, persp, renderer });
@@ -320,6 +326,8 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         usedMouse = true;
         const top = inputRef.current.mode === 'top';
         if (!top) lock();
+        // 모드가 먼저 받는다 (예: 스코프 무기는 우클릭 한 번 = 스코프, 좌클릭 = 스코프 끄기) — 받으면 이 누름은 행동으로 안 보낸다
+        if ((e.button === 0 || e.button === 2) && modeClient?.press?.(e.button === 2 ? 'right' : 'left', performance.now())) return;
         mouseAct |= e.button === 2 ? 2 : e.button === 0 ? 1 : 0; // eslint-disable-line no-bitwise, no-nested-ternary
         if (top && (e.button === 0 || e.button === 2)) aimPt = { x: e.clientX, y: e.clientY };
         cursor = { x: e.clientX, y: e.clientY };
@@ -445,9 +453,11 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       // 드래그·마우스로 둘러보기: 오른쪽으로 끌면 오른쪽을 보고, 아래로 끌면 아래를 본다
       if (input.look.dx || input.look.dy) {
         if (persp3) {
-          yawTarget -= input.look.dx * LOOK_SPEED;
-          if (mode === 'chase') chasePitch = THREE.MathUtils.clamp(chasePitch + input.look.dy * LOOK_SPEED, 0.05, 1.35);
-          else fpPitch = THREE.MathUtils.clamp(fpPitch + input.look.dy * LOOK_SPEED, -1.35, 1.35);
+          // 스코프로 당겨 보면 감도도 그만큼 낮춘다
+          const sens = LOOK_SPEED / (modeClient?.fovMul?.() ?? 1);
+          yawTarget -= input.look.dx * sens;
+          if (mode === 'chase') chasePitch = THREE.MathUtils.clamp(chasePitch + input.look.dy * sens, 0.05, 1.35);
+          else fpPitch = THREE.MathUtils.clamp(fpPitch + input.look.dy * sens, -1.35, 1.35);
         }
         input.look.dx = 0;
         input.look.dy = 0;
@@ -473,7 +483,8 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         if (now < until) pend |= bit; // eslint-disable-line no-bitwise
         else queued.delete(bit);
       });
-      const held = input.act | mouseAct | pend; // eslint-disable-line no-bitwise
+      // R = 행동 4 (모드가 뜻을 정한다 — 배틀로얄: 재장전)
+      const held = input.act | mouseAct | pend | (input.keys.has('KeyR') ? 4 : 0); // eslint-disable-line no-bitwise
       // 몸이 보는 쪽:
       // - 1인칭, 마우스로 잠근 3인칭, 3인칭에서 행동 중 → 카메라가 보는 쪽 (카메라 앞 (-sin yaw, -cos yaw) = 몸 앞 (sin f, cos f) → f = yaw + π)
       // - 위 시점에서 행동 중 → 마우스·탭이 가리키는 땅 쪽
@@ -599,7 +610,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         input.actTap = 0;
         aimTap = null;
         // 내 행동은 이 걸음의 예측 자리·조준으로 바로 보여 준다 (서버 알림은 왕복 시간만큼 늦게 오고 그사이 나는 더 가 있다)
-        if (act) act = modeClient?.acted(act, now, { x: body.x, y: body.y, z: body.z, f: body.f, pitch: sp, b: body.b, l: body.l, seq }) ?? act;
+        if (act) act = modeClient?.acted(act, now, { x: body.x, y: body.y, z: body.z, f: body.f, pitch: sp, b: body.b, l: body.l, seq, a: body.a }) ?? act;
         const c = { seq, inp: si, act, pitch: sp, frozen };
         pending.push(c);
         out.push(tuple(c));
@@ -752,6 +763,9 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         shadowAt = new THREE.Vector3(target.x - Math.sin(yaw) * back, 0, target.z - Math.cos(yaw) * back);
       } else {
         persp.aspect = aspect;
+        // 스코프: 시야각을 배율만큼 좁힌다 (tan으로 — 화면 가운데 크기가 배율만큼 커진다)
+        const zoomK = mode === 'fp' ? modeClient?.fovMul?.() ?? 1 : 1;
+        persp.fov = (2 * Math.atan(Math.tan((FP_FOV * Math.PI) / 360) / zoomK) * 180) / Math.PI;
         persp.updateProjectionMatrix();
         if (mode === 'chase') {
           // 3인칭: 머리 뒤 위에서 따라간다. 땅·지붕·실내 바닥 밑으로는 안 내려간다
@@ -847,6 +861,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         indoor: room ? { name: room.name, level, elevator: cab >= 0 } : null,
         net: { state: net.state, count: net.count, error: net.error, correction, pending: pending.length, transport: net.transport, rtt: net.rtt, jitter: net.jitter },
         mode,
+        says: net.recentSays(performance.now(), SAY_MS, 3),
         gameMode: modeName,
         game: modeClient?.hud(now) ?? null,
       };

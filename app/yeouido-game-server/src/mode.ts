@@ -1,3 +1,4 @@
+import type { SayKind } from 'yeouido-net';
 import { Body, Input, SimWorld } from 'yeouido-sim';
 
 /**
@@ -58,6 +59,8 @@ export interface ModeHost {
   /** 모드 메시지 보내기 (엔진의 { t: 'mode', d }로 감싸 보낸다) */
   send(p:ModePlayer, d:unknown): void;
   broadcast(d:unknown, except?:ModePlayer): void;
+  /** 방송: 모두에게 한 줄 (화면 위쪽 가운데) */
+  say(text:string, kind?:SayKind): void;
   /** NPC 만들기·없애기 (없애면 클라이언트에서는 소식이 끊긴 뒤 사라지니, 먼저 숨김 상태를 잠깐 보여 주는 게 좋다) */
   addNpc(k:number, body:Body): ModeNpc;
   removeNpc(id:number): void;

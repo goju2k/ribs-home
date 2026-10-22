@@ -1,8 +1,8 @@
 /* eslint-disable no-bitwise -- 상태·행동 비트 */
 import * as THREE from 'three';
 import {
-  ACT_MELEE, ACT_RANGED, BOSS, BrClientMsg, heldRanged, rangedStats, BrServerMsg, dayNight, ST_BURN, ST_SLAM, Z_BOSS, Z_RUNNER, Z_WALKER, Corpse, emptyGear, gaugeHp, Gear, isBrMsg, ITEM_KINDS, ITEM_NAMES, MatchPlan, meleeStats, ST_DEAD, ST_HURT, ST_SHIELD, ST_SWING,
-  zoneAt, ZoneNow,
+  ACT_FARM, ACT_FIRE, ACT_RELOAD, BOSS, BrClientMsg, BrServerMsg, dayNight, FARM, ST_BURN, ST_SLAM, Z_BOSS, Z_RUNNER, Z_WALKER, Corpse, emptyGear, gaugeHp, Gear, isBrMsg, ITEM_KINDS, ITEM_NAMES, MatchPlan, meleeReaches, ST_DEAD, ST_HURT, ST_SHIELD, ST_SWING,
+  canFire, fire, FireState, fullMag, heldWeapon, isWeapon, MOVING_SPEED, PROP_KINDS, PROP_NAMES, PROP_RADIUS, reload, shotDirs, WeaponKind, weaponStats, zoneAt, ZoneNow,
 } from 'yeouido-br';
 import { castRay, STEP } from 'yeouido-sim';
 
@@ -37,20 +37,24 @@ export interface BrHudState {
   /** 죽었으면: 누구에게(null = 전장), 다시 시작까지 초 */
   dead: { by: string | null; wait: number; } | null;
   feed: { id: number; text: string; }[];
-  /** 방금 내가 준 피해 (사라지는 숫자) */
-  hits: { id: number; dmg: number; age: number; }[];
+  /** 방금 내가 준 피해 (사라지는 숫자, 머리면 크게) */
+  hits: { id: number; dmg: number; age: number; head: boolean; }[];
   /** 방금 맞음 (0~1, 화면 가장자리 붉게) */
   hurt: number;
   /** 내 장비 (칸마다 단계, 0 = 없음) */
   gear: Gear;
   /** 방금 주운 것 */
   got: { id: number; text: string; }[];
-  /** 원거리 재장전 진행 0~1 (1 = 쏠 수 있음), 원거리 무기가 없으면 null */
-  reload: number | null;
+  /** 든 무기: 이름·단계, 탄창, 재장전 진행 0~1(재장전 중이 아니면 null), 스코프 중인지·스코프가 있는지 */
+  weapon: { kind: WeaponKind; name: string; lv: number; ammo: number; mag: number; reload: number | null; scoped: boolean; scope: boolean; } | null;
+  /** 좌클릭으로 할 수 있는 것 (앞쪽 가까이) */
+  prompt: string | null;
+  /** 누름을 모드에 먼저 (터치 버튼: 스코프 켜기·끄기) */
+  press: (button:'left' | 'right') => boolean;
   /** 보스: 체력 비율 0~1·체력·남은 초 (안 나왔으면 null) */
   boss: { ratio: number; hp: number; remain: number; } | null;
   /** 판 끝 결과 (새 판까지 남은 초) */
-  end: { result: 'win' | 'lose'; why?: 'time' | 'wiped'; killer: string | null; top: [string, number][]; next: number; } | null;
+  end: { result: 'win' | 'lose'; why?: 'time' | 'wiped'; killer: string | null; top: [string, number][]; zk: [string, number][]; next: number; } | null;
   /** 관전 중: 보고 있는 사람(null = 보스), 이유(dead 보스전 중 쓰러짐·late 늦게 들어옴) */
   spec: { target: string | null; reason: 'dead' | 'late'; } | null;
   /** 관전 대상 바꾸기 (HUD 버튼) */
@@ -78,7 +82,7 @@ export class BrClient implements ModeClient {
 
   private feed:{ id: number; text: string; at: number; }[] = [];
 
-  private hits:{ id: number; dmg: number; at: number; }[] = [];
+  private hits:{ id: number; dmg: number; at: number; head: boolean; }[] = [];
 
   private seq = 0;
 
@@ -91,16 +95,31 @@ export class BrClient implements ModeClient {
 
   private localSwingAt = -1e9;
 
-  private localNextAt = 0;
+  /** 이 화면에서 잰 다음 파밍 가능 시각 */
+  private localFarmAt = 0;
 
-  /** 이 화면에서 잰 다음 원거리 발사 가능 시각 */
-  private localShotReady = 0;
+  /** 내 탄창 (서버와 같은 걸음 셈 — 쏠 수 없는 걸음엔 사격 비트를 빼고 보낸다), 장비가 바뀌면 새로 */
+  private fs:FireState | null = null;
 
-  /** 다음 발사 가능 걸음 번호 (서버와 같은 셈) */
-  private localShotSeq = 0;
+  private fsKey = '';
 
-  /** 이번 장면에 그릴 내 발사 (화면의 내 자리에서) */
-  private ownShot:{ e: [number, number, number]; hitscan: boolean; speed: number; } | null = null;
+  /** 다음 발 가능 시각·재장전이 시작·끝나는 시각 (화면 표시·예약용) */
+  private readyAt = 0;
+
+  private reloadFrom = 0;
+
+  private reloadTo = 0;
+
+  /** 스코프 중 (화면만의 상태: 시야만 당긴다) */
+  private scoped = false;
+
+  /** 지난 장면이 원근(1인칭)이었나 — 위 시점에선 스코프 없이 바로 쏜다 */
+  private persp = false;
+
+  /** 이번 장면에 그릴 내 발사 (화면의 내 자리에서): 알마다 끝, 화살이면 방향·속도·낙차 */
+  private ownShot:{ es: [number, number, number][]; dirs: [number, number, number][]; hitscan: boolean; speed: number; g: number; range: number; } | null = null;
+
+  private prompt:string | null = null;
 
   private me:ModeFrame['me'] | null = null;
 
@@ -116,7 +135,7 @@ export class BrClient implements ModeClient {
 
   private specInfo:{ target: string | null; reason: 'dead' | 'late'; } | null = null;
 
-  private endInfo:{ result: 'win' | 'lose'; why?: 'time' | 'wiped'; killer: string | null; top: [string, number][]; until: number; } | null = null;
+  private endInfo:{ result: 'win' | 'lose'; why?: 'time' | 'wiped'; killer: string | null; top: [string, number][]; zk: [string, number][]; until: number; } | null = null;
 
   /** 땅 울리기 경고 원 */
   private slamRing:THREE.Mesh;
@@ -125,11 +144,6 @@ export class BrClient implements ModeClient {
   private landRing:THREE.Mesh;
 
   private landUntil = 0;
-
-  /** 원거리 재장전: 쏜 시각과 걸리는 시간 */
-  private reloadAt = 0;
-
-  private reloadMs = 0;
 
   private gear:Gear = emptyGear();
 
@@ -193,7 +207,7 @@ export class BrClient implements ModeClient {
     else if (m.k === 'notice') this.pushFeed(m.text, now);
     else if (m.k === 'kill') this.pushFeed(m.killer ? `${m.killer} ▶ ${m.victim}` : `${m.victim} 전장 밖에서 쓰러짐`, now);
     else if (m.k === 'hit') {
-      this.hits.push({ id: ++this.seq, dmg: m.dmg, at: now });
+      this.hits.push({ id: ++this.seq, dmg: m.dmg, at: now, head: !!m.head });
       if (this.hits.length > 6) this.hits.shift();
     } else if (m.k === 'hurt') this.hurtAt = now;
     // wait < 0: 이번 판은 다시 시작 못 함 (보스전) — 곧 관전으로 바뀐다
@@ -221,31 +235,74 @@ export class BrClient implements ModeClient {
     else if (m.k === 'propGone') m.ids.forEach((id) => this.props.remove(id));
     else if (m.k === 'hitProp') {
       this.props.hit(m.id, -1, now);
-      this.hits.push({ id: ++this.seq, dmg: m.dmg, at: now });
+      this.hits.push({ id: ++this.seq, dmg: m.dmg, at: now, head: false });
       if (this.hits.length > 6) this.hits.shift();
     } else if (m.k === 'boss') this.bossInfo = m.hp > 0 ? { hp: m.hp, max: m.max, remain: m.remain, at: now } : null;
     else if (m.k === 'bossLeap') {
       this.landRing.position.set(m.x, 0.08, m.z);
       this.landUntil = now + m.ms;
     } else if (m.k === 'end') {
-      this.endInfo = { result: m.result, why: m.why, killer: m.killer, top: m.top, until: now + m.next };
+      this.endInfo = { result: m.result, why: m.why, killer: m.killer, top: m.top, zk: m.zk ?? [], until: now + m.next };
       this.bossInfo = null;
     // 내 총·화살은 쏠 때 이미 그렸다 (서버 알림은 늦게 와서 그사이 지나온 자리에서 나가 보인다) — 화살은 번호만 잇는다
     } else if (m.k === 'shot') {
-      if (m.by !== this.host.myId()) this.shots.tracer(m.o, m.e, now);
+      if (m.by !== this.host.myId()) m.es.forEach((e) => this.shots.tracer(m.o, e, now));
     } else if (m.k === 'arrow') {
       if (m.by === this.host.myId()) this.shots.bindOwn(m.id);
-      else this.shots.arrow(m.id, m.o, m.d, m.v, m.range, now);
+      else this.shots.arrow(m.id, m.o, m.d, m.v, m.range, now, m.g);
     } else if (m.k === 'arrowEnd') this.shots.arrowEnd(m.id, m.at, now);
-    else if (m.k === 'fired') {
-      this.reloadAt = now;
-      this.reloadMs = m.reloadMs;
-    } else if (m.k === 'gear') this.gear = m.gear;
+    else if (m.k === 'gear') this.setGear(m.gear);
     else if (m.k === 'got') {
       const k = ITEM_KINDS[m.kind];
       this.got.push({ id: ++this.seq, text: `${ITEM_NAMES[k]} +${m.lv}${m.from === 'corpse' ? ' (시체)' : ''}`, at: now });
       if (this.got.length > 4) this.got.shift();
     }
+  }
+
+  /** 장비가 바뀜: 무기가 바뀌거나 강화되면 탄창 가득 (서버도 같은 때 채운다), 스코프 끄기 */
+  private setGear(g:Gear) {
+    this.gear = g;
+    const w = heldWeapon(g);
+    const key = w ? `${w}:${g[w]}` : '';
+    if (key === this.fsKey) return;
+    this.fsKey = key;
+    this.fs = w ? fullMag(weaponStats(w, g[w])) : null;
+    this.readyAt = 0;
+    this.reloadFrom = 0;
+    this.reloadTo = 0;
+    this.scoped = false;
+  }
+
+  private weaponNow() {
+    const w = heldWeapon(this.gear);
+    return w ? { w, st: weaponStats(w, this.gear[w]) } : null;
+  }
+
+  /** 좌클릭으로 할 수 있는 것: 앞쪽 가까이 있는 땅 아이템·털 시체·부술 물건 중 가장 가까운 것 (서버 파밍과 같은 규칙) */
+  private farmPrompt(me:ModeFrame['me']) {
+    const space = (y:number, b:number, l:number) => b === me.b && (b >= 0 ? l === me.l : Math.abs(y - me.y) <= 1.6);
+    const reach = (x:number, y:number, z:number, b:number, l:number, extra = 0) => space(y, b, l) && meleeReaches(me, { x, y, z, f: 0, b, l }, FARM.range + extra, FARM.cosArc);
+    let best:{ d: number; text: string; } | null = null;
+    const offer = (x:number, z:number, text:string) => {
+      const d = Math.hypot(x - me.x, z - me.z);
+      if (!best || d < best.d) best = { d, text };
+    };
+    const held = heldWeapon(this.gear);
+    this.items.list.forEach(({ it }) => {
+      if (Math.abs(it[3] - me.x) > 4 || Math.abs(it[5] - me.z) > 4 || !reach(it[3], it[4], it[5], it[6], it[7])) return;
+      const k = ITEM_KINDS[it[1]];
+      const swap = held && isWeapon(k) && k !== held ? ` (${ITEM_NAMES[held]} 버림)` : '';
+      offer(it[3], it[5], `좌클릭: ${ITEM_NAMES[k]} +${it[2]} 줍기${swap}`);
+    });
+    this.corpses.forEach(({ c }) => {
+      if (c.items.length && reach(c.x, c.y, c.z, c.b, c.l)) offer(c.x, c.z, '좌클릭: 시체 털기');
+    });
+    this.props.rows.forEach((r) => {
+      const k = PROP_KINDS[r[1]];
+      if (Math.abs(r[3] - me.x) > 4 || Math.abs(r[5] - me.z) > 4 || !reach(r[3], r[4], r[5], r[6], r[7], PROP_RADIUS[k])) return;
+      offer(r[3], r[5], `좌클릭: ${PROP_NAMES[k]} 부수기${this.gear.hammer ? ' (망치)' : ''}`);
+    });
+    return (best as { text: string; } | null)?.text ?? null;
   }
 
   private pushFeed(text:string, now:number) {
@@ -281,6 +338,9 @@ export class BrClient implements ModeClient {
 
   frame(f:ModeFrame) {
     this.me = f.me;
+    this.persp = f.persp;
+    if (!f.persp || this.deadInfo || this.specInfo) this.scoped = false;
+    this.prompt = this.deadInfo || this.specInfo ? null : this.farmPrompt(f.me);
     const zone = this.match ? zoneAt(this.match.plan, f.now - this.match.startAt) : null;
     this.zoneNow = zone;
     this.wall.visible = !!zone;
@@ -299,14 +359,11 @@ export class BrClient implements ModeClient {
     this.props.update(f.now, f.me);
     // 내 발사: 화면에 그린 내 자리(총구 높이)에서, 서버와 같은 방향, 벽에서 멈춤
     if (this.ownShot) {
-      const { e, hitscan, speed } = this.ownShot;
+      const { es, dirs, hitscan, speed, g, range } = this.ownShot;
       this.ownShot = null;
       const o:[number, number, number] = [ f.me.x, f.me.y + MUZZLE_Y, f.me.z ];
-      if (hitscan) this.shots.tracer(o, e, f.now);
-      else {
-        const len = Math.max(0.01, Math.hypot(e[0] - o[0], e[1] - o[1], e[2] - o[2]));
-        this.shots.ownArrow(o, [ (e[0] - o[0]) / len, (e[1] - o[1]) / len, (e[2] - o[2]) / len ], speed, len, f.now);
-      }
+      if (hitscan) es.forEach((e) => this.shots.tracer(o, e, f.now));
+      else dirs.forEach((d) => this.shots.ownArrow(o, d, speed, range, f.now, g));
     }
     this.shots.update(f.now);
     // 보스가 땅을 울리려 하면 바닥에 붉은 경고 원 (깜빡임)
@@ -323,46 +380,84 @@ export class BrClient implements ModeClient {
   }
 
   acted(act:number, now:number, aim:ActAim) {
-    // 누른 순간 바로 휘두른다 (서버 확인을 기다리면 늦어 보인다) — 대기 시간은 서버와 같게
-    if (act & ACT_MELEE && now >= this.localNextAt && !this.deadInfo) {
-      this.localSwingAt = now;
-      this.localNextAt = now + meleeStats(this.gear.pipe).cooldownMs;
+    const dead = !!this.deadInfo || !!this.specInfo;
+    let out = act;
+    // 파밍: 누른 순간 손을 쓴다 (치기·줍기 결과는 서버가 알려 준다)
+    if (act & ACT_FARM && now >= this.localFarmAt && !dead) {
+      if (this.prompt?.includes('부수기')) this.localSwingAt = now;
+      this.localFarmAt = now + (this.prompt?.includes('부수기') ? FARM.hitMs : FARM.pickMs);
     }
-    // 원거리도 이 화면에서 재장전을 잰다 (예약한 발사를 언제까지 붙잡을지)
-    const kind = heldRanged(this.gear);
-    if (!(act & ACT_RANGED)) return act;
-    // 재장전 중인 걸음에는 사격 비트를 빼고 보낸다 — 서버는 내가 쏜(그린) 그 걸음의 조준으로만 쏜다
-    if (!kind || aim.seq < this.localShotSeq || this.deadInfo) return act & ~ACT_RANGED; // eslint-disable-line no-bitwise
-    const st = rangedStats(kind, this.gear[kind]);
-    this.localShotReady = now + st.reloadMs;
-    this.localShotSeq = aim.seq + Math.round(st.reloadMs / 1000 / STEP);
-    // 이번 장면에서 화면에 그린 내 자리에서 바로 그린다 (frame에서 — 걸음 예측 자리는 화면보다 한 걸음 앞이다)
-    const c = Math.cos(aim.pitch);
-    const d = [ Math.sin(aim.f) * c, -Math.sin(aim.pitch), Math.cos(aim.f) * c ];
+    const wn = this.weaponNow();
+    const { fs } = this;
+    if (act & ACT_RELOAD && wn && fs && !dead && reload(fs, wn.st, aim.seq, STEP)) {
+      this.reloadFrom = now;
+      this.reloadTo = now + (fs.nextSeq - aim.seq) * STEP * 1000;
+      this.readyAt = this.reloadTo;
+      this.scoped = false;
+    }
+    if (!(act & ACT_FIRE)) return out;
+    // 쏠 수 없는 걸음(탄창 대기·재장전 중)에는 사격 비트를 빼고 보낸다 — 서버는 내가 쏜(그린) 그 걸음의 조준으로만 쏜다
+    if (!wn || !fs || dead || !canFire(fs, aim.seq)) return out & ~ACT_FIRE;
+    const { st } = wn;
+    fire(fs, st, aim.seq, STEP);
+    this.readyAt = now + (fs.nextSeq - aim.seq) * STEP * 1000;
+    if (fs.reloading) {
+      // 탄창이 비었다: 바로 재장전 (스코프는 내린다)
+      this.reloadFrom = now;
+      this.reloadTo = this.readyAt;
+      this.scoped = false;
+    }
+    // 알마다 서버와 같은 퍼짐 (걸음 번호로 정해짐), 끝(벽·땅·사거리)은 서버와 같은 걸음 자리에서
+    const dirs = shotDirs(st, aim.f, aim.pitch, aim.seq, aim.a > MOVING_SPEED);
     const o = [ aim.x, aim.y + MUZZLE_Y, aim.z ];
-    // 끝점(벽·땅 또는 사거리 끝)은 서버와 같은 걸음 자리에서 — 화면의 내 자리와 걸음 자리가 조금 달라도 조준선이 가리킨 곳에서 끝난다
-    const wall = castRay(this.host.sim, o[0], o[1], o[2], d[0], d[1], d[2], st.range, aim.b, aim.l);
-    this.ownShot = { e: [ o[0] + d[0] * wall, o[1] + d[1] * wall, o[2] + d[2] * wall ], hitscan: st.hitscan, speed: st.speed };
-    return act;
+    const es = dirs.map((d):[number, number, number] => {
+      const wall = castRay(this.host.sim, o[0], o[1], o[2], d[0], d[1], d[2], st.range, aim.b, aim.l);
+      return [ o[0] + d[0] * wall, o[1] + d[1] * wall, o[2] + d[2] * wall ];
+    });
+    this.ownShot = { es, dirs, hitscan: st.hitscan, speed: st.speed, g: st.gravity, range: st.range };
+    out = act;
+    return out;
   }
 
-  /** 든 원거리 무기 사거리 (없으면 기본) */
+  /** 든 무기 사거리 (조준선이 겨누는 거리) */
   aimRange() {
-    const kind = heldRanged(this.gear);
-    return kind ? rangedStats(kind, this.gear[kind]).range * 0.98 : 0;
+    const wn = this.weaponNow();
+    return wn ? wn.st.range * 0.98 : 0;
   }
 
-  /** 근접은 다음 휘두르기까지, 원거리는 재장전이 끝날 때까지 */
+  /** 짧게 누른 행동을 붙잡아 둘 시간: 사격은 다음 발까지, 파밍은 다음 파밍까지 */
   pendingMs(bit:number, now:number) {
-    if (bit & ACT_RANGED) return Math.min(2000, Math.max(0, this.localShotReady - now));
-    if (bit & ACT_MELEE) return Math.min(1000, Math.max(0, this.localNextAt - now));
+    if (bit & ACT_FIRE) return Math.min(4000, Math.max(0, this.readyAt - now));
+    if (bit & ACT_FARM) return Math.min(1000, Math.max(0, this.localFarmAt - now));
     return 0;
+  }
+
+  /** 스코프 무기(1인칭): 우클릭 한 번 = 스코프, 스코프 중 우클릭 = 발사, 좌클릭 = 스코프 끄기 */
+  press(button:'left' | 'right') {
+    const wn = this.weaponNow();
+    if (!wn?.st.scope || !this.persp || this.deadInfo || this.specInfo) return false;
+    if (button === 'right' && !this.scoped) {
+      // 재장전 중엔 스코프를 못 댄다
+      if (this.fs?.reloading && performance.now() < this.reloadTo) return true;
+      this.scoped = true;
+      return true;
+    }
+    if (button === 'left' && this.scoped) {
+      this.scoped = false;
+      return true;
+    }
+    return false;
+  }
+
+  fovMul() {
+    const wn = this.weaponNow();
+    return this.scoped && wn?.st.scope ? wn.st.scope : 1;
   }
 
   look(st:number, gv:number, now:number, mine:boolean, key = 0):Look {
     let swing = 0;
     if (mine) {
-      if (now - this.localSwingAt < meleeStats(this.gear.pipe).swingMs) swing = (now - this.localSwingAt) / meleeStats(this.gear.pipe).swingMs;
+      if (now - this.localSwingAt < FARM.swingMs) swing = (now - this.localSwingAt) / FARM.swingMs;
     } else if (st & ST_SWING) {
       if (!this.swingAt.has(key)) this.swingAt.set(key, now);
       swing = Math.min(1, (now - this.swingAt.get(key)!) / REMOTE_SWING_MS);
@@ -417,7 +512,7 @@ export class BrClient implements ModeClient {
     // 땅 아이템: 종류 색 점
     const dot = (1.5 * dpr) / k;
     this.items.list.forEach(({ it }) => {
-      g.fillStyle = ITEM_COLORS[ITEM_KINDS[it[1]] ?? 'pipe'];
+      g.fillStyle = ITEM_COLORS[ITEM_KINDS[it[1]] ?? 'armor'];
       g.fillRect(it[3] - dot, it[5] - dot, dot * 2, dot * 2);
     });
     // 시체: 작은 회색 ×
@@ -453,13 +548,33 @@ export class BrClient implements ModeClient {
       spec: this.specInfo,
       watch: this.watch,
       feed: this.feed.map(({ id, text }) => ({ id, text })),
-      hits: this.hits.map(({ id, dmg, at }) => ({ id, dmg, age: (now - at) / HIT_MS })),
+      hits: this.hits.map(({ id, dmg, at, head }) => ({ id, dmg, age: (now - at) / HIT_MS, head })),
       hurt: Math.max(0, 1 - (now - this.hurtAt) / 400),
       gear: this.gear,
       got: this.got.map(({ id, text }) => ({ id, text })),
       boss: this.bossInfo ? { ratio: this.bossInfo.hp / this.bossInfo.max, hp: this.bossInfo.hp, remain: Math.ceil(Math.max(0, this.bossInfo.remain - (now - this.bossInfo.at)) / 1000) } : null,
-      end: this.endInfo ? { result: this.endInfo.result, why: this.endInfo.why, killer: this.endInfo.killer, top: this.endInfo.top, next: Math.max(0, Math.ceil((this.endInfo.until - now) / 1000)) } : null,
-      reload: this.gear.pistol || this.gear.bow ? Math.min(1, this.reloadMs ? (now - this.reloadAt) / this.reloadMs : 1) : null,
+      end: this.endInfo ? { result: this.endInfo.result, why: this.endInfo.why, killer: this.endInfo.killer, top: this.endInfo.top, zk: this.endInfo.zk, next: Math.max(0, Math.ceil((this.endInfo.until - now) / 1000)) } : null,
+      weapon: this.weaponHud(now),
+      prompt: this.prompt,
+      press: (b) => this.press(b),
+    };
+  }
+
+  private weaponHud(now:number):BrHudState['weapon'] {
+    const wn = this.weaponNow();
+    if (!wn || !this.fs) return null;
+    const reloading = now < this.reloadTo;
+    // 재장전이 끝났으면 화면에서도 가득 (서버는 다음 발을 쏠 때 채운다 — 같은 셈)
+    const ammo = this.fs.reloading && !reloading ? wn.st.mag : this.fs.ammo;
+    return {
+      kind: wn.w,
+      name: ITEM_NAMES[wn.w],
+      lv: this.gear[wn.w],
+      ammo: reloading ? this.fs.ammo : ammo,
+      mag: wn.st.mag,
+      reload: reloading ? Math.min(1, (now - this.reloadFrom) / Math.max(1, this.reloadTo - this.reloadFrom)) : null,
+      scoped: this.scoped,
+      scope: wn.st.scope > 0,
     };
   }
 

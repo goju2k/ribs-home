@@ -51,6 +51,8 @@ export interface HordeHooks {
   alive(p:ModePlayer): boolean;
   /** 좀비가 사람을 때림 */
   bite(p:ModePlayer, dmg:number, now:number): void;
+  /** 사람이 좀비를 쓰러뜨림 (쓰러진 자리·모습 종류) */
+  killed(at:Body, k:number, by:ModePlayer): void;
 }
 
 /**
@@ -84,8 +86,8 @@ export class Horde {
   }
 
   /** 총·화살로 맞힐 수 있는 좀비들 (pos: 되감은 자리를 줄 수 있다) */
-  shotTargets(now:number, hitMsg:(by:ModePlayer, id:number, dmg:number, killed:boolean) => void, pos:(id:number, b:Body) => { x: number; y: number; z: number; } = (_, b) => b) {
-    const out:{ id: number; x: number; y: number; z: number; b: number; l: number; hit: (dmg:number, by:ModePlayer) => void; }[] = [];
+  shotTargets(now:number, hitMsg:(by:ModePlayer, id:number, dmg:number, killed:boolean, head:boolean) => void, pos:(id:number, b:Body) => { x: number; y: number; z: number; } = (_, b) => b) {
+    const out:{ id: number; x: number; y: number; z: number; b: number; l: number; hit: (dmg:number, by:ModePlayer, head?:boolean) => void; }[] = [];
     this.zeds.forEach((z) => {
       if (z.deadAt || z.burnAt) return;
       const { body } = z.npc;
@@ -97,13 +99,24 @@ export class Horde {
         z: at.z,
         b: body.b,
         l: body.l,
-        hit: (dmg, by) => {
+        hit: (dmg, by, head) => {
           const killed = this.hit(z, dmg, now, by);
-          hitMsg(by, z.npc.id, dmg, killed);
+          hitMsg(by, z.npc.id, dmg, killed, !!head);
         },
       });
     });
     return out;
+  }
+
+  /** 총소리: r m 안의 (쫓는 사람이 없는) 좀비가 쏜 사람에게 몰려온다 — 시야 밖이면 잊는 시간(Z_FORGET_MS)이 지나면 포기 */
+  alert(at:Body, r:number, by:ModePlayer, now:number) {
+    this.zeds.forEach((z) => {
+      if (z.deadAt || z.burnAt || z.target) return;
+      const b = z.npc.body;
+      if (b.b !== at.b || (at.b >= 0 && b.l !== at.l) || Math.abs(b.x - at.x) > r || Math.abs(b.z - at.z) > r || Math.hypot(b.x - at.x, b.z - at.z) > r) return;
+      z.target = by;
+      z.lostAt = now;
+    });
   }
 
   /** 근접 공격이 닿는 가장 가까운 좀비 */
@@ -131,6 +144,7 @@ export class Horde {
     z.lostAt = 0;
     if (z.hp > 0) return false;
     z.deadAt = now;
+    this.hooks.killed(z.npc.body, z.npc.k, by);
     return true;
   }
 

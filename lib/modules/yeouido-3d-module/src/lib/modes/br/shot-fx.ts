@@ -12,7 +12,7 @@ interface Tracer {
 }
 
 interface Flying {
-  mesh: THREE.Mesh; o: THREE.Vector3; d: THREE.Vector3; v: number; range: number; at: number; stuckAt: number;
+  mesh: THREE.Mesh; o: THREE.Vector3; d: THREE.Vector3; v: number; range: number; g: number; at: number; stuckAt: number;
 }
 
 /**
@@ -51,20 +51,20 @@ export class ShotFx {
     this.tracers.push({ line, at: now });
   }
 
-  arrow(id:number, o:[number, number, number], d:[number, number, number], v:number, range:number, now:number) {
+  arrow(id:number, o:[number, number, number], d:[number, number, number], v:number, range:number, now:number, g = 0) {
     const mesh = new THREE.Mesh(this.arrowGeo, this.arrowMat);
     const dir = new THREE.Vector3(...d);
     mesh.position.set(...o);
     mesh.lookAt(mesh.position.clone().add(dir));
     this.scene.add(mesh);
     pixelSnap.add(mesh);
-    this.arrows.set(id, { mesh, o: new THREE.Vector3(...o), d: dir, v, range, at: now, stuckAt: 0 });
+    this.arrows.set(id, { mesh, o: new THREE.Vector3(...o), d: dir, v, range, g, at: now, stuckAt: 0 });
   }
 
   /** 내 화살을 먼저 그린다 (지금 내 자리에서). 서버 알림이 오면 bindOwn으로 번호를 잇는다 */
-  ownArrow(o:[number, number, number], d:[number, number, number], v:number, range:number, now:number) {
+  ownArrow(o:[number, number, number], d:[number, number, number], v:number, range:number, now:number, g = 0) {
     const id = -(++this.ownSeq);
-    this.arrow(id, o, d, v, range, now);
+    this.arrow(id, o, d, v, range, now, g);
     this.ownWaiting.push(id);
     if (this.ownWaiting.length > 20) this.ownWaiting.shift();
   }
@@ -104,8 +104,12 @@ export class ShotFx {
         }
         return;
       }
-      const dist = Math.min(a.range, ((now - a.at) / 1000) * a.v);
+      // 곧게 v·t 만큼 + 낙차 ½·g·t² (서버와 같은 셈), 화살은 날아가는 쪽을 본다
+      const t = Math.min(a.range / a.v, (now - a.at) / 1000);
+      const dist = t * a.v;
       a.mesh.position.copy(a.o).addScaledVector(a.d, dist);
+      a.mesh.position.y -= 0.5 * a.g * t * t;
+      if (a.g) a.mesh.lookAt(a.mesh.position.clone().add(new THREE.Vector3(a.d.x * a.v, a.d.y * a.v - a.g * t, a.d.z * a.v)));
       // 서버의 끝 알림을 못 받아도 사거리 끝에서 멈춘다
       if (dist >= a.range) a.stuckAt = now;
     });

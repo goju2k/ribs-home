@@ -2,6 +2,7 @@
 
 import { MouseEvent, PointerEvent, useEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
+import type { SayKind } from 'yeouido-net';
 
 import { useGalmuriFont } from './hooks/use-galmuri-font';
 import { CamMode, capturePointer, createInput, nextMode, ROTATE_ENABLED, START_MODE } from './input';
@@ -35,7 +36,7 @@ const isTouch = () => typeof window !== 'undefined' && ('ontouchstart' in window
 export function Yeouido3DPage() {
   useGalmuriFont();
   const inputRef = useRef(createInput());
-  const statusRef = useRef<GameStatus>({ ready: false, buildMs: 0, pixel: 0, x: 0, z: 0, running: false, alt: 0, flying: false, onRoof: false, indoor: null, net: { state: 'connecting', count: 0, error: '', correction: 0, pending: 0, transport: 'ws', rtt: 0, jitter: 0 }, mode: START_MODE, gameMode: null, game: null });
+  const statusRef = useRef<GameStatus>({ ready: false, buildMs: 0, pixel: 0, x: 0, z: 0, running: false, alt: 0, flying: false, onRoof: false, indoor: null, net: { state: 'connecting', count: 0, error: '', correction: 0, pending: 0, transport: 'ws', rtt: 0, jitter: 0 }, mode: START_MODE, says: [], gameMode: null, game: null });
   const [ ready, setReady ] = useState(false);
   const [ touch ] = useState(isTouch);
   const [ status, setStatus ] = useState<GameStatus>(statusRef.current);
@@ -140,6 +141,15 @@ export function Yeouido3DPage() {
         </Buttons>
       </TopBar>
 
+      {/* 방송: 위쪽 가운데 (입장·퇴장·모드 알림) */}
+      {status.says.length > 0 && (
+        <Says>
+          {status.says.map((s) => (
+            <Say key={s.id} $kind={s.kind} style={{ opacity: Math.min(1, (1 - s.age) * 4) }}>{SAY_ICON[s.kind]} {s.text}</Say>
+          ))}
+        </Says>
+      )}
+
       {/* 게임 모드 HUD (지금은 배틀로얄 PoC — 모드가 바뀌면 화면도 바뀐다) */}
       {status.gameMode && status.game ? MODE_HUDS[status.gameMode]?.({ state: status.game, inputRef, touch }) ?? null : null}
 
@@ -160,6 +170,31 @@ export function Yeouido3DPage() {
     </Root>
   );
 }
+
+/** 방송 종류마다 앞 표시·색 */
+const SAY_ICON:Record<SayKind, string> = { info: '·', join: '▶', leave: '◀', event: '★', warn: '!' };
+const SAY_COLOR:Record<SayKind, string> = { info: '#f4f4f8', join: '#8fe08f', leave: '#c9ced6', event: '#ffd84a', warn: '#ff8a7a' };
+
+const Says = styled.div({
+  position: 'absolute',
+  top: 62,
+  left: '50%',
+  transform: 'translateX(-50%)',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  gap: 4,
+  pointerEvents: 'none',
+  zIndex: 5,
+  '@media (max-width: 560px)': { top: 114 },
+});
+
+const Say = styled(Panel)<{ $kind: SayKind; }>(({ $kind }) => ({
+  padding: '4px 12px',
+  color: SAY_COLOR[$kind],
+  whiteSpace: 'nowrap',
+  fontSize: 13,
+}));
 
 const Root = styled.div({
   position: 'fixed',

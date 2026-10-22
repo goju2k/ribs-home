@@ -4,21 +4,35 @@ import { GroundItem, ITEM_KINDS, ItemKind } from 'yeouido-br';
 import { pixelSnap, stepAngle } from '../../ui/pixel-snap';
 
 /** 아이템 색 (미니맵 점·HUD 칸도 같은 색) */
-export const ITEM_COLORS:Record<ItemKind, string> = { pipe: '#c9ced6', armor: '#4a8fe0', shoes: '#c98a4a', rocket: '#e2574c', hammer: '#e0b84a', pistol: '#c04ad9', bow: '#4ad9a0' };
+export const ITEM_COLORS:Record<ItemKind, string> = {
+  armor: '#4a8fe0',
+  shoes: '#c98a4a',
+  rocket: '#e2574c',
+  hammer: '#e0b84a',
+  pistol: '#c04ad9',
+  smg: '#ff8a3a',
+  rifle: '#7ad94a',
+  shotgun: '#d94a6a',
+  sniper: '#4ad9d9',
+  crossbow: '#4ad9a0',
+};
 
 /** 이보다 멀면 안 그린다 (m) */
 const SHOW_RANGE = 220;
 
-/** 종류마다 모양: 쇠파이프 긴 막대, 갑옷 넓은 판, 신발 납작한 상자, 로켓슈트 키 큰 통 */
+/** 종류마다 모양: 갑옷 넓은 판, 신발 납작한 상자, 로켓슈트 키 큰 통, 총은 길이로 구분 */
 function shapes() {
   const g:Record<ItemKind, THREE.BufferGeometry> = {
-    pipe: new THREE.BoxGeometry(0.12, 0.12, 0.9),
     armor: new THREE.BoxGeometry(0.5, 0.55, 0.18),
     shoes: new THREE.BoxGeometry(0.42, 0.16, 0.3),
     rocket: new THREE.BoxGeometry(0.3, 0.6, 0.3),
     hammer: new THREE.BoxGeometry(0.45, 0.18, 0.18),
     pistol: new THREE.BoxGeometry(0.32, 0.2, 0.08),
-    bow: new THREE.BoxGeometry(0.06, 0.85, 0.22),
+    smg: new THREE.BoxGeometry(0.5, 0.22, 0.09),
+    rifle: new THREE.BoxGeometry(0.85, 0.18, 0.09),
+    shotgun: new THREE.BoxGeometry(0.8, 0.14, 0.12),
+    sniper: new THREE.BoxGeometry(1.1, 0.14, 0.09),
+    crossbow: new THREE.BoxGeometry(0.6, 0.12, 0.6),
   };
   return g;
 }
@@ -57,7 +71,7 @@ export class ItemMeshes {
 
   add(it:GroundItem) {
     if (this.shown.has(it[0])) return;
-    const kind = ITEM_KINDS[it[1]] ?? 'pipe';
+    const kind = ITEM_KINDS[it[1]] ?? 'armor';
     const mesh = new THREE.Mesh(this.geo[kind], this.mats[kind]);
     mesh.castShadow = true;
     mesh.position.set(it[3], it[4] + 0.5, it[5]);

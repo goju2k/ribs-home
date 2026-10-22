@@ -54,6 +54,8 @@ export interface ActAim {
   x: number; y: number; z: number; f: number; pitch: number; b: number; l: number;
   /** 입력 걸음 번호 (서버도 같은 번호로 재장전을 잰다) */
   seq: number;
+  /** 이 걸음의 실제 이동 속도 (m/s) — 움직이며 쏘면 퍼지는 무기 */
+  a: number;
 }
 
 export interface ModeClient {
@@ -68,6 +70,12 @@ export interface ModeClient {
    * 없으면 한 걸음만
    */
   pendingMs?(bit:number, now:number): number;
+  /**
+   * 마우스·버튼을 누른 순간 모드가 먼저 받는다 (예: 스코프 켜기·끄기). true면 그 누름은 행동 비트로 보내지 않는다
+   */
+  press?(button:'left' | 'right', now:number): boolean;
+  /** 원근 시야 배율 (스코프 ×4면 4, 없으면 1) — 시야각과 마우스 감도를 이만큼 줄인다 */
+  fovMul?(): number;
   /**
    * 조준선이 겨누는 거리 (m): 든 무기 사거리 — 조준선 광선 위 이 거리의 점을 향해 쏘게 해야 사거리 끝에서도 조준선과 맞는다.
    * 없으면 기본 거리

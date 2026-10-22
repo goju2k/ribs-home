@@ -23,8 +23,8 @@ export type BrServerMsg =
   | { k: 'notice'; text: string; }
   /** 누가 누구를 (killer 없음 = 전장 밖에서) */
   | { k: 'kill'; killer: string | null; victim: string; }
-  /** 내가 때림 (target: 맞은 사람 id) */
-  | { k: 'hit'; target: number; dmg: number; }
+  /** 내가 맞힘 (target: 맞은 사람·좀비 id, head: 머리) */
+  | { k: 'hit'; target: number; dmg: number; head?: boolean; }
   /** 내가 맞음 (from: 때린 사람 이름, 없으면 전장 피해) */
   | { k: 'hurt'; dmg: number; from: string | null; }
   /** 내가 죽음: 누구에게, 다시 시작까지 남은 시간(ms, -1 = 이번 판은 다시 시작 못 함 — 보스전) */
@@ -48,21 +48,20 @@ export type BrServerMsg =
   | { k: 'propGone'; ids: number[]; }
   /** 내가 물건을 침 */
   | { k: 'hitProp'; id: number; dmg: number; }
-  /** 총: 쏜 자리 → 끝(맞은 곳·벽·사거리 끝) 궤적 (근처 사람에게), by = 쏜 사람 */
-  | { k: 'shot'; by: number; o: [number, number, number]; e: [number, number, number]; }
+  /** 총: 쏜 자리 → 알마다 끝(맞은 곳·벽·사거리 끝) 궤적 (근처 사람에게), by = 쏜 사람, w = 무기 번호(WEAPON_KINDS) */
+  | { k: 'shot'; by: number; w: number; o: [number, number, number]; es: [number, number, number][]; }
   /** 화살: 쏜 자리·방향(길이 1)·속도·사거리 — 클라이언트가 같이 날린다 */
-  | { k: 'arrow'; id: number; by: number; o: [number, number, number]; d: [number, number, number]; v: number; range: number; }
+  | { k: 'arrow'; id: number; by: number; o: [number, number, number]; d: [number, number, number]; v: number; range: number; g: number; }
   /** 화살이 멈춤 (맞음·벽) */
   | { k: 'arrowEnd'; id: number; at: [number, number, number]; }
-  /** 내가 쐈다 (재장전 표시용) */
-  | { k: 'fired'; reloadMs: number; }
   /** 보스 상태 (나타나 있는 동안 0.5초마다): 체력·최대, 남은 시간(ms) */
   | { k: 'boss'; id: number; hp: number; max: number; remain: number; }
   /** 보스가 날아오름: 착지 자리(x, z)와 걸리는 시간(ms) — 그 자리에 경고 원, 착지하며 땅 울리기 */
   | { k: 'bossLeap'; x: number; z: number; ms: number; }
   /** 판 끝: 승리(보스 쓰러짐)·패배(시간 초과), 마지막 일격, 보스에게 준 피해 순위, 새 판까지(ms) */
   /** why: 패배 이유 — time 시간 초과, wiped 참가자가 모두 쓰러짐 */
-  | { k: 'end'; result: 'win' | 'lose'; why?: 'time' | 'wiped'; killer: string | null; top: [string, number][]; next: number; }
+  /** zk: 좀비 처치 순위 [이름, 마리] */
+  | { k: 'end'; result: 'win' | 'lose'; why?: 'time' | 'wiped'; killer: string | null; top: [string, number][]; zk: [string, number][]; next: number; }
   /**
    * 관전: 이번 판은 더 못 뛰고 남을 따라 본다 (target: 보고 있는 사람 이름, 없으면 보스).
    * reason: dead = 보스전 중에 쓰러짐, late = 보스전·결과 중에 들어옴 (다음 판에 참여)
