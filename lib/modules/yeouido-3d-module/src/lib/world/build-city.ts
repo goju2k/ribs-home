@@ -149,13 +149,18 @@ function windowTexture() {
   const g = c.getContext('2d')!;
   g.fillStyle = '#ffffff';
   g.fillRect(0, 0, 8, 8);
-  g.fillStyle = '#7f95ad';
+  // 창은 벽과 대비를 조금 낮춘다 (화면 가득 반복되는 무늬라 대비가 크면 눈이 피로하다)
+  g.fillStyle = '#93a6ba';
   g.fillRect(1, 2, 6, 4);
-  g.fillStyle = '#b9c9da';
+  g.fillStyle = '#c3d0dc';
   g.fillRect(1, 2, 6, 1);
   const tex = new THREE.CanvasTexture(c);
+  // 가까이는 도트 그대로(확대 Nearest), 멀면 밉맵으로 평균 색 — 먼 벽에서 한 도트에 창 여러 개가 들어가
+  // 움직일 때마다 지글지글 반짝이던 것(모아레)을 없앤다. 비스듬한 벽도 덜 뭉개지게 비등방 필터
   tex.magFilter = THREE.NearestFilter;
-  tex.minFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  tex.anisotropy = 8;
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
   tex.colorSpace = THREE.SRGBColorSpace;

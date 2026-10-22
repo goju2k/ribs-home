@@ -35,10 +35,11 @@ const RIDE_DROP = 0.35;
 const SKY = '#a8dcf5';
 // 3인칭·1인칭: 가시거리(안개 끝)와 안개 시작, 드래그 감도(라디안/px), 3인칭 카메라 거리 범위
 const FAR = 450;
-const FOG_NEAR = 140;
+const FOG_NEAR = 90;
 const LOOK_SPEED = 0.005;
 /** 원근 시야각 (세로, 도) */
-const FP_FOV = 60;
+/** 1인칭·뒤 시야각 (60 → 75: 좁으면 같은 마우스 움직임에 화면이 크게 휙휙 지나가 피로·멀미) */
+const FP_FOV = 75;
 const CHASE_MIN = 2.5;
 const CHASE_MAX = 60;
 
@@ -114,10 +115,12 @@ function markerTexture() {
 }
 
 /** 화면 세로 기준 몇 CSS 픽셀을 한 도트로 그릴지 (주소의 ?pix= 로 바꿀 수 있다) */
-function pixelSize(w:number, h:number) {
+function pixelSize(w:number, h:number, fp = false) {
   const q = Number(new URLSearchParams(window.location.search).get('pix'));
   if (q >= 1 && q <= 8) return q;
-  return Math.max(2, Math.round(Math.min(w, h) / 260));
+  const base = Math.max(2, Math.round(Math.min(w, h) / 260));
+  // 1인칭은 몸을 돌릴 때마다 모든 가장자리 계단이 출렁여 눈이 피로하다 → 도트를 더 잘게 (3 → 2)
+  return fp ? Math.max(1, Math.round(base * 0.6)) : base;
 }
 
 export function GameCanvas({ inputRef, statusRef, onReady }:{
@@ -315,7 +318,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       const w = host.clientWidth;
       const h = host.clientHeight;
       const dpr = window.devicePixelRatio || 1;
-      const dot = Math.max(1, Math.round(pixelSize(w, h) * dpr));
+      const dot = Math.max(1, Math.round(pixelSize(w, h, mode === 'fp') * dpr));
       const bw = Math.max(1, Math.ceil((w * dpr) / dot) + 2);
       const bh = Math.max(1, Math.ceil((h * dpr) / dot) + 2);
       Object.assign(scr, { bw, bh, visH: (h * dpr) / dot, dot, dpr });
@@ -464,6 +467,8 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         mouseAct = 0;
         aimPt = null;
         scene.fog = mode === 'top' ? null : fog;
+        // 1인칭은 도트 크기가 달라 그림 크기를 다시 정한다
+        resize();
       }
       const persp3 = mode !== 'top';
       if (input.rotate) {
