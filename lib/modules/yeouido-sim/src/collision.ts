@@ -151,14 +151,22 @@ export class Collision {
     return floor;
   }
 
-  /** 높이 y에서 한 점이 막혔는지 */
+  /** 높이 y에서 한 점이 막혔는지 (총알 광선이 0.4m마다 부르므로 배열을 만들지 않고 바로 훑는다) */
   private blockedPoint(x:number, z:number, y:number) {
     if (y < 0.3) return this.at(x, z) !== BLOCK.NONE;
-    return this.footprintsAt(x, z).some((f) => f.solid && f.h > y + 0.3);
+    const list = this.buckets.get(Math.floor(x / BUCKET) * 100000 + Math.floor(z / BUCKET));
+    if (!list) return false;
+    for (let i = 0; i < list.length; i++) {
+      const f = this.footprints[list[i]];
+      if (f.solid && f.h > y + 0.3 && x >= f.minX && x <= f.maxX && z >= f.minZ && z <= f.maxZ && inside(f.ring, x, z)) return true;
+    }
+    return false;
   }
 
   /** 반지름 r 원이 막힌 곳에 걸리는지 (중심 + 네 방향) */
   blocked(x:number, z:number, r:number, y = 0) {
+    // 점(r = 0)이면 다섯 곳이 모두 같은 자리
+    if (r === 0) return this.blockedPoint(x, z, y);
     return this.blockedPoint(x, z, y)
       || this.blockedPoint(x + r, z, y)
       || this.blockedPoint(x - r, z, y)

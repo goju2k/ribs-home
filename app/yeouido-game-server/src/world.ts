@@ -1,9 +1,11 @@
 import { WebSocket } from 'ws';
 import {
-  ClientMsg, decodeInputs, MAX_LAG_MS, NO_FACE, encodeSnap, ST_FROZEN, ST_HIDDEN, InputTuple, NEAR, PROTOCOL_VERSION, SayKind, ServerMsg, SIM_HZ, SNAP_HZ, SnapRow, toArrayBuffer, toBody, toRow, validInput,
+  ClientMsg, decodeInputs, MAX_LAG_MS, NO_FACE, encodeSnapPacked, packRows, ST_FROZEN, ST_HIDDEN, InputTuple, NEAR, PROTOCOL_VERSION, SayKind, ServerMsg, SIM_HZ, SNAP_HZ, toArrayBuffer, toBody, toRow, validInput,
   VIEW_DEFAULT, VIEW_MAX, VIEW_MIN,
 } from 'yeouido-net';
 import { Body, createSimWorld, newBody, SimWorld, step, WORLD } from 'yeouido-sim';
+
+import type { Socket } from 'net';
 
 import { GameMode, ModeHost, ModeNpc, ModePlayer } from './mode';
 import { BattleRoyale } from './modes/battle-royale';
@@ -16,6 +18,13 @@ const MAX_QUEUE = SIM_HZ;
 /** 스냅숏 우선순위: 가까운 순 이 등수까지 매번, 그다음 등수까지 두 번에 한 번, 그 뒤는 네 번에 한 번 */
 const NEAR_COUNT = 24;
 const MID_COUNT = 64;
+/**
+ * 스냅숏 한 통에 담는 최대 행 수: 한곳에 수백이 몰려도 1인 수신량이 끝없이 늘지 않게.
+ * MID_COUNT 뒤(먼 쪽)는 남은 자리만큼만 — 많으면 더 드물게 돌려 가며 보낸다 (클라이언트는 3초 소식이 없어야 숨긴다)
+ */
+const MAX_ROWS = 64;
+/** 먼 쪽에 남는 자리 (가까운 쪽이 다 차 있을 때) */
+const FAR_ROWS = MAX_ROWS - NEAR_COUNT - (MID_COUNT - NEAR_COUNT) / 2;
 /** 관심 영역 격자 한 칸 (m) */
 const CELL = 128;
 const cellKey = (cx:number, cz:number) => (cx + 1000) * 4096 + (cz + 1000);
@@ -60,6 +69,9 @@ export class World {
 
   /** 정렬용 임시 배열 (거리·번호를 한 숫자로 묶어 담는다 — 받는 사람마다 객체를 만들지 않게) */
   private keys = new Float64Array(256);
+
+  /** 받는 사람마다 고른 행 번호 (스냅숏 만들 때 재사용) */
+  private pick = new Int32Array(MAX_ROWS);
 
   private players = new Map<number, Player>();
 
@@ -164,15 +176,24 @@ export class World {
    * (300명이 몰려 싸우면 죽음·맞음 알림이 많아 메시지마다 보내면 이벤트 루프가 밀린다)
    */
   private flushMode() {
-    const all = this.modeAll.length ? JSON.stringify({ t: 'mode', ds: this.modeAll } satisfies ServerMsg) : null;
+    // 같은 메시지(예: 총 궤적은 근처 사람 모두에게 같은 객체)는 한 번만 JSON으로 바꾸고, 사람마다 한 통으로 묶는다
+    const json = new Map<unknown, string>();
+    const str = (d:unknown) => {
+      let s = json.get(d);
+      if (s === undefined) {
+        s = JSON.stringify(d);
+        json.set(d, s);
+      }
+      return s;
+    };
+    const all = this.modeAll.map(str).join(',');
     this.modeAll = [];
     this.players.forEach((p) => {
-      if (p.ws.readyState !== WebSocket.OPEN) return;
-      if (all) p.ws.send(all);
-      if (p.modeOut.length) {
-        p.ws.send(JSON.stringify({ t: 'mode', ds: p.modeOut } satisfies ServerMsg));
-        p.modeOut = [];
-      }
+      const mine = p.modeOut.length ? p.modeOut.map(str).join(',') : '';
+      p.modeOut = [];
+      if ((!all && !mine) || p.ws.readyState !== WebSocket.OPEN) return;
+      // = JSON.stringify({ t: 'mode', ds: [ ...모두에게, ...나에게 ] } satisfies ServerMsg)
+      p.ws.send(`{"t":"mode","ds":[${all}${all && mine ? ',' : ''}${mine}]}`);
     });
   }
 
@@ -329,13 +350,29 @@ export class World {
     });
     this.mode.tick(now);
     this.record();
+    // 이번 틱에 보낼 것(모드 메시지·스냅숏)을 사람마다 한 번의 쓰기로 묶는다 (보낼 때마다 시스템 호출이라 사람이 많으면 이게 크다)
+    const corked = this.cork();
     this.flushMode();
     const t1 = performance.now();
     this.lastSimMs = t1 - t0;
     // 받는 사람을 SPLIT 묶음으로 나눠 틱마다 번갈아 보낸다 → 각자 SNAP_HZ, 한 틱의 부담은 1/SPLIT
     if (this.players.size) this.snapshot(this.tick % SPLIT);
+    corked.forEach((sock) => sock.uncork());
     this.lastSnapMs = performance.now() - t1;
     this.lastTickMs = performance.now() - t0;
+  }
+
+  /** 웹소켓 아래 소켓을 잠시 막아 둔다 (uncork 때 쌓인 것을 한 번에 쓴다) */
+  private cork() {
+    const out:Socket[] = [];
+    this.players.forEach((p) => {
+      const sock = (p.ws as unknown as { _socket?: Socket; })._socket; // eslint-disable-line no-underscore-dangle
+      if (sock && p.ws.readyState === WebSocket.OPEN) {
+        sock.cork();
+        out.push(sock);
+      }
+    });
+    return out;
   }
 
   /** 지연 보정용: 이번 틱 사람·NPC 위치를 기록 (없어진 번호는 지운다) */
@@ -373,7 +410,8 @@ export class World {
     this.npcs.forEach((o) => all.push(o));
     const n = all.length;
     if (this.keys.length < n) this.keys = new Float64Array(n * 2);
-    const rows = all.map((o) => toRow(o.id, o.body, o.st, o.gv, o.k));
+    // 행은 이번 틱에 한 번만 바이트로 만들어 두고, 받는 사람마다 고른 것만 복사한다
+    const packed = packRows(all.map((o) => toRow(o.id, o.body, o.st, o.gv, o.k)));
     const players = [ ...this.players.values() ];
     // 공간 격자: 실외는 CELL m 칸, 실내는 "건물:층" 묶음 (번호 목록) — 받는 사람마다 전원을 훑지 않고 근처만 본다
     const cells = new Map<number, number[]>();
@@ -386,7 +424,7 @@ export class World {
       if (list) list.push(i);
       else map.set(key, [ i ]);
     });
-    const { keys } = this;
+    const { keys, pick } = this;
     let sent = 0;
     players.forEach((p, i) => {
       if (i >= receivers || p.id % SPLIT !== half) return;
@@ -417,17 +455,19 @@ export class World {
         for (let cz = cz0; cz <= cz1; cz++) consider(cells.get(cellKey(cx, cz)));
       }
       const sorted = keys.subarray(0, count).sort();
-      const list:SnapRow[] = [];
-      for (let rank = 0; rank < count; rank++) {
+      // 먼 쪽: 네 번에 한 번, 너무 많으면 남은 자리에 맞게 더 드물게
+      const farEvery = Math.max(4, Math.ceil((count - MID_COUNT) / FAR_ROWS));
+      let n = 0;
+      for (let rank = 0; rank < count && n < MAX_ROWS; rank++) {
         const j = sorted[rank] % KEY;
         const d = Math.floor(sorted[rank] / KEY) / 16;
         let every = 1;
         if (rank >= NEAR_COUNT) every = 2;
-        if (rank >= MID_COUNT) every = 4;
+        if (rank >= MID_COUNT) every = farEvery;
         if (d > NEAR) every = Math.max(every, 2);
-        if ((p.sent + all[j].id) % every === 0) list.push(rows[j]);
+        if ((p.sent + all[j].id) % every === 0) pick[n++] = j;
       }
-      const buf = encodeSnap(this.tick, p.ack, toBody(p.body), p.st, p.gv, list);
+      const buf = encodeSnapPacked(this.tick, p.ack, toBody(p.body), p.st, p.gv, packed, pick, n);
       sent += buf.byteLength;
       // 데이터채널이 열려 있으면 그쪽(UDP처럼)으로
       if (p.rtc?.open()) p.rtc.sendBinary(buf);

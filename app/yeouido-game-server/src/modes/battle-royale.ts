@@ -56,6 +56,8 @@ const PROP_MIN = 100;
 const PROP_HIT_RANGE = 80;
 /** 총 궤적·화살은 이 거리 안 사람에게만 보낸다 (m, 저격 사거리보다 넉넉히) */
 const SHOT_SEND_R = 300;
+/** 총 판정 후보를 고를 때 사거리에 더하는 여유 (m): 지연 보정으로 되감는 동안 움직인 거리 + 보스 반지름 */
+const TARGET_SLACK = 12;
 
 interface Fighter {
   hp: number;
@@ -151,6 +153,9 @@ export class BattleRoyale implements GameMode {
   private startedAt = 0;
 
   private arrows:Arrow[] = [];
+
+  /** 이번 틱의 맞힐 수 있는 것 (지금 자리) — 한 발마다 새로 만들지 않게 틱마다 한 번. tick()이 비운다 */
+  private targetsNow:ShotTarget<ModePlayer>[] | null = null;
 
   private nextArrowId = 1;
 
@@ -327,9 +332,25 @@ export class BattleRoyale implements GameMode {
     });
   }
 
-  /** 맞힐 수 있는 것: 살아 있고 무적이 아닌 사람 + 좀비. lagMs만큼 되감은 자리 (총은 쏜 사람 화면 기준으로 판정). 쏜 사람 자신은 hitscan이 건너뛴다 */
-  private shotTargets(now:number, lagMs:number):ShotTarget<ModePlayer>[] {
-    const pos = (id:number, b:Body) => (lagMs > 0 ? this.host.past(id, lagMs) ?? b : b);
+  /**
+   * 맞힐 수 있는 것: 살아 있고 무적이 아닌 사람 + 좀비 + 보스. lagMs만큼 되감은 자리 (총은 쏜 사람 화면 기준으로 판정). 쏜 사람 자신은 hitscan이 건너뛴다.
+   * 목록은 틱마다 한 번만 만들고, from이 있으면 그 둘레 reach m 안(사거리 + 여유)만 골라 되감는다 — 사람이 몰려 쏠 때 한 발마다 전원을 새로 만들지 않게
+   */
+  private shotTargets(now:number, lagMs:number, from?:[number, number, number], reach = 0):ShotTarget<ModePlayer>[] {
+    if (!this.targetsNow) this.targetsNow = this.buildTargets(now);
+    if (lagMs <= 0 && !from) return this.targetsNow;
+    const out:ShotTarget<ModePlayer>[] = [];
+    this.targetsNow.forEach((t) => {
+      if (from && (Math.abs(t.x - from[0]) > reach || Math.abs(t.z - from[2]) > reach)) return;
+      const at = lagMs > 0 ? this.host.past(t.id, lagMs) : null;
+      out.push(at ? { ...t, x: at.x, y: at.y, z: at.z } : t);
+    });
+    return out;
+  }
+
+  /** 이번 틱 맞힐 수 있는 것 (지금 자리) */
+  private buildTargets(now:number):ShotTarget<ModePlayer>[] {
+    const pos = (_:number, b:Body) => b;
     const out:ShotTarget<ModePlayer>[] = [];
     // 휴전 중엔 사람은 맞힐 대상이 아니다 (총알이 지나간다)
     const truce = this.truce(now);
@@ -382,7 +403,8 @@ export class BattleRoyale implements GameMode {
     const dirs = shotDirs(st, aim.face, aim.pitch, aim.seq, body.a > MOVING_SPEED);
     if (st.noise) this.horde.alert(body, st.noise, p, now);
     if (st.hitscan) {
-      const targets = this.shotTargets(now, p.lagMs);
+      // 되감는 동안 움직였을 거리·보스 몸집만큼 여유
+      const targets = this.shotTargets(now, p.lagMs, o, st.range + TARGET_SLACK);
       // 맞은 곳 종류 (화면의 타격 효과용): 0 벽·땅, 1 몸, 2 머리, 3 허공
       const ht:number[] = [];
       const es = dirs.map((dir) => {
@@ -686,6 +708,8 @@ export class BattleRoyale implements GameMode {
   }
 
   tick(now:number) {
+    // 맞힐 대상 목록은 틱마다 새로 (입력 처리 중 만든 것은 이번 틱 화살까지만 쓰고 버린다)
+    this.targetsNow = null;
     if (!this.match) return;
     const all = [ ...this.host.players() ];
     this.all = all;

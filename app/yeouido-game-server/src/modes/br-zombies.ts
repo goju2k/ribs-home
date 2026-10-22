@@ -102,6 +102,8 @@ export class Horde {
         b: body.b,
         l: body.l,
         hit: (dmg, by, head) => {
+          // 목록은 틱마다 한 번 만들므로 같은 틱에 먼저 쓰러졌으면 넘어간다 (두 번 처치되지 않게)
+          if (z.deadAt || z.burnAt) return;
           const killed = this.hit(z, dmg, now, by);
           hitMsg(by, z.npc.id, dmg, killed, !!head);
         },

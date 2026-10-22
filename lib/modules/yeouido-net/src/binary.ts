@@ -29,9 +29,23 @@ export interface Snap {
 
 const u8 = (n:number) => Math.max(0, Math.min(255, Math.round(n)));
 
-export function encodeSnap(tick:number, ack:number, me:BodyTuple, ms:number, mv:number, rows:SnapRow[]) {
-  const buf = new ArrayBuffer(HEAD + 2 + rows.length * ROW);
-  const d = new DataView(buf);
+/** 행 하나를 o 자리에 (ROW 바이트) */
+function writeRow(d:DataView, o:number, [ id, x, y, z, f, a, b, l, s, v, k ]:SnapRow) {
+  d.setUint16(o, id, true);
+  d.setInt32(o + 2, Math.round(x * 100), true);
+  d.setInt32(o + 6, Math.round(z * 100), true);
+  d.setUint16(o + 10, Math.max(0, Math.min(65535, Math.round(y * 100))), true);
+  d.setUint8(o + 12, Math.round((((f % TAU) + TAU) % TAU) / TAU * 256) & 255);
+  d.setUint8(o + 13, Math.max(0, Math.min(255, Math.round(a * 10))));
+  d.setInt16(o + 14, b, true);
+  d.setUint8(o + 16, Math.max(0, Math.min(255, l)));
+  d.setUint8(o + 17, u8(s));
+  d.setUint8(o + 18, u8(v));
+  d.setUint8(o + 19, u8(k));
+}
+
+/** 머리 (행 수까지) — 끝 자리를 돌려준다 */
+function writeHead(d:DataView, tick:number, ack:number, me:BodyTuple, ms:number, mv:number, n:number) {
   let o = 0;
   d.setUint8(o, BIN_SNAP);
   o += 1;
@@ -46,22 +60,43 @@ export function encodeSnap(tick:number, ack:number, me:BodyTuple, ms:number, mv:
   d.setUint8(o, u8(ms));
   d.setUint8(o + 1, u8(mv));
   o += 2;
-  d.setUint16(o, rows.length, true);
-  o += 2;
-  rows.forEach(([ id, x, y, z, f, a, b, l, s, v, k ]) => {
-    d.setUint16(o, id, true);
-    d.setInt32(o + 2, Math.round(x * 100), true);
-    d.setInt32(o + 6, Math.round(z * 100), true);
-    d.setUint16(o + 10, Math.max(0, Math.min(65535, Math.round(y * 100))), true);
-    d.setUint8(o + 12, Math.round((((f % TAU) + TAU) % TAU) / TAU * 256) & 255);
-    d.setUint8(o + 13, Math.max(0, Math.min(255, Math.round(a * 10))));
-    d.setInt16(o + 14, b, true);
-    d.setUint8(o + 16, Math.max(0, Math.min(255, l)));
-    d.setUint8(o + 17, u8(s));
-    d.setUint8(o + 18, u8(v));
-    d.setUint8(o + 19, u8(k));
+  d.setUint16(o, n, true);
+  return o + 2;
+}
+
+export function encodeSnap(tick:number, ack:number, me:BodyTuple, ms:number, mv:number, rows:SnapRow[]) {
+  const buf = new ArrayBuffer(HEAD + 2 + rows.length * ROW);
+  const d = new DataView(buf);
+  let o = writeHead(d, tick, ack, me, ms, mv, rows.length);
+  rows.forEach((r) => {
+    writeRow(d, o, r);
     o += ROW;
   });
+  return buf;
+}
+
+/**
+ * 서버용: 이번 틱의 모든 행을 한 번만 바이트로 만들어 두고(packRows), 받는 사람마다 고른 행만 복사한다 (encodeSnap과 같은 결과).
+ * 받는 사람이 많을수록 같은 행을 사람 수만큼 다시 쓰지 않아도 된다
+ */
+export function packRows(rows:SnapRow[]) {
+  const out = new Uint8Array(rows.length * ROW);
+  const d = new DataView(out.buffer);
+  rows.forEach((r, i) => writeRow(d, i * ROW, r));
+  return out;
+}
+
+/** packRows로 만든 행 중 pick[0..n) 번째들로 스냅숏 */
+export function encodeSnapPacked(tick:number, ack:number, me:BodyTuple, ms:number, mv:number, packed:Uint8Array, pick:ArrayLike<number>, n:number) {
+  const buf = new ArrayBuffer(HEAD + 2 + n * ROW);
+  const o = writeHead(new DataView(buf), tick, ack, me, ms, mv, n);
+  const bytes = new Uint8Array(buf);
+  // 20바이트씩이라 subarray를 만들기보다 바로 옮기는 게 빠르다
+  for (let i = 0; i < n; i++) {
+    const src = pick[i] * ROW;
+    const dst = o + i * ROW;
+    for (let k = 0; k < ROW; k++) bytes[dst + k] = packed[src + k];
+  }
   return buf;
 }
 
