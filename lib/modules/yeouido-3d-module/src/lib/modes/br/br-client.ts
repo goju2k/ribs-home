@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import {
   ACT_FARM, ACT_FIRE, ACT_RELOAD, BOSS, BrClientMsg, BrServerMsg, dayNight, FARM, ST_BURN, ST_SLAM, Z_BOSS, Z_RUNNER, Z_WALKER, Corpse, emptyGear, gaugeHp, Gear, isBrMsg, ITEM_KINDS, ITEM_NAMES, MatchPlan, meleeReaches, ST_DEAD, ST_HURT, ST_SHIELD, ST_SWING,
-  canFire, fire, isConsumable, FireState, fullMag, heldWeapon, isWeapon, MOVING_SPEED, PROP_KINDS, PROP_NAMES, PROP_RADIUS, reload, shotDirs, WeaponKind, weaponStats, zoneAt, ZoneNow,
+  canFire, fire, isConsumable, WEAPON_KINDS, FireState, fullMag, heldWeapon, isWeapon, MOVING_SPEED, PROP_KINDS, PROP_NAMES, PROP_RADIUS, reload, shotDirs, WeaponKind, weaponStats, zoneAt, ZoneNow,
 } from 'yeouido-br';
 import { castRay, STEP } from 'yeouido-sim';
 
@@ -16,6 +16,8 @@ import { ActAim, Appearance, Look, ModeClient, ModeFrame, ModeHostClient } from 
 
 /** 총구 높이 (발에서, m) — 서버와 같게 */
 const MUZZLE_Y = 1.4;
+/** 1인칭 내 총구를 그리는 자리: 몸 가운데에서 앞·오른쪽·아래로 (m, 화면만) */
+const FP_MUZZLE = { forward: 0.9, right: 0.25, down: 0.08, flash: 0.22 };
 /** 경계 벽 높이 (m) */
 const WALL_H = 600;
 /** 알림(누가 누구를) 보여 주는 시간 (ms) */
@@ -119,7 +121,7 @@ export class BrClient implements ModeClient {
   private persp = false;
 
   /** 이번 장면에 그릴 내 발사 (화면의 내 자리에서): 알마다 끝, 화살이면 방향·속도·낙차 */
-  private ownShot:{ es: [number, number, number][]; dirs: [number, number, number][]; hitscan: boolean; speed: number; g: number; range: number; } | null = null;
+  private ownShot:{ kind: WeaponKind; es: [number, number, number][]; dirs: [number, number, number][]; hitscan: boolean; speed: number; g: number; range: number; } | null = null;
 
   private prompt:string | null = null;
 
@@ -263,7 +265,11 @@ export class BrClient implements ModeClient {
       this.bossInfo = null;
     // 내 총·화살은 쏠 때 이미 그렸다 (서버 알림은 늦게 와서 그사이 지나온 자리에서 나가 보인다) — 화살은 번호만 잇는다
     } else if (m.k === 'shot') {
-      if (m.by !== this.host.myId()) m.es.forEach((e) => this.shots.tracer(m.o, e, now));
+      if (m.by !== this.host.myId()) {
+        const kind = WEAPON_KINDS[m.w] ?? 'pistol';
+        this.shots.flash(m.o, kind, now);
+        m.es.forEach((e) => this.shots.tracer(m.o, e, now, kind));
+      }
     } else if (m.k === 'arrow') {
       if (m.by === this.host.myId()) this.shots.bindOwn(m.id);
       else this.shots.arrow(m.id, m.o, m.d, m.v, m.range, now, m.g);
@@ -381,11 +387,21 @@ export class BrClient implements ModeClient {
     this.props.update(f.now, f.me);
     // 내 발사: 화면에 그린 내 자리(총구 높이)에서, 서버와 같은 방향, 벽에서 멈춤
     if (this.ownShot) {
-      const { es, dirs, hitscan, speed, g, range } = this.ownShot;
+      const { kind, es, dirs, hitscan, speed, g, range } = this.ownShot;
       this.ownShot = null;
       const o:[number, number, number] = [ f.me.x, f.me.y + MUZZLE_Y, f.me.z ];
-      if (hitscan) es.forEach((e) => this.shots.tracer(o, e, f.now));
-      else dirs.forEach((d) => this.shots.ownArrow(o, d, speed, range, f.now, g));
+      // 1인칭: 총구를 눈앞 가운데가 아니라 오른쪽 아래·조금 앞에 (불꽃·총알이 조준선을 가리지 않게) — 끝점은 그대로라 조준선으로 모인다
+      if (f.persp) {
+        const sf = Math.sin(f.me.f);
+        const cf = Math.cos(f.me.f);
+        o[0] += sf * FP_MUZZLE.forward - cf * FP_MUZZLE.right;
+        o[2] += cf * FP_MUZZLE.forward + sf * FP_MUZZLE.right;
+        o[1] -= FP_MUZZLE.down;
+      }
+      if (hitscan) {
+        this.shots.flash(o, kind, f.now, f.persp ? FP_MUZZLE.flash : 1);
+        es.forEach((e) => this.shots.tracer(o, e, f.now, kind));
+      } else dirs.forEach((d) => this.shots.ownArrow(o, d, speed, range, f.now, g));
     }
     this.shots.update(f.now);
     // 보스가 땅을 울리려 하면 바닥에 붉은 경고 원 (깜빡임)
@@ -436,7 +452,7 @@ export class BrClient implements ModeClient {
       const wall = castRay(this.host.sim, o[0], o[1], o[2], d[0], d[1], d[2], st.range, aim.b, aim.l);
       return [ o[0] + d[0] * wall, o[1] + d[1] * wall, o[2] + d[2] * wall ];
     });
-    this.ownShot = { es, dirs, hitscan: st.hitscan, speed: st.speed, g: st.gravity, range: st.range };
+    this.ownShot = { kind: wn.w, es, dirs, hitscan: st.hitscan, speed: st.speed, g: st.gravity, range: st.range };
     out = act;
     return out;
   }
