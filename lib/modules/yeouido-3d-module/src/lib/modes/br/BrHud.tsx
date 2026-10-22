@@ -1,5 +1,5 @@
 /* eslint-disable no-bitwise -- 행동 비트 */
-import { MouseEvent, MutableRefObject, PointerEvent, useRef } from 'react';
+import { MouseEvent, MutableRefObject, PointerEvent, useEffect, useRef } from 'react';
 import styled from 'styled-components';
 import { ACT_FARM, ACT_FIRE, ACT_RELOAD, isConsumable, isWeapon, ITEM_KINDS, ITEM_NAMES, STAGES } from 'yeouido-br';
 
@@ -61,6 +61,21 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
     onContextMenu: (e:MouseEvent) => e.preventDefault(),
   });
   const z = state.zone;
+  // 시작 대기: Enter로 게임 시작(준비) 켜기·끄기 — 1인칭에서 마우스가 잠겨 있어도 된다
+  const lobbyRef = useRef(state.lobby);
+  lobbyRef.current = state.lobby;
+  const readyRef = useRef(state.setReady);
+  readyRef.current = state.setReady;
+  useEffect(() => {
+    const onKey = (e:KeyboardEvent) => {
+      const lb = lobbyRef.current;
+      if (e.code !== 'Enter' || !lb || e.repeat) return;
+      e.preventDefault();
+      readyRef.current(!lb.me);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   return (
     <>
       {/* 스코프는 HUD 맨 아래층 (스코프 중에도 체력·탄창이 보이게) */}
@@ -162,6 +177,17 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
           )}
           <span>{state.end.next}초 뒤 새 판</span>
         </End>
+      )}
+
+      {state.lobby && (
+        <Lobby>
+          <b>게임 시작 대기</b>
+          <span>준비 {state.lobby.ready} / {state.lobby.total}명 · 모두 누르면 5초 후 시작</span>
+          {state.lobby.startIn !== null && <Count>{state.lobby.startIn}</Count>}
+          <ReadyButton $on={state.lobby.me} onClick={() => state.setReady(!state.lobby!.me)}>
+            {state.lobby.me ? '준비 취소 (Enter)' : '게임 시작 (Enter)'}
+          </ReadyButton>
+        </Lobby>
       )}
 
       {state.spec && !state.end && (
@@ -452,6 +478,35 @@ const End = styled(Panel)<{ $win: boolean; }>(({ $win }) => ({
   pointerEvents: 'none',
   b: { fontFamily: 'Galmuri14, sans-serif', fontWeight: 'normal', fontSize: 20, color: $win ? '#ffd84a' : '#ff7a6b' },
   ol: { margin: 0, paddingLeft: 18, color: '#d6dbf5' },
+}));
+
+const Lobby = styled(Panel)({
+  position: 'absolute',
+  left: '50%',
+  bottom: 150,
+  transform: 'translateX(-50%)',
+  padding: '12px 18px',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  gap: 8,
+  textAlign: 'center',
+  b: { fontWeight: 'normal', color: '#ffd84a', fontSize: 15 },
+  span: { fontSize: 12, color: '#c9ced6' },
+});
+
+const Count = styled.div({ fontSize: 34, color: '#ffd84a', lineHeight: 1 });
+
+const ReadyButton = styled.button<{ $on: boolean; }>(({ $on }) => ({
+  fontFamily: PIXEL_FONT,
+  fontSize: 15,
+  color: '#f4f4f8',
+  background: $on ? '#5a606b' : '#3d9a4f',
+  border: 0,
+  padding: '8px 18px',
+  cursor: 'pointer',
+  pointerEvents: 'auto',
+  ...pixelBorder(),
 }));
 
 const Spec = styled(Panel)({

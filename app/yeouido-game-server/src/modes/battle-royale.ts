@@ -1,6 +1,6 @@
 import {
   ACT_FARM, ACT_FIRE, ACT_RELOAD, BALL, BOSS_LIMIT_MS, ESCAPE, BrClientMsg, Difficulty, DIFFICULTY, FARM, RESULT_MS, afterPickup, armorCut, BR_MODE, dayNight, breakPower, PROP_KINDS, PROP_RADIUS, rollDrops, rollZombieDrop, BrServerMsg, Corpse, CorpseItem, emptyGear, Gear, HP_MAX, HURT_MS, hpGauge, insideZone,
-  ITEM_KINDS, insideZone as inZoneCircle, makeMatchPlan, pickRoofOf, MATCH_MS, MatchPlan, meleeReaches, pickSpawn, respawnDelay, rocketMul, shoeMul,
+  ITEM_KINDS, insideZone as inZoneCircle, makeMatchPlan, pickRoofOf, LOBBY_COUNTDOWN_MS, MATCH_MS, MatchPlan, meleeReaches, pickSpawn, respawnDelay, rocketMul, shoeMul,
   canFire, falloff, fire, healAmount, isConsumable, FireState, fullMag, heldWeapon, isWeapon, MOVING_SPEED, reload, shotDirs, WEAPON_KINDS, weaponStats,
   SPAWN_SHIELD_MS, ST_DEAD, ST_FROZEN, ST_HIDDEN, ST_HURT, ST_SHIELD, ST_SWING, zoneAt, zoneDps,
 } from 'yeouido-br';
@@ -134,8 +134,15 @@ export class BattleRoyale implements GameMode {
   private boss:Boss;
 
   /** 판 단계: 진행 → 보스 → 끝(결과 보여 주는 중) */
-  /** play 파밍(PvP) → boss 보스전(휴전) → escape 탈출전(휴전 카운트다운 뒤 PvP, 탈출구 열림) → end */
-  private phase:'play' | 'boss' | 'escape' | 'end' = 'play';
+  /** lobby 시작 대기(모두 게임 시작을 누르면 5초 뒤) → play 파밍(PvP) → boss 보스전(휴전) → escape 탈출전(휴전 카운트다운 뒤 PvP, 탈출구 열림) → end */
+  private phase:'lobby' | 'play' | 'boss' | 'escape' | 'end' = 'lobby';
+
+  /** 시작 대기: 준비한 사람 번호, 카운트다운이 끝나는 시각(0 = 아직), 알릴 게 바뀌었는지 */
+  private ready = new Set<number>();
+
+  private startAt = 0;
+
+  private lobbyDirty = false;
 
   /** 탈출구 (보스가 쓰러진 자리)·열리는 시각 */
   private exit:{ x: number; y: number; z: number; openAt: number; } | null = null;
@@ -232,14 +239,17 @@ export class BattleRoyale implements GameMode {
   private matchMsg():BrServerMsg {
     const m = this.match!;
     const r1 = (n:number) => Math.round(n * 10) / 10;
-    return { k: 'match', id: m.id, circles: m.circles.map((c) => [ r1(c.cx), r1(c.cz), r1(c.r) ]), elapsed: this.elapsed, dayOffset: DAY_OFFSET };
+    return { k: 'match', id: m.id, circles: m.circles.map((c) => [ r1(c.cx), r1(c.cz), r1(c.r) ]), elapsed: this.elapsed, dayOffset: DAY_OFFSET, lobby: this.phase === 'lobby' };
   }
 
   private newMatch() {
     const id = this.nextMatchId++;
     this.match = makeMatchPlan(this.host.sim, id, (Math.random() * 2 ** 32) >>> 0); // eslint-disable-line no-bitwise
     this.matchAt = Date.now() - TIME_OFFSET;
-    this.phase = 'play';
+    this.phase = 'lobby';
+    this.ready.clear();
+    this.startAt = 0;
+    this.lobbyDirty = true;
     this.exit = null;
     this.startedAt = Date.now();
     this.stats.clear();
@@ -252,7 +262,74 @@ export class BattleRoyale implements GameMode {
     this.props.scatter(this.host.sim, this.match.circles[0], PROP_START);
     this.refillAt = this.matchAt + ITEM_REFILL_MS;
     const last = this.match.circles[this.match.circles.length - 1];
-    console.log(`[br] match #${id} start (final ${last.cx.toFixed(0)},${last.cz.toFixed(0)} r${last.r})`);
+    console.log(`[br] match #${id} lobby (final ${last.cx.toFixed(0)},${last.cz.toFixed(0)} r${last.r})`);
+    this.announce.lobby();
+  }
+
+  /** 시작 대기 알림 (모두에게) */
+  private lobbyMsg(now:number):BrServerMsg {
+    return { k: 'lobby', ready: [ ...this.ready ], total: [ ...this.host.players() ].length, startIn: this.startAt ? Math.max(0, this.startAt - now) : null };
+  }
+
+  /**
+   * 시작 대기 (틱마다): 시계는 멈춰 두고, 접속한 모두가 준비하면 카운트다운 — 그 사이 누가 들어오거나 취소하면 멈춘다
+   */
+  private lobbyTick(now:number, all:ModePlayer[]) {
+    this.matchAt = now - TIME_OFFSET;
+    // 나간 사람의 준비는 지운다
+    [ ...this.ready ].forEach((id) => {
+      if (!this.host.get(id)) {
+        this.ready.delete(id);
+        this.lobbyDirty = true;
+      }
+    });
+    const allReady = all.length > 0 && all.every((p) => this.ready.has(p.id));
+    if (allReady && !this.startAt) {
+      this.startAt = now + LOBBY_COUNTDOWN_MS;
+      this.lobbyDirty = true;
+      this.announce.countdown(all.length);
+    } else if (!allReady && this.startAt) {
+      this.startAt = 0;
+      this.lobbyDirty = true;
+      this.announce.countdownStop();
+    }
+    if (this.lobbyDirty) {
+      this.lobbyDirty = false;
+      this.broadcast(this.lobbyMsg(now));
+    }
+    if (this.startAt && now >= this.startAt) this.startMatch(now, all);
+  }
+
+  /** 시작 대기 중 틱의 나머지: 판 정보를 가끔 다시 알리고, 상태 비트는 늘 멀쩡한 모습 */
+  private lobbyStatus(now:number, all:ModePlayer[]) {
+    if (now - this.matchSentAt >= MATCH_EVERY_MS) {
+      this.broadcast(this.matchMsg());
+      this.matchSentAt = now;
+    }
+    all.forEach((p) => {
+      const f = this.fighters.get(p.id);
+      p.st = 0;
+      p.gv = hpGauge(f?.hp ?? HP_MAX);
+    });
+  }
+
+  /** 카운트다운 끝: 시계를 맞추고 모두 새 자리에서 시작 */
+  private startMatch(now:number, all:ModePlayer[]) {
+    this.phase = 'play';
+    this.startAt = 0;
+    this.ready.clear();
+    this.matchAt = now - TIME_OFFSET;
+    this.startedAt = now;
+    this.refillAt = this.matchAt + ITEM_REFILL_MS;
+    this.stats.clear();
+    all.forEach((p) => {
+      this.revive(p, this.spawnBody(), now);
+      this.stats.set(p.id, newStats(p.name, now, false));
+    });
+    this.broadcast(this.matchMsg());
+    this.broadcast({ k: 'lobby', ready: [], total: all.length, startIn: null });
+    this.matchSentAt = now;
+    console.log(`[br] match #${this.match?.id} start (${all.length}명)`);
     this.announce.newMatch();
   }
 
@@ -527,22 +604,26 @@ export class BattleRoyale implements GameMode {
   join(p:ModePlayer, requested:Body | null) {
     if (!this.match) this.newMatch();
     const now = Date.now();
-    this.stats.set(p.id, newStats(p.name, now, this.phase !== 'play'));
+    const late = this.phase === 'boss' || this.phase === 'escape' || this.phase === 'end';
+    this.stats.set(p.id, newStats(p.name, now, late));
     this.revive(p, requested ?? this.spawnBody(), now);
     // 보스전·결과 중에 들어오면 이번 판은 관전, 다음 판에 참여
-    if (this.phase !== 'play') this.spectate(p, this.fighters.get(p.id)!, 'late', now);
+    if (late) this.spectate(p, this.fighters.get(p.id)!, 'late', now);
+    // 시작 대기 중이면 새로 온 사람은 아직 준비 전 (카운트다운 중이었다면 멈춘다)
+    if (this.phase === 'lobby') this.lobbyDirty = true;
     this.announce.welcome(p, this.phase, this.elapsed);
     this.send(p, this.matchMsg());
     this.send(p, { k: 'corpses', list: this.corpses });
     this.send(p, { k: 'items', list: this.items.list() });
     this.send(p, { k: 'props', list: this.props.list() });
+    if (this.phase === 'lobby') this.send(p, this.lobbyMsg(now));
   }
 
   /** 나감: 살아 있었으면 그 자리에 시체(장비)를 남긴다 — 죽기 직전에 나가 장비를 없애는 꼼수 방지 */
   leave(p:ModePlayer) {
     const f = this.fighters.get(p.id);
     const now = Date.now();
-    if (f && !f.respawnAt && this.match && this.phase !== 'end') {
+    if (f && !f.respawnAt && this.match && this.phase !== 'end' && this.phase !== 'lobby') {
       this.dropCorpse(p, f);
     }
     const st = this.stats.get(p.id);
@@ -625,6 +706,13 @@ export class BattleRoyale implements GameMode {
 
   message(p:ModePlayer, d:unknown) {
     const m = d as BrClientMsg;
+    if (m?.k === 'ready') {
+      if (this.phase !== 'lobby' || typeof m.on !== 'boolean' || this.ready.has(p.id) === m.on) return;
+      if (m.on) this.ready.add(p.id);
+      else this.ready.delete(p.id);
+      this.lobbyDirty = true;
+      return;
+    }
     const f = this.fighters.get(p.id);
     if (!f?.spectator || m?.k !== 'watch' || (m.dir !== 1 && m.dir !== -1)) return;
     const list = this.watchable();
@@ -636,7 +724,8 @@ export class BattleRoyale implements GameMode {
 
   act(p:ModePlayer, act:number, now:number, aim:Aim) {
     const me = this.fighters.get(p.id);
-    if (!me || me.respawnAt) return;
+    // 시작 대기 중엔 걷기만 (쏘기·파밍 없음)
+    if (!me || me.respawnAt || this.phase === 'lobby') return;
     /* eslint-disable no-bitwise -- 행동 비트 */
     if (act & ACT_RELOAD && me.fire) {
       const w = heldWeapon(me.gear);
@@ -719,13 +808,22 @@ export class BattleRoyale implements GameMode {
       if (!this.emptyAt) this.emptyAt = now;
       else if (now - this.emptyAt > EMPTY_CLOSE_MS) {
         console.log(`[br] match #${this.match.id} closed (empty)`);
-        if (this.phase !== 'end') this.saveRecord('abandoned', null);
+        // 시작도 안 한 판(시작 대기)은 기록하지 않는다
+        if (this.phase !== 'end' && this.phase !== 'lobby') this.saveRecord('abandoned', null);
         this.match = null;
         this.emptyAt = 0;
       }
       return;
     }
     this.emptyAt = 0;
+    // 시작 대기: 시계를 멈추고 준비만 본다 (좀비·전장 피해·보스 없음)
+    if (this.phase === 'lobby') {
+      this.lobbyTick(now, all);
+      if (this.phase === 'lobby') {
+        this.lobbyStatus(now, all);
+        return;
+      }
+    }
     if (this.phase === 'play') this.announce.play(this.elapsed, DAY_OFFSET, this.zone());
     // 20분: 최종 원 가운데에 보스
     if (this.phase === 'play' && this.elapsed >= MATCH_MS) {
@@ -790,7 +888,10 @@ export class BattleRoyale implements GameMode {
       this.broadcast({ k: 'items', list: this.items.list() });
       this.broadcast({ k: 'props', list: this.props.list() });
       this.matchSentAt = now;
-    } else if (now - this.matchSentAt >= MATCH_EVERY_MS) {
+      // 다음 틱부터 시작 대기
+      return;
+    }
+    if (now - this.matchSentAt >= MATCH_EVERY_MS) {
       this.broadcast(this.matchMsg());
       this.matchSentAt = now;
     }

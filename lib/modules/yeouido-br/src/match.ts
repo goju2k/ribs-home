@@ -7,6 +7,8 @@ import { BLOCK, SimWorld } from 'yeouido-sim';
  */
 
 export const MATCH_MS = 20 * 60 * 1000;
+/** 모두 준비하면 이만큼 센 뒤 시작 (ms) */
+export const LOBBY_COUNTDOWN_MS = 5000;
 export const STAGES = 10;
 export const STAGE_MS = MATCH_MS / STAGES;
 /** 최종 원 반경 (m) */

@@ -66,6 +66,21 @@ export class Announcer {
     this.say(text, kind);
   }
 
+  /** 새 판 준비 (시작 대기) */
+  lobby() {
+    this.reset();
+  }
+
+  /** 모두 준비: 카운트다운 시작 */
+  countdown(n:number) {
+    this.say(`${n === 1 ? '준비 완료!' : `${n}명 모두 준비 완료!`} 5초 후 게임이 시작됩니다.`, 'event');
+  }
+
+  /** 카운트다운 중 누가 들어오거나 취소함 */
+  countdownStop() {
+    this.say('준비하지 않은 사람이 있어 시작을 멈췄습니다.', 'warn');
+  }
+
   newMatch() {
     this.reset();
     this.once('start', '새 판이 시작되었습니다. 상자를 부수고 무기를 확보하세요!', 'event');
@@ -73,7 +88,10 @@ export class Announcer {
 
   /** 들어온 사람에게만: 지금 상황과 할 일 */
   welcome(p:ModePlayer, phase:string, elapsed:number) {
-    if (phase === 'play') {
+    if (phase === 'lobby') {
+      this.say('여의도에 오신 것을 환영합니다. 게임 시작 버튼(Enter)을 누르세요.', 'info', p);
+      this.say('접속한 모두가 누르면 5초 후 시작합니다. 그때까지는 둘러보기만 할 수 있습니다.', 'info', p);
+    } else if (phase === 'play') {
       const min = Math.max(1, Math.ceil((MATCH_MS - elapsed) / 60_000));
       this.say('여의도에 오신 것을 환영합니다. 좌클릭으로 줍고 부수며, 우클릭으로 사격합니다.', 'info', p);
       this.say(`약 ${min}분 후 최종 보스가 등장합니다. 보스가 쓰러진 자리의 탈출구에 가장 먼저 닿는 생존자가 승리합니다.`, 'info', p);

@@ -14,7 +14,10 @@ export interface Corpse {
 export type BrServerMsg =
   /** 판 정보: 원 11개([cx, cz, r]: 0번 처음 원, k번 k단계 끝 원)와 판이 시작된 뒤 흐른 시간(ms). 새 판이면 id가 바뀐다 */
   /** dayOffset: 낮밤 시계를 이만큼 당김 (개발용 시험, 보통 0) */
-  | { k: 'match'; id: number; circles: [number, number, number][]; elapsed: number; dayOffset: number; }
+  /** lobby: 시작 대기 중 (시계가 멈춰 있다 — elapsed 그대로) */
+  | { k: 'match'; id: number; circles: [number, number, number][]; elapsed: number; dayOffset: number; lobby?: boolean; }
+  /** 시작 대기: 준비한 사람 번호들·접속 인원, 시작까지 남은 ms (모두 준비해 카운트다운 중일 때만) */
+  | { k: 'lobby'; ready: number[]; total: number; startIn: number | null; }
   /** 시체 전부 (입장·새 판) */
   | { k: 'corpses'; list: Corpse[]; }
   | { k: 'corpse'; c: Corpse; }
@@ -84,6 +87,8 @@ export type BrServerMsg =
 /** 클라이언트 → 서버 (엔진의 { t: 'mode', d }) */
 export type BrClientMsg =
   /** 관전 대상 바꾸기 (다음 +1, 이전 -1) */
-  | { k: 'watch'; dir: 1 | -1; };
+  | { k: 'watch'; dir: 1 | -1; }
+  /** 시작 대기에서 준비(게임 시작 버튼) 켜기·끄기 */
+  | { k: 'ready'; on: boolean; };
 
 export const isBrMsg = (d:unknown):d is BrServerMsg => typeof d === 'object' && d !== null && typeof (d as { k?: unknown; }).k === 'string';

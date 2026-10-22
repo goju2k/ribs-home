@@ -70,6 +70,10 @@ export interface BrHudState {
   spec: { target: string | null; reason: 'dead' | 'late'; } | null;
   /** 관전 대상 바꾸기 (HUD 버튼) */
   watch: (dir:1 | -1) => void;
+  /** 시작 대기: 준비 인원·접속 인원, 내가 준비했는지, 시작까지 초(모두 준비해 세는 중일 때만) — 없으면 시작 대기 아님 */
+  lobby: { ready: number; total: number; me: boolean; startIn: number | null; } | null;
+  /** 게임 시작 버튼 (준비 켜기·끄기) */
+  setReady: (on:boolean) => void;
 }
 
 interface ShownCorpse {
@@ -109,6 +113,12 @@ export class BrClient implements ModeClient {
 
   /** 카메라 수평 방향 (frame에서) */
   private yaw = 0;
+
+  /** 시작 대기 중인지 (판 시계가 멈춰 있다 — 그때 판 시계 값) */
+  private lobbyElapsed:number | null = null;
+
+  /** 시작 대기 알림: 준비한 사람들·접속 인원·시작 시각(세는 중일 때) */
+  private lobbyInfo:{ ready: number[]; total: number; startAt: number | null; } | null = null;
 
   private deadInfo:{ by: string | null; until: number; } | null = null;
 
@@ -236,10 +246,15 @@ export class BrClient implements ModeClient {
   /** 관전 대상 바꾸기 요청 */
   private watch = (dir:1 | -1) => this.host.send({ k: 'watch', dir } satisfies BrClientMsg);
 
+  private setReady = (on:boolean) => this.host.send({ k: 'ready', on } satisfies BrClientMsg);
+
   receive(d:unknown, now:number) {
     if (!isBrMsg(d)) return;
     const m = d as BrServerMsg;
     if (m.k === 'match') {
+      // 시작 대기면 시계를 멈춰 둔다 (같은 판이어도 대기 → 시작은 바로 반영)
+      this.lobbyElapsed = m.lobby ? m.elapsed : null;
+      if (!m.lobby) this.lobbyInfo = null;
       const startAt = now - m.elapsed;
       // 같은 판이면 시계는 큰 차이만 맞춘다 (받는 지연만큼 흔들리지 않게)
       if (this.match?.plan.id === m.id && Math.abs(this.match.startAt - startAt) < 300) return;
@@ -252,6 +267,8 @@ export class BrClient implements ModeClient {
         this.bossInfo = null;
       }
       this.match = { plan: { id: m.id, circles: m.circles.map(([ cx, cz, r ]) => ({ cx, cz, r })) }, startAt, dayOffset: m.dayOffset ?? 0 };
+    } else if (m.k === 'lobby') {
+      this.lobbyInfo = this.lobbyElapsed === null ? null : { ready: m.ready, total: m.total, startAt: m.startIn === null ? null : now + m.startIn };
     } else if (m.k === 'corpses') {
       [ ...this.corpses.keys() ].forEach((id) => this.removeCorpse(id));
       m.list.forEach((c) => this.addCorpse(c));
@@ -454,7 +471,9 @@ export class BrClient implements ModeClient {
     this.yaw = f.yaw;
     this.hurtFx.update(f.now, f.me, f.yaw, gaugeHp(f.me.gv), !this.deadInfo && !this.specInfo);
     if (!f.persp || this.deadInfo || this.specInfo) this.scoped = false;
-    this.prompt = this.deadInfo || this.specInfo ? null : this.farmPrompt(f.me);
+    // 시작 대기: 판 시계를 멈춘 채로 (전장·낮밤이 흐르지 않게)
+    if (this.match && this.lobbyElapsed !== null) this.match.startAt = f.now - this.lobbyElapsed;
+    this.prompt = this.deadInfo || this.specInfo || this.lobbyElapsed !== null ? null : this.farmPrompt(f.me);
     const zone = this.match ? zoneAt(this.match.plan, f.now - this.match.startAt) : null;
     this.zoneNow = zone;
     this.wall.visible = !!zone;
@@ -528,6 +547,8 @@ export class BrClient implements ModeClient {
   }
 
   acted(act:number, now:number, aim:ActAim) {
+    // 시작 대기 중엔 걷기만 (서버도 쏘기·파밍을 받지 않는다)
+    if (this.lobbyElapsed !== null) return 0;
     const dead = !!this.deadInfo || !!this.specInfo;
     let out = act;
     // 파밍: 누른 순간 손을 쓴다 (치기·줍기 결과는 서버가 알려 준다)
@@ -583,7 +604,7 @@ export class BrClient implements ModeClient {
   /** 스코프 무기(1인칭): 우클릭 한 번 = 스코프, 스코프 중 우클릭 = 발사, 좌클릭 = 스코프 끄기 */
   press(button:'left' | 'right') {
     const wn = this.weaponNow();
-    if (!wn?.st.scope || !this.persp || this.deadInfo || this.specInfo) return false;
+    if (!wn?.st.scope || !this.persp || this.deadInfo || this.specInfo || this.lobbyElapsed !== null) return false;
     if (button === 'right' && !this.scoped) {
       // 재장전 중엔 스코프를 못 댄다
       if (this.fs?.reloading && performance.now() < this.reloadTo) return true;
@@ -706,6 +727,13 @@ export class BrClient implements ModeClient {
       dead: this.deadInfo ? { by: this.deadInfo.by, wait: this.deadInfo.until < 0 ? -1 : Math.max(0, Math.ceil((this.deadInfo.until - now) / 1000)) } : null,
       spec: this.specInfo,
       watch: this.watch,
+      lobby: this.lobbyElapsed !== null && this.lobbyInfo ? {
+        ready: this.lobbyInfo.ready.length,
+        total: this.lobbyInfo.total,
+        me: this.lobbyInfo.ready.includes(this.host.myId()),
+        startIn: this.lobbyInfo.startAt === null ? null : Math.max(0, Math.ceil((this.lobbyInfo.startAt - now) / 1000)),
+      } : null,
+      setReady: this.setReady,
       feed: this.feed.map(({ id, text }) => ({ id, text })),
       hits: this.hits.map(({ id, dmg, at, head }) => ({ id, dmg, age: (now - at) / HIT_MS, head })),
       hitMark: now - this.hitMarkAt < HIT_MARK_MS ? { age: (now - this.hitMarkAt) / HIT_MARK_MS, head: this.hitMarkHead } : null,
