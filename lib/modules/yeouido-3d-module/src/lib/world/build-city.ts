@@ -26,7 +26,11 @@ const AREA_COLORS:Record<string, string> = {
   construction: '#c9a77a',
   bridge: '#a3a6ab',
 };
-const AREA_Y:Record<string, number> = { water: Y.water, bridge: Y.bridge };
+/**
+ * 면은 종류마다 높이를 조금씩 달리 (포장 < 광장 < 공사장 < 모래 < 운동장 < 잔디 < 숲 < 물): 같은 높이에서 겹치면
+ * 움직일 때마다 어느 쪽이 보일지 바뀌어 무늬가 깨진다 (z-fighting)
+ */
+const AREA_Y:Record<string, number> = { pave: 0.018, plaza: 0.022, construction: 0.026, sand: 0.03, pitch: 0.033, grass: 0.036, forest: 0.038, water: Y.water, bridge: Y.bridge };
 
 /** 바닥 띠(도로·보도) — 꺾이는 점은 마이터로 이어 붙인다 */
 function ribbon(pts:P[], width:number, y:number, offset = 0):THREE.BufferGeometry | null {
@@ -351,8 +355,10 @@ export function buildCity(data:WorldData):THREE.Group {
 
   // 보행로
   const PATH_COLORS = [ '#e6dcc4', '#c98a6c', '#e3ddd0' ];
+  // 종류마다 높이를 달리 (광장 < 보도 < 자전거길): 보도와 자전거길이 겹치는 곳이 같은 높이면 무늬가 깨진다
+  const PATH_Y = [ 0.0, 0.006, -0.006 ];
   [ 0, 1, 2 ].forEach((kind) => {
-    const geos = data.paths.filter((r) => r[0] === kind).map((r) => ribbon(toPoints(r, 3), r[1], Y.path + (r[2] ? 0.04 : 0)));
+    const geos = data.paths.filter((r) => r[0] === kind).map((r) => ribbon(toPoints(r, 3), r[1], Y.path + PATH_Y[kind] + (r[2] ? 0.04 : 0)));
     const mesh = mergedMesh(geos, flatMat(PATH_COLORS[kind]), `paths-${kind}`);
     if (mesh) city.add(mesh);
   });
@@ -368,7 +374,8 @@ export function buildCity(data:WorldData):THREE.Group {
   for (const r of data.roads) {
     const [ major, w, lanes, oneway, bridge ] = r;
     const pts = toPoints(r, 5);
-    const y = Y.road + (bridge ? 0.05 : 0);
+    // 큰길은 작은 길보다 조금 위: 색이 달라 같은 높이에서 겹치면(만나는 곳) 줄무늬로 깨진다
+    const y = Y.road + (major ? 0.006 : 0) + (bridge ? 0.05 : 0);
     roadGeos[major].push(ribbon(pts, w, y));
     if (!major) continue;
     // 가장자리 실선
