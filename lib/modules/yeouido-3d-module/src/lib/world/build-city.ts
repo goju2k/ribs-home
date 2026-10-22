@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { FlatRing, toPoints, WorldData } from 'yeouido-sim';
 
+import { buildLandmarks, landmarkIndices } from './landmarks';
 import { seeThrough } from './see-through';
 
 interface P {
@@ -182,6 +183,8 @@ function buildBuildings(data:WorldData) {
   const wallBid:number[] = [];
   const roofGeos:THREE.BufferGeometry[] = [];
   const color = new THREE.Color();
+  // 랜드마크는 벽을 따로 그린다 (지붕은 여기서 그대로)
+  const landmarks = landmarkIndices(data);
 
   let bi = -1;
   for (const row of data.buildings) {
@@ -194,7 +197,7 @@ function buildBuildings(data:WorldData) {
     const y0 = solid ? 0 : Math.max(0, h - CANOPY_EDGE);
     color.setHex(wallHex);
     let u = 0;
-    for (let i = 0; i < ring.length; i++) {
+    for (let i = 0; i < ring.length && !landmarks.has(bi); i++) {
       const a = ring[i];
       const b = ring[(i + 1) % ring.length];
       const len = Math.hypot(b.x - a.x, b.z - a.z);
@@ -414,6 +417,7 @@ export function buildCity(data:WorldData):THREE.Group {
   if (yellowMesh) city.add(yellowMesh);
 
   city.add(...buildBuildings(data));
+  city.add(...buildLandmarks(data));
   city.add(...buildTrees(data));
   return city;
 }

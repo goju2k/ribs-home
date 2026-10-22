@@ -15,6 +15,7 @@ import { createPerson } from '../player/person';
 import { RemotePlayers } from '../player/remote-players';
 import { buildCity } from '../world/build-city';
 import { DecorMeshes } from '../world/build-decor';
+import { setLandmarkNight } from '../world/landmarks';
 import { SEE } from '../world/see-through';
 
 const PITCH = THREE.MathUtils.degToRad(48);
@@ -723,6 +724,8 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         skyNow.copy(NIGHT_SKY).lerp(DAY_SKY, day);
         (scene.background as THREE.Color).copy(skyNow);
         fog.color.copy(skyNow);
+        // 랜드마크 창 불빛: 어두울수록 켠다
+        setLandmarkNight(1 - day);
         hemi.intensity = 0.35 + (1.6 - 0.35) * day;
         sun.intensity = 0.15 + (2.4 - 0.15) * day;
       }
