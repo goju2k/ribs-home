@@ -16,6 +16,10 @@ export interface WeaponStats {
   damage: number;
   /** 한 번에 나가는 알 수 */
   pellets: number;
+  /** 강화 단계마다 더 나가는 알 수 (석궁 화살) */
+  pelletsPerLv: number;
+  /** 부채꼴 (라디안): 0이 아니면 알을 퍼뜨리지 않고 좌우로 이 간격씩 나란히 (가운데 기준) */
+  fan: number;
   /** 탄 퍼짐: 원뿔 반각(라디안), 움직일 때 더함 */
   spread: number;
   moveSpread: number;
@@ -41,7 +45,7 @@ export interface WeaponStats {
   noise: number;
 }
 
-type Base = Omit<WeaponStats, 'pellets' | 'speed' | 'gravity' | 'scope' | 'falloffFrom' | 'falloffMin'> & Partial<WeaponStats>;
+type Base = Omit<WeaponStats, 'pellets' | 'pelletsPerLv' | 'fan' | 'speed' | 'gravity' | 'scope' | 'falloffFrom' | 'falloffMin'> & Partial<WeaponStats>;
 
 const BASE:Record<WeaponKind, Base> = {
   // 권총: 가볍고 무난, 재장전 빠름 — 뭐든 어중간
@@ -50,12 +54,12 @@ const BASE:Record<WeaponKind, Base> = {
   smg: { hitscan: true, damage: 9, spread: 0.02, moveSpread: 0.006, intervalMs: 83, mag: 30, reloadMs: 1800, range: 25, falloffFrom: 10, falloffMin: 0.5, headMul: 1.5, moveMul: 1, noise: 50 },
   // 돌격소총: 만능 — 움직이며 쏘면 퍼짐
   rifle: { hitscan: true, damage: 13, spread: 0.008, moveSpread: 0.03, intervalMs: 111, mag: 30, reloadMs: 2400, range: 70, falloffFrom: 40, falloffMin: 0.7, headMul: 2, moveMul: 0.92, noise: 60 },
-  // 산탄총: 9알 원뿔, 붙으면 한 방 — 조금만 멀어도 무력
-  shotgun: { hitscan: true, damage: 8, pellets: 9, spread: 0.07, moveSpread: 0, intervalMs: 900, mag: 6, reloadMs: 3000, range: 15, falloffFrom: 5, falloffMin: 0.3, headMul: 1.2, moveMul: 0.95, noise: 60 },
+  // 산탄총: 9알 원뿔, 붙으면 한 방 — 일반 좀비는 9m까지 거의 한 방(11m 93%), 멀면 약해진다
+  shotgun: { hitscan: true, damage: 12, pellets: 9, spread: 0.07, moveSpread: 0, intervalMs: 900, mag: 6, reloadMs: 3000, range: 15, falloffFrom: 8, falloffMin: 0.5, headMul: 1.2, moveMul: 0.95, noise: 60 },
   // 저격소총: 스코프 ×4, 머리 한 방 — 무겁고, 빗나가면 끝, 멀리까지 소리
   sniper: { hitscan: true, damage: 90, spread: 0.001, moveSpread: 0.05, intervalMs: 1400, mag: 5, reloadMs: 3500, range: 250, headMul: 2, moveMul: 0.85, scope: 4, noise: 120 },
-  // 석궁: 무소음(좀비가 안 몰림), 낙차 있는 화살 — 내다보고 쏴야 함
-  crossbow: { hitscan: false, damage: 70, spread: 0.002, moveSpread: 0.01, intervalMs: 300, mag: 1, reloadMs: 1500, range: 90, speed: 60, gravity: 9.8, headMul: 1.5, moveMul: 0.95, noise: 0 },
+  // 석궁: 무소음(좀비가 안 몰림), 낙차 있는 화살 — 3발을 15도 간격 부채꼴로, 강화마다 2발씩 더 (7단계 15발 = 210도)
+  crossbow: { hitscan: false, damage: 70, pellets: 3, pelletsPerLv: 2, fan: Math.PI / 12, spread: 0.002, moveSpread: 0.01, intervalMs: 300, mag: 1, reloadMs: 1500, range: 90, speed: 60, gravity: 9.8, headMul: 1.5, moveMul: 0.95, noise: 0 },
 };
 
 /** 무기 + 강화 단계 → 수치 (단계마다 피해 +8%, 연사 간격 -3%, 재장전 -6%, 퍼짐 -5%) */
@@ -63,13 +67,15 @@ export function weaponStats(kind:WeaponKind, lv:number):WeaponStats {
   const b = BASE[kind];
   const k = Math.max(0, lv - 1);
   return {
-    pellets: 1,
+    pelletsPerLv: 0,
+    fan: 0,
     speed: 0,
     gravity: 0,
     scope: 0,
     falloffFrom: 0,
     falloffMin: 1,
     ...b,
+    pellets: (b.pellets ?? 1) + (b.pelletsPerLv ?? 0) * k,
     damage: Math.round(b.damage * (1 + 0.08 * k)),
     intervalMs: Math.round(b.intervalMs * (1 - 0.03 * k)),
     reloadMs: Math.round(b.reloadMs * (1 - 0.06 * k)),
@@ -148,7 +154,8 @@ export function shotDirs(st:WeaponStats, face:number, pitch:number, seq:number, 
   for (let i = 0; i < st.pellets; i++) {
     const r = Math.sqrt(hash01(seq, i, 1)) * cone;
     const a = hash01(seq, i, 2) * Math.PI * 2;
-    const f = face + Math.cos(a) * r;
+    // 부채꼴이면 알마다 좌우로 fan씩 (가운데가 조준선), 그 위에 작은 퍼짐
+    const f = face + (st.fan ? (i - (st.pellets - 1) / 2) * st.fan : 0) + Math.cos(a) * r;
     const p = pitch + Math.sin(a) * r;
     const c = Math.cos(p);
     out.push([ Math.sin(f) * c, -Math.sin(p), Math.cos(f) * c ]);
