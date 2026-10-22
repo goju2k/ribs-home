@@ -152,7 +152,15 @@ export class Horde {
     return true;
   }
 
-  tick(now:number, night:boolean, players:ModePlayer[]) {
+  /** 지금 있는 좀비를 모두 불태운다 (보스전 시작 — 보스가 부르는 좀비만 남게) */
+  burnAll(now:number) {
+    this.zeds.forEach((z) => {
+      if (!z.burnAt && !z.deadAt) z.burnAt = now;
+    });
+  }
+
+  /** ambient: 사람 근처에 저절로 생기게 할지 (보스전·탈출전엔 끄고 보스가 부르는 좀비만) */
+  tick(now:number, night:boolean, players:ModePlayer[], ambient = true) {
     // 새벽: 모두 불탄다
     if (this.wasNight && !night) {
       this.zeds.forEach((z) => {
@@ -160,7 +168,7 @@ export class Horde {
       });
     }
     this.wasNight = night;
-    if (night && now >= this.spawnAt) {
+    if (night && ambient && now >= this.spawnAt) {
       this.spawnAt = now + SPAWN_EVERY_MS;
       this.spawn(players, now);
     }

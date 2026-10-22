@@ -20,10 +20,10 @@ export const RESULT_MS = 15_000;
 /**
  * 체력 = 기준 × 살아 있는 사람 수 × 난이도.
  * 기준(슈터): 총 +3이면 한 사람이 실제로 내는 초당 피해가 약 60~90 (기관단총·돌격소총을 절반쯤 맞힌다고 보면) →
- * 혼자 약 90~130초 쏴야 잡히는 8000. 실제 판 기록이 쌓이면 다시 맞춘다 (밸런스는 뒤로 미룸).
+ * 혼자 약 90~130초 쏴야 잡히는 8000 → 너무 세서 2000 (2026-10-22, 혼자 약 25~35초). 실제 판 기록이 쌓이면 다시 맞춘다.
  */
-export const BOSS_HP_PER_PLAYER = 8000;
-export const BOSS_HP_MIN = 8000;
+export const BOSS_HP_PER_PLAYER = 2000;
+export const BOSS_HP_MIN = 2000;
 
 export const DIFFICULTY = { easy: 0.6, normal: 1, hard: 1.6 } as const;
 export type Difficulty = keyof typeof DIFFICULTY;
@@ -32,11 +32,11 @@ export const bossHp = (alive:number, difficulty:Difficulty = 'normal') => Math.r
 
 /** 보스 능력 (난이도가 피해에도 곱해진다) */
 export const BOSS = {
-  /** 몸 크기 배율 (화면·맞는 원기둥) — 사람의 10배(키 17m), 위압감 */
-  scale: 10,
+  /** 몸 크기 배율 (화면·맞는 원기둥) — 사람의 5배(키 8.5m, 2026-10-22 10배에서 절반) */
+  scale: 5,
   /** 맞는 원기둥 반지름·키 (m) */
-  radius: 4,
-  height: 17,
+  radius: 2,
+  height: 8.5,
   /** 쫓는 속도 배율 (달리기 7.2 기준 → 6.1m/s, 맨발보다 조금 느림) */
   chaseMul: 0.85,
   /** 내려치기: 앞 반경·피해·대기 */

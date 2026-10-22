@@ -11,8 +11,8 @@ export const MATCH_MS = 20 * 60 * 1000;
 export const LOBBY_COUNTDOWN_MS = 5000;
 export const STAGES = 10;
 export const STAGE_MS = MATCH_MS / STAGES;
-/** 최종 원 반경 (m) */
-export const FINAL_R = 300;
+/** 최종 원 반경 (m) — 2026-10-22 300에서 30% 줄임 */
+export const FINAL_R = 210;
 
 export interface Circle {
   cx: number; cz: number; r: number;

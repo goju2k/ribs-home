@@ -833,6 +833,8 @@ export class BattleRoyale implements GameMode {
       this.phase = 'boss';
       const alive = all.filter((p) => !this.fighters.get(p.id)?.respawnAt).length;
       this.boss.spawn(this.match.circles[this.match.circles.length - 1], alive, DIFF, now);
+      // 땅의 좀비는 모두 불타 사라지고, 이제부터는 보스가 부르는 좀비만
+      this.horde.burnAll(now);
       this.announce.bossAppear();
       // 기록: 보스가 나온 순간의 장비 (보스 체력을 맞추는 기준)
       all.forEach((p) => {
@@ -919,7 +921,8 @@ export class BattleRoyale implements GameMode {
     }
     // 밤이면 좀비 (해 뜨면 불탄다)
     // 보스전·탈출전에는 낮에도 좀비가 생긴다 (끝나면 해가 떠 있으면 불탄다)
-    this.horde.tick(now, dayNight(this.elapsed + DAY_OFFSET).night || this.phase === 'boss' || this.phase === 'escape', all);
+    // 보스전·탈출전: 보스가 부른 좀비는 낮이어도 남고, 저절로 생기는 좀비는 없다
+    this.horde.tick(now, dayNight(this.elapsed + DAY_OFFSET).night || this.phase === 'boss' || this.phase === 'escape', all, this.phase === 'play');
     const tA = performance.now();
     this.flyArrows(now);
     this.arrowMs = Math.max(this.arrowMs * 0.98, performance.now() - tA);
