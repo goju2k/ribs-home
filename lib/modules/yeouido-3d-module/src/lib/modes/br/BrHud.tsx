@@ -65,7 +65,6 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
     <>
       {/* 스코프는 HUD 맨 아래층 (스코프 중에도 체력·탄창이 보이게) */}
       {state.weapon?.scoped && <Scope />}
-      {state.hurt > 0 && <Hurt style={{ opacity: state.hurt }} />}
       {state.poison > 0 && <Poison />}
       <Left>
         {z && (
@@ -79,7 +78,7 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
           {state.spec ? <span>관전 중 · 다음 판에 참여</span> : (
             <>
               <span>체력</span>
-              <HpBar><HpFill style={{ width: `${state.hp}%`, background: hpColor(state.hp) }} /></HpBar>
+              <HpBar><HpTrail style={{ width: `${state.hp}%` }} /><HpFill style={{ width: `${state.hp}%`, background: hpColor(state.hp) }} /></HpBar>
               <span>{state.hp}</span>
               {state.shield && <Shield>무적</Shield>}
               {state.poison > 0 && <PoisonTag>중독 {state.poison}초</PoisonTag>}
@@ -234,9 +233,12 @@ const HpPanel = styled(Panel)({
   gap: 6,
 });
 
-const HpBar = styled.div({ width: 110, height: 8, background: '#0b0e22', boxShadow: '0 0 0 1px #3a4272' });
+const HpBar = styled.div({ position: 'relative', width: 110, height: 8, background: '#0b0e22', boxShadow: '0 0 0 1px #3a4272' });
 
-const HpFill = styled.div({ height: '100%', transition: 'width 120ms steps(4)' });
+const HpFill = styled.div({ position: 'relative', height: '100%', transition: 'width 120ms steps(4)' });
+
+/** 체력 막대 잔상: 채움 뒤에 깔린 흰 막대 — 0.45초 있다가 0.5초 동안 따라 줄어든다 */
+const HpTrail = styled.div({ position: 'absolute', left: 0, top: 0, height: '100%', background: '#f4f4f8', transition: 'width 500ms ease-in 450ms' });
 
 /**
  * 재장전 막대: HUD는 0.25초마다만 다시 그려 계단처럼 찼다 → 재장전마다 새로 만들고(key) 브라우저 애니메이션으로 남은 시간 동안 매끄럽게.
@@ -355,13 +357,6 @@ const Poison = styled.div({
 });
 
 const PoisonTag = styled.b({ color: '#7dff4a' });
-
-const Hurt = styled.div({
-  position: 'absolute',
-  inset: 0,
-  pointerEvents: 'none',
-  boxShadow: 'inset 0 0 80px 20px rgba(220,30,30,0.75)',
-});
 
 const Dead = styled(Panel)({
   position: 'absolute',

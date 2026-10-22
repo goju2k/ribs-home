@@ -560,7 +560,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       if (net.modeName !== modeName) {
         modeClient?.dispose();
         modeName = net.modeName;
-        modeClient = modeName && MODE_CLIENTS[modeName] ? MODE_CLIENTS[modeName]({ scene, sim, send: (d) => net.sendMode(d), myId: () => net.myId, myName: () => myName(), camera: persp }) : null;
+        modeClient = modeName && MODE_CLIENTS[modeName] ? MODE_CLIENTS[modeName]({ scene, sim, send: (d) => net.sendMode(d), myId: () => net.myId, myName: () => myName(), camera: persp, overlay: tagRef.current! }) : null;
         if (dbg) dbg.mode = modeClient;
       }
       net.takeModeMessages().forEach((d) => modeClient?.receive(d, now));
@@ -704,7 +704,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       }
       lamp.intensity = (1 - day) * 3;
       lamp.position.set(pos.x, pos.y + 3, pos.z);
-      modeClient?.frame({ now, dt, persp: persp3, me: { x: pos.x, y: pos.y, z: pos.z, f: facing, b: body.b, l: body.l, st: net.meStatus.s, gv: net.meStatus.v }, others: remotes });
+      modeClient?.frame({ now, dt, persp: persp3, yaw, me: { x: pos.x, y: pos.y, z: pos.z, f: facing, b: body.b, l: body.l, st: net.meStatus.s, gv: net.meStatus.v }, others: remotes });
       // 미니맵은 두 프레임에 한 번 (모드가 위에 그린다: 전장 원 등)
       const mc = modeClient;
       if (miniFrame++ % 2 === 0) mini.draw(pos.x, pos.z, yaw, facing, remotes.filter((r) => seen(r) && !looks.get(r.id)?.hidden), mc ? (g, k, dpr) => mc.minimap(g, k, dpr) : undefined);
@@ -798,6 +798,12 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
           const cp = Math.cos(fpPitch);
           persp.position.copy(eye);
           persp.lookAt(eye.x - Math.sin(yaw) * cp, eye.y - Math.sin(fpPitch), eye.z - Math.cos(yaw) * cp);
+          // 맞았을 때 등 시점 밀림 (보이는 것만 — 조준은 yaw·fpPitch 그대로)
+          const kick = modeClient?.viewKick?.(now);
+          if (kick) {
+            persp.rotateY(kick.yaw);
+            persp.rotateX(kick.pitch);
+          }
         }
         net.setView(Math.max(FAR, mini.radius));
         cam = persp;

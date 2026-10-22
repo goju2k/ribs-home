@@ -52,7 +52,7 @@ export interface HordeHooks {
   /** 이 사람을 노려도 되는지 (살아 있음) */
   alive(p:ModePlayer): boolean;
   /** 좀비가 사람을 때림 */
-  bite(p:ModePlayer, dmg:number, now:number): void;
+  bite(p:ModePlayer, dmg:number, now:number, from:Body): void;
   /** 사람이 좀비를 쓰러뜨림 (쓰러진 자리·모습 종류) */
   killed(at:Body, k:number, by:ModePlayer): void;
 }
@@ -233,7 +233,7 @@ export class Horde {
           if (now >= z.attackAt) {
             z.attackAt = now + st.cooldownMs;
             z.swingUntil = now + SWING_MS;
-            this.hooks.bite(t, st.damage, now);
+            this.hooks.bite(t, st.damage, now, npc.body);
           }
         }
       } else {

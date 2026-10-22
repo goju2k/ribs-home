@@ -26,7 +26,8 @@ export type BrServerMsg =
   /** 내가 맞힘 (target: 맞은 사람·좀비 id, head: 머리) */
   | { k: 'hit'; target: number; dmg: number; head?: boolean; }
   /** 내가 맞음 (from: 때린 사람 이름, 없으면 전장 피해) */
-  | { k: 'hurt'; dmg: number; from: string | null; }
+  /** at: 때린 쪽 자리 [x, z] (화면이 맞은 방향을 그린다 — 전장 밖·중독처럼 방향이 없으면 없음) */
+  | { k: 'hurt'; dmg: number; from: string | null; at?: [number, number]; }
   /** 내가 죽음: 누구에게, 다시 시작까지 남은 시간(ms, -1 = 이번 판은 다시 시작 못 함 — 보스전) */
   | { k: 'dead'; by: string | null; wait: number; }
   | { k: 'respawn'; }

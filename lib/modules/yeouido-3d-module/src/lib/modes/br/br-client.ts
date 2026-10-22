@@ -6,6 +6,7 @@ import {
 } from 'yeouido-br';
 import { castRay, STEP } from 'yeouido-sim';
 
+import { HurtFx } from './hurt-fx';
 import { ITEM_COLORS, ItemMeshes } from './item-meshes';
 import { PropMeshes } from './prop-meshes';
 import { HIT_AIR, HIT_BODY, HIT_HEAD, HIT_SURFACE, ShotFx } from './shot-fx';
@@ -46,8 +47,6 @@ export interface BrHudState {
   hitMark: { age: number; head: boolean; } | null;
   /** 방금 내가 준 피해 (사라지는 숫자, 머리면 크게) */
   hits: { id: number; dmg: number; age: number; head: boolean; }[];
-  /** 방금 맞음 (0~1, 화면 가장자리 붉게) */
-  hurt: number;
   /** 중독: 남은 초 (0 = 아님, 화면 가장자리 초록) */
   poison: number;
   /** 내 장비 (칸마다 단계, 0 = 없음) */
@@ -99,6 +98,17 @@ export class BrClient implements ModeClient {
   private seq = 0;
 
   private hurtAt = -1e9;
+
+  /** 맞음 효과 (번쩍임·방향·체력 낮음 — 매 장면) */
+  private hurtFx:HurtFx;
+
+  /** 마지막으로 맞은 세기(0~1)·때린 쪽이 오른쪽인지(+1/-1) — 시점 밀림 */
+  private hurtPower = 0;
+
+  private hurtSide = 1;
+
+  /** 카메라 수평 방향 (frame에서) */
+  private yaw = 0;
 
   private deadInfo:{ by: string | null; until: number; } | null = null;
 
@@ -189,6 +199,7 @@ export class BrClient implements ModeClient {
 
   constructor(host:ModeHostClient) {
     this.host = host;
+    this.hurtFx = new HurtFx(host.overlay);
     // 전장 경계: 반경 1짜리 열린 원통을 원 크기로 늘린다 (안팎 모두 보이게, 안개 없이)
     this.wall = new THREE.Mesh(
       new THREE.CylinderGeometry(1, 1, 1, 256, 1, true),
@@ -253,10 +264,19 @@ export class BrClient implements ModeClient {
       this.hitMarkHead = !!m.head;
       this.hits.push({ id: ++this.seq, dmg: m.dmg, at: now, head: !!m.head });
       if (this.hits.length > 6) this.hits.shift();
-    } else if (m.k === 'hurt') this.hurtAt = now;
-    // wait < 0: 이번 판은 다시 시작 못 함 (보스전) — 곧 관전으로 바뀐다
-    else if (m.k === 'dead') this.deadInfo = { by: m.by, until: m.wait < 0 ? -1 : now + m.wait };
-    else if (m.k === 'respawn') {
+    } else if (m.k === 'hurt') {
+      this.hurtAt = now;
+      // 세기: 피해 40이면 가득 (작은 피해도 보이게 최소 0.3)
+      this.hurtPower = Math.min(1, Math.max(0.3, m.dmg / 40));
+      this.hurtFx.hit(now, this.hurtPower, m.at);
+      if (m.at && this.me) {
+        const right = (m.at[0] - this.me.x) * Math.cos(this.yaw) - (m.at[1] - this.me.z) * Math.sin(this.yaw);
+        this.hurtSide = right >= 0 ? 1 : -1;
+      }
+    } else if (m.k === 'dead') {
+      // wait < 0: 이번 판은 다시 시작 못 함 (보스전) — 곧 관전으로 바뀐다
+      this.deadInfo = { by: m.by, until: m.wait < 0 ? -1 : now + m.wait };
+    } else if (m.k === 'respawn') {
       this.deadInfo = null;
       this.poisonUntil = 0;
     } else if (m.k === 'spectate') {
@@ -431,6 +451,8 @@ export class BrClient implements ModeClient {
   frame(f:ModeFrame) {
     this.me = f.me;
     this.persp = f.persp;
+    this.yaw = f.yaw;
+    this.hurtFx.update(f.now, f.me, f.yaw, gaugeHp(f.me.gv), !this.deadInfo && !this.specInfo);
     if (!f.persp || this.deadInfo || this.specInfo) this.scoped = false;
     this.prompt = this.deadInfo || this.specInfo ? null : this.farmPrompt(f.me);
     const zone = this.match ? zoneAt(this.match.plan, f.now - this.match.startAt) : null;
@@ -575,6 +597,10 @@ export class BrClient implements ModeClient {
     return false;
   }
 
+  viewKick(now:number) {
+    return this.persp ? HurtFx.kick(now, this.hurtAt, this.hurtPower, this.hurtSide) : null;
+  }
+
   fovMul() {
     const wn = this.weaponNow();
     return this.scoped && wn?.st.scope ? wn.st.scope : 1;
@@ -683,7 +709,6 @@ export class BrClient implements ModeClient {
       feed: this.feed.map(({ id, text }) => ({ id, text })),
       hits: this.hits.map(({ id, dmg, at, head }) => ({ id, dmg, age: (now - at) / HIT_MS, head })),
       hitMark: now - this.hitMarkAt < HIT_MARK_MS ? { age: (now - this.hitMarkAt) / HIT_MARK_MS, head: this.hitMarkHead } : null,
-      hurt: Math.max(0, 1 - (now - this.hurtAt) / 400),
       poison: this.deadInfo ? 0 : Math.max(0, Math.ceil((this.poisonUntil - now) / 1000)),
       gear: this.gear,
       got: this.got.map(({ id, text }) => ({ id, text })),
@@ -726,6 +751,7 @@ export class BrClient implements ModeClient {
   }
 
   dispose() {
+    this.hurtFx.dispose();
     this.host.scene.remove(this.wall);
     this.wall.geometry.dispose();
     [ ...this.corpses.keys() ].forEach((id) => this.removeCorpse(id));

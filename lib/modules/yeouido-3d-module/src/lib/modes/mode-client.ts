@@ -38,6 +38,8 @@ export interface ModeFrame {
   others: { id: number; x: number; y: number; z: number; s: number; k: number; }[];
   /** 지금 시점이 원근(3인칭·1인칭)인지 */
   persp: boolean;
+  /** 카메라가 보는 수평 방향 (앞 = (-sin yaw, -cos yaw), 화면 위쪽) */
+  yaw: number;
 }
 
 export interface ModeHostClient {
@@ -51,6 +53,8 @@ export interface ModeHostClient {
   myName: () => string;
   /** 원근(1인칭) 카메라 — 장면에 들어 있어 자식으로 붙이면 화면에 붙어 보인다 (손에 든 총 등) */
   camera: THREE.PerspectiveCamera;
+  /** 화면 위에 바로 그리는 층 (HTML, 매 장면 갱신하는 효과용 — HUD보다 아래) */
+  overlay: HTMLElement;
 }
 
 /** 행동을 보낸 그 걸음의 내 자리·조준 (예측한 값 — 서버도 같은 걸음에서 같은 자리) */
@@ -80,6 +84,8 @@ export interface ModeClient {
   press?(button:'left' | 'right', now:number): boolean;
   /** 원근 시야 배율 (스코프 ×4면 4, 없으면 1) — 시야각과 마우스 감도를 이만큼 줄인다 */
   fovMul?(): number;
+  /** 1인칭 시점 밀림 (라디안, 화면만 — 조준은 그대로): 맞았을 때 등 */
+  viewKick?(now:number): { yaw: number; pitch: number; } | null;
   /**
    * 조준선이 겨누는 거리 (m): 든 무기 사거리 — 조준선 광선 위 이 거리의 점을 향해 쏘게 해야 사거리 끝에서도 조준선과 맞는다.
    * 없으면 기본 거리

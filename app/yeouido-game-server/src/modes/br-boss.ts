@@ -15,13 +15,13 @@ const SWING_MS = 500;
 export interface BossHooks {
   alive(p:ModePlayer): boolean;
   /** 보스가 사람을 때림 (갑옷·무적은 받는 쪽에서) */
-  hurt(p:ModePlayer, dmg:number, now:number): void;
+  hurt(p:ModePlayer, dmg:number, now:number, from:{ x: number; z: number; }): void;
   /** 좀비 부르기 */
   summon(x:number, z:number, n:number, now:number): void;
   /** 날아오름 알림 (착지 자리·시간) */
   leap(x:number, z:number, ms:number): void;
   /** 독 파이어볼에 맞음: 피해(갑옷·무적은 받는 쪽에서) + 중독 */
-  poison(p:ModePlayer, dmg:number, now:number): void;
+  poison(p:ModePlayer, dmg:number, now:number, from:{ x: number; z: number; }): void;
 }
 
 /** 날아가는 독 파이어볼 */
@@ -239,7 +239,7 @@ export class Boss {
       // 터짐: 반경 안 사람 모두 피해 + 중독
       const y = Math.max(b.y, floor);
       alive.forEach((p) => {
-        if (p.body.b < 0 && Math.hypot(p.body.x - b.x, p.body.z - b.z) <= BALL.splash && Math.abs(p.body.y + 0.9 - y) <= BALL.splash) this.hooks.poison(p, BALL.damage, now);
+        if (p.body.b < 0 && Math.hypot(p.body.x - b.x, p.body.z - b.z) <= BALL.splash && Math.abs(p.body.y + 0.9 - y) <= BALL.splash) this.hooks.poison(p, BALL.damage, now, this.npc?.body ?? b);
       });
       this.send({ k: 'ballEnd', id: b.id, at: [ r2(b.x), r2(y), r2(b.z) ], splash: BALL.splash });
       return false;
@@ -270,7 +270,7 @@ export class Boss {
       this.leapAt = 0;
       me.y = 0;
       alive.forEach((p) => {
-        if (Math.hypot(p.body.x - me.x, p.body.z - me.z) <= BOSS.slamRange) this.hooks.hurt(p, BOSS.slamDamage, now);
+        if (Math.hypot(p.body.x - me.x, p.body.z - me.z) <= BOSS.slamRange) this.hooks.hurt(p, BOSS.slamDamage, now, me);
       });
       this.slamAt = now + BOSS.slamEveryMs;
       this.stuckAt = now + BOSS.stuckMs;
@@ -318,7 +318,7 @@ export class Boss {
     if (this.windupAt) {
       if (now - this.windupAt >= BOSS.slamWindupMs) {
         alive.forEach((p) => {
-          if (Math.hypot(p.body.x - me.x, p.body.z - me.z) <= BOSS.slamRange) this.hooks.hurt(p, BOSS.slamDamage, now);
+          if (Math.hypot(p.body.x - me.x, p.body.z - me.z) <= BOSS.slamRange) this.hooks.hurt(p, BOSS.slamDamage, now, me);
         });
         this.windupAt = 0;
         this.slamAt = now + BOSS.slamEveryMs;
@@ -346,7 +346,7 @@ export class Boss {
         this.smashAt = now + BOSS.smashMs;
         this.swingUntil = now + SWING_MS;
         alive.forEach((p) => {
-          if (Math.hypot(p.body.x - me.x, p.body.z - me.z) <= BOSS.smashRange && Math.abs(p.body.y - me.y) < 3) this.hooks.hurt(p, BOSS.smashDamage, now);
+          if (Math.hypot(p.body.x - me.x, p.body.z - me.z) <= BOSS.smashRange && Math.abs(p.body.y - me.y) < 3) this.hooks.hurt(p, BOSS.smashDamage, now, me);
         });
       }
     }

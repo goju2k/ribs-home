@@ -182,10 +182,10 @@ export class BattleRoyale implements GameMode {
         this.broadcast({ k: 'itemAdd', list: [ it ] });
       },
       // 좀비에게 물림: 무적이면 안 들어가고, 갑옷이 줄인다
-      bite: (p, dmg, now) => {
+      bite: (p, dmg, now, from) => {
         const f = this.fighters.get(p.id);
         if (!f || now < f.shieldUntil) return;
-        this.damage(p, Math.max(1, Math.round(dmg * (1 - armorCut(f.gear.armor)))), null, now, '좀비');
+        this.damage(p, Math.max(1, Math.round(dmg * (1 - armorCut(f.gear.armor)))), null, now, '좀비', false, from);
       },
     });
     this.boss = new Boss(host, {
@@ -193,17 +193,17 @@ export class BattleRoyale implements GameMode {
         const f = this.fighters.get(p.id);
         return !!f && !f.respawnAt;
       },
-      hurt: (p, dmg, now) => {
+      hurt: (p, dmg, now, from) => {
         const f = this.fighters.get(p.id);
         if (!f || now < f.shieldUntil) return;
-        this.damage(p, Math.max(1, Math.round(dmg * DIFFICULTY[DIFF] * (1 - armorCut(f.gear.armor)))), null, now, '최종 보스');
+        this.damage(p, Math.max(1, Math.round(dmg * DIFFICULTY[DIFF] * (1 - armorCut(f.gear.armor)))), null, now, '최종 보스', false, from);
       },
       summon: (x, z, n, now) => this.horde.summon(x, z, n, now),
       // 독 파이어볼: 무적이면 안 들어가고, 피해는 갑옷이 줄인다. 중독은 시간을 새로 채운다 (초당 피해는 갑옷 무시)
-      poison: (p, dmg, now) => {
+      poison: (p, dmg, now, from) => {
         const f = this.fighters.get(p.id);
         if (!f || f.respawnAt || now < f.shieldUntil) return;
-        this.damage(p, Math.max(1, Math.round(dmg * (1 - armorCut(f.gear.armor)))), null, now, '독 파이어볼');
+        this.damage(p, Math.max(1, Math.round(dmg * (1 - armorCut(f.gear.armor)))), null, now, '독 파이어볼', false, from);
         if (f.respawnAt) return;
         if (f.poisonUntil <= now) f.poisonAt = now + 1000;
         f.poisonUntil = now + BALL.poisonMs;
@@ -675,12 +675,14 @@ export class BattleRoyale implements GameMode {
   }
 
   /** 사람이 피해를 입음. by = 때린 사람, 아니면 byName(예: 좀비), 둘 다 없으면 전장 밖 */
-  private damage(t:ModePlayer, dmg:number, by:ModePlayer | null, now:number, byName:string | null = null, head = false) {
+  /** src: 때린 쪽 자리 (화면의 맞은 방향 표시용, 없으면 by의 자리) */
+  private damage(t:ModePlayer, dmg:number, by:ModePlayer | null, now:number, byName:string | null = null, head = false, src:{ x: number; z: number; } | null = null) {
     const f = this.fighters.get(t.id);
     if (!f || f.respawnAt || !Number.isFinite(dmg)) return;
     f.hp = Math.max(0, f.hp - dmg);
     f.hurtUntil = now + HURT_MS;
-    this.send(t, { k: 'hurt', dmg, from: by?.name ?? byName });
+    const at = src ?? by?.body;
+    this.send(t, { k: 'hurt', dmg, from: by?.name ?? byName, ...(at ? { at: [ Math.round(at.x * 10) / 10, Math.round(at.z * 10) / 10 ] as [number, number] } : {}) });
     if (by) this.send(by, { k: 'hit', target: t.id, dmg, head });
     // 기록: 준 피해·처치·사망
     const bySt = by ? this.stats.get(by.id) : undefined;
