@@ -24,10 +24,10 @@ const DEBUG_GEAR = (process.env.BR_DEBUG_GEAR ?? '').split(',').map((s) => s.spl
 /** 보스전 중에 쓰러지면 이만큼 누워 있다가 관전으로 바뀐다 (ms) */
 const SPECTATE_AFTER_MS = 3000;
 /**
- * 여럿이 시험하는 동안: 모두 KB 옥상에서 시작 (서로 만나기 쉽게). 원 밖이 되면 원 안 무작위 자리.
- * 끄려면 BR_SPAWN=random (나중에 기본값을 random으로 되돌린다)
+ * 시작 자리: 기본은 원 안 무작위 (지상·옥상·실내 층).
+ * 개발용: BR_SPAWN=kb면 모두 KB 옥상에서 시작 (여럿이 만나 시험할 때, 원 밖이 되면 원 안 무작위)
  */
-const SPAWN_KB = (process.env.BR_SPAWN ?? 'kb') === 'kb';
+const SPAWN_KB = process.env.BR_SPAWN === 'kb';
 /** 개발용: 판 시계를 당겨 시작 (예: BR_TIME_OFFSET_MS=1190000 → 10초 뒤 보스) */
 const TIME_OFFSET = Number(process.env.BR_TIME_OFFSET_MS) || 0;
 /** 난이도 (보스 체력·피해 배율): easy·normal·hard */
