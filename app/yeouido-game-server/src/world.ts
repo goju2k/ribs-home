@@ -10,7 +10,7 @@ import { BattleRoyale } from './modes/battle-royale';
 import { createRtcLink, rtcAvailable, RtcLink } from './rtc';
 
 /** 입력 예산: 실제 시간만큼만 걸음을 처리한다 (빨리 보내도 더 빨리 못 감 = 스피드핵 방지). 밀린 것은 이만큼까지 몰아서 */
-const MAX_BURST = 6;
+const MAX_BURST = SIM_HZ / 5;
 /** 이보다 많이 밀리면 오래된 입력을 버린다 (1초) */
 const MAX_QUEUE = SIM_HZ;
 /** 스냅숏 우선순위: 가까운 순 이 등수까지 매번, 그다음 등수까지 두 번에 한 번, 그 뒤는 네 번에 한 번 */

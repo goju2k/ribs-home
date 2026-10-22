@@ -8,7 +8,7 @@ import { WorldData } from './world-data';
  */
 
 /** 고정 시뮬레이션 간격 (초). 입력 하나 = 한 걸음 */
-export const STEP = 1 / 30;
+export const STEP = 1 / 60;
 
 /** 걷기·달리기 (m/s) — 실제보다 1.5배 (게임이 답답하지 않게) */
 export const WALK = 2.1;
