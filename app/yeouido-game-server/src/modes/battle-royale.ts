@@ -1,5 +1,5 @@
 import {
-  ACT_FARM, ACT_FIRE, ACT_RELOAD, BALL, BOSS_LIMIT_MS, ESCAPE, BrClientMsg, Difficulty, DIFFICULTY, FARM, RESULT_MS, afterPickup, armorCut, BR_MODE, dayNight, breakPower, PROP_KINDS, PROP_RADIUS, rollDrops, rollZombieDrop, BrServerMsg, Corpse, CorpseItem, emptyGear, Gear, HP_MAX, HURT_MS, hpGauge, insideZone,
+  ACT_FARM, ACT_FIRE, isMaxed, MAX_LEVEL, ACT_RELOAD, BALL, BOSS_LIMIT_MS, ESCAPE, BrClientMsg, Difficulty, DIFFICULTY, FARM, RESULT_MS, afterPickup, armorCut, BR_MODE, dayNight, breakPower, PROP_KINDS, PROP_RADIUS, rollDrops, rollZombieDrop, BrServerMsg, Corpse, CorpseItem, emptyGear, Gear, HP_MAX, HURT_MS, hpGauge, insideZone,
   ITEM_KINDS, insideZone as inZoneCircle, makeMatchPlan, pickRoofOf, LOBBY_COUNTDOWN_MS, MATCH_MS, MatchPlan, meleeReaches, pickSpawn, respawnDelay, rocketMul, shoeMul,
   canFire, falloff, fire, healAmount, isConsumable, FireState, fullMag, heldWeapon, isWeapon, MOVING_SPEED, reload, shotDirs, WEAPON_KINDS, weaponStats,
   SPAWN_SHIELD_MS, ST_DEAD, ST_FROZEN, ST_HIDDEN, ST_HURT, ST_SHIELD, ST_SWING, zoneAt, zoneDps,
@@ -352,7 +352,7 @@ export class BattleRoyale implements GameMode {
     this.fighters.set(p.id, f);
     if (p.debug) {
       DEBUG_GEAR.forEach(([ k, v ]) => {
-        if (k in f.gear) f.gear[k as keyof Gear] = Math.min(7, Number(v));
+        if (k in f.gear) f.gear[k as keyof Gear] = Math.min(MAX_LEVEL, Number(v));
       });
     }
     const w = heldWeapon(f.gear);
@@ -566,8 +566,9 @@ export class BattleRoyale implements GameMode {
     if (me.farmFresh) {
       this.items.near(body.x, body.z, FARM.range + 1).forEach((it) => {
         if (!this.items.canPick(it, p.id, body.x, body.z) || !reach(it[3], it[4], it[5], it[6], it[7])) return;
-        // 체력이 가득하면 회복약은 안 줍는다
+        // 체력이 가득하면 회복약은, 이미 최대 단계면 같은 아이템은 안 줍는다
         if (isConsumable(ITEM_KINDS[it[1]]) && me.hp >= HP_MAX) return;
+        if (isMaxed(me.gear, ITEM_KINDS[it[1]])) return;
         offer(it[3], it[5], pick(() => {
           this.items.remove(it[0]);
           this.broadcast({ k: 'itemGone', ids: [ it[0] ] });
@@ -578,11 +579,13 @@ export class BattleRoyale implements GameMode {
       });
     }
     this.corpses.forEach((c) => {
-      if (!me.farmFresh || !c.items.length || !reach(c.x, c.y, c.z, c.b, c.l)) return;
+      // 이미 최대인 칸의 아이템은 시체에 남긴다 (다른 사람이 털 수 있게)
+      const takes = c.items.filter(([ kind ]) => !isMaxed(me.gear, ITEM_KINDS[kind]));
+      if (!me.farmFresh || !takes.length || !reach(c.x, c.y, c.z, c.b, c.l)) return;
       offer(c.x, c.z, pick(() => {
-        c.items.forEach(([ kind, lv ]) => this.equip(p, me, kind, lv, 'corpse'));
-        c.items = [];
-        this.broadcast({ k: 'looted', id: c.id });
+        takes.forEach(([ kind, lv ]) => this.equip(p, me, kind, lv, 'corpse'));
+        c.items = c.items.filter((it) => !takes.includes(it));
+        this.broadcast({ k: 'looted', id: c.id, left: c.items });
         this.applyGear(p, me);
         return FARM.pickMs;
       }));

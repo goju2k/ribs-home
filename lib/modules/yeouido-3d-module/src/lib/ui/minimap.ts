@@ -94,6 +94,41 @@ function bakeBase(data:WorldData, highlight:number[]) {
   return c;
 }
 
+/**
+ * 미니맵 대표 지명: 건물 이름(OSM)이 있으면 그 건물 가운데, 없으면(공원·길·동네) 정한 자리.
+ * 중요한 순서 — 넓게 보아 글씨가 겹치면 뒤엣것은 그리지 않는다
+ */
+const PLACES:{ text: string; building?: string; at?: [number, number]; }[] = [
+  { text: '국회의사당', building: '국회의사당' },
+  { text: '63빌딩', building: '63빌딩' },
+  { text: '여의도공원', at: [ -330, 60 ] },
+  { text: 'IFC', building: 'Three IFC' },
+  { text: '더현대', building: '더현대 서울' },
+  { text: 'KBS', building: 'KBS 본관' },
+  { text: '윤중로', at: [ -1150, -880 ] },
+  { text: '파크원', building: '파크원 타워1' },
+  { text: 'LG트윈타워', building: 'LG트윈타워' },
+  { text: '증권가', at: [ -190, 380 ] },
+];
+
+/** 지명 → 월드 자리 (건물은 바닥 꼭짓점 평균) */
+function placeLabels(data:WorldData) {
+  const byName = new Map(Object.entries(data.buildingNames).map(([ i, n ]) => [ n, Number(i) ]));
+  return PLACES.flatMap(({ text, building, at }) => {
+    if (at) return [{ text, x: at[0], z: at[1] }];
+    const i = building ? byName.get(building) : undefined;
+    if (i === undefined) return [];
+    const ring = data.buildings[i].slice(4);
+    let x = 0;
+    let z = 0;
+    for (let k = 0; k + 1 < ring.length; k += 2) {
+      x += ring[k];
+      z += ring[k + 1];
+    }
+    return [{ text, x: x / (ring.length / 2), z: z / (ring.length / 2) }];
+  });
+}
+
 export interface MiniDot {
   x: number; z: number;
 }
@@ -109,9 +144,12 @@ export class Minimap {
 
   private data:WorldData;
 
+  private labels:{ text: string; x: number; z: number; }[];
+
   constructor(canvas:HTMLCanvasElement, data:WorldData, highlight:number[]) {
     this.canvas = canvas;
     this.data = data;
+    this.labels = placeLabels(data);
     this.base = bakeBase(data, highlight);
   }
 
@@ -175,8 +213,30 @@ export class Minimap {
     g.lineWidth = 1.5 * dpr / k;
     g.strokeStyle = '#0b0e22';
     g.stroke();
-    // 북쪽 표시: 월드 북쪽 (0,-1)을 yaw만큼 돌리면 캔버스에서 (sin yaw, -cos yaw) 방향
+    // 지명: 지도는 돌아도 글씨는 똑바로 (월드 자리를 같은 변환으로 캔버스 자리로 옮겨 그 위에)
     g.setTransform(1, 0, 0, 1, 0, 0);
+    g.font = `${9 * dpr}px Galmuri11, sans-serif`;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    const cy = Math.cos(yaw);
+    const sy = Math.sin(yaw);
+    const drawn:[number, number, number, number][] = [];
+    this.labels.forEach((lb) => {
+      const dx = (lb.x - x) * k;
+      const dz = (lb.z - z) * k;
+      const px = S / 2 + dx * cy - dz * sy;
+      const py = S / 2 + dx * sy + dz * cy;
+      const w = g.measureText(lb.text).width + 4 * dpr;
+      if (px < w / 2 || px > S - w / 2 || py < 8 * dpr || py > S - 18 * dpr) return;
+      const box:[number, number, number, number] = [ px - w / 2, py - 6 * dpr, px + w / 2, py + 6 * dpr ];
+      if (drawn.some((o) => box[0] < o[2] && box[2] > o[0] && box[1] < o[3] && box[3] > o[1])) return;
+      drawn.push(box);
+      g.fillStyle = 'rgba(11,14,34,0.6)';
+      g.fillRect(px - w / 2, py - 6 * dpr, w, 12 * dpr);
+      g.fillStyle = '#f4f4f8';
+      g.fillText(lb.text, px, py + 0.5 * dpr);
+    });
+    // 북쪽 표시: 월드 북쪽 (0,-1)을 yaw만큼 돌리면 캔버스에서 (sin yaw, -cos yaw) 방향
     const edge = S / 2 - 9 * dpr;
     const north = { x: S / 2 + Math.sin(yaw) * edge, y: S / 2 - Math.cos(yaw) * edge };
     g.font = `${10 * dpr}px Galmuri11, sans-serif`;

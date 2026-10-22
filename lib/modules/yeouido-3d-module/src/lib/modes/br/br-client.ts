@@ -1,7 +1,7 @@
 /* eslint-disable no-bitwise -- 상태·행동 비트 */
 import * as THREE from 'three';
 import {
-  ACT_FARM, ACT_FIRE, ACT_RELOAD, BOSS, BrClientMsg, BrServerMsg, dayNight, FARM, ST_BURN, ST_SLAM, Z_BOSS, Z_RUNNER, Z_WALKER, Corpse, emptyGear, gaugeHp, Gear, isBrMsg, ITEM_KINDS, ITEM_NAMES, MatchPlan, meleeReaches, ST_DEAD, ST_HURT, ST_SHIELD, ST_SWING,
+  ACT_FARM, ACT_FIRE, ACT_RELOAD, BOSS, isMaxed, MAX_LEVEL, BrClientMsg, BrServerMsg, dayNight, FARM, ST_BURN, ST_SLAM, Z_BOSS, Z_RUNNER, Z_WALKER, Corpse, emptyGear, gaugeHp, Gear, isBrMsg, ITEM_KINDS, ITEM_NAMES, MatchPlan, meleeReaches, ST_DEAD, ST_HURT, ST_SHIELD, ST_SWING,
   canFire, fire, isConsumable, WEAPON_KINDS, FireState, fullMag, heldWeapon, isWeapon, MOVING_SPEED, PROP_KINDS, PROP_NAMES, PROP_RADIUS, reload, shotDirs, WeaponKind, weaponStats, zoneAt, ZoneNow,
 } from 'yeouido-br';
 import { castRay, STEP } from 'yeouido-sim';
@@ -307,8 +307,8 @@ export class BrClient implements ModeClient {
     else if (m.k === 'looted') {
       const sc = this.corpses.get(m.id);
       if (sc) {
-        sc.c.items = [];
-        sc.loot.visible = false;
+        sc.c.items = m.left ?? [];
+        sc.loot.visible = sc.c.items.length > 0;
       }
     } else if (m.k === 'props') {
       this.props.clear();
@@ -420,11 +420,17 @@ export class BrClient implements ModeClient {
         offer(it[3], it[5], gaugeHp(me.gv) >= 100 ? `${ITEM_NAMES[k]} ${it[2]}% (체력 가득)` : `좌클릭: ${ITEM_NAMES[k]} ${it[2]}% 먹기`);
         return;
       }
+      if (isMaxed(this.gear, k)) {
+        offer(it[3], it[5], `${ITEM_NAMES[k]} +${it[2]} (이미 최대 +${MAX_LEVEL})`);
+        return;
+      }
       const swap = held && isWeapon(k) && k !== held ? ` (${ITEM_NAMES[held]} 버림)` : '';
       offer(it[3], it[5], `좌클릭: ${ITEM_NAMES[k]} +${it[2]} 줍기${swap}`);
     });
     this.corpses.forEach(({ c }) => {
-      if (c.items.length && reach(c.x, c.y, c.z, c.b, c.l)) offer(c.x, c.z, '좌클릭: 시체 털기');
+      if (!c.items.length || !reach(c.x, c.y, c.z, c.b, c.l)) return;
+      // 가진 것이 모두 최대면 털 게 없다
+      offer(c.x, c.z, c.items.some(([ kind ]) => !isMaxed(this.gear, ITEM_KINDS[kind])) ? '좌클릭: 시체 털기' : '시체 (가진 장비가 모두 최대)');
     });
     this.props.rows.forEach((r) => {
       const k = PROP_KINDS[r[1]];

@@ -1,4 +1,5 @@
 import { HEAL_MAX, HEAL_MIN, ITEM_KINDS, ItemKind } from './items';
+import { WEAPON_KINDS } from './weapons';
 
 /**
  * 부술 수 있는 물건 (배틀로얄 모드, 게임성 측정용 PoC — 종류·수치·드롭 표는 가정).
@@ -25,19 +26,25 @@ export const PROP_WEIGHTS:Record<PropKind, number> = { crate: 12, parcel: 4, saf
 /** 드롭 표 한 줄: [아이템 종류(null = 꽝), 비율, 최소 단계, 최대 단계] */
 export type DropRow = [ItemKind | null, number, number, number];
 
+/**
+ * 무기 6종을 같은 비율로 (2026-10-22): total = 그 표에서 무기 전체 비율(예전 합계 그대로 — 무기가 나올 확률은 같고 종류만 고르게).
+ * 같은 무기를 모아야 강화되니, 한두 종만 흔하면 나머지는 강화 재미를 못 본다
+ */
+const weapons = (total:number, lo:number, hi:number):DropRow[] => WEAPON_KINDS.map((k):DropRow => [ k, total / WEAPON_KINDS.length, lo, hi ]);
+
 /** 물건마다: 떨어뜨리는 개수 범위와 표 (개수만큼 표에서 따로 뽑는다) */
 export const DROPS:Record<PropKind, { count: [number, number]; table: DropRow[]; }> = {
   crate: {
     count: [ 1, 1 ],
-    table: [[ null, 3, 0, 0 ], [ 'armor', 3, 1, 1 ], [ 'shoes', 3, 1, 1 ], [ 'hammer', 2, 1, 1 ], [ 'rocket', 0.5, 1, 1 ], [ 'heal', 1, HEAL_MIN, HEAL_MAX ], [ 'pistol', 2, 1, 1 ], [ 'smg', 1.5, 1, 1 ], [ 'rifle', 1.5, 1, 1 ], [ 'shotgun', 1.5, 1, 1 ], [ 'crossbow', 1, 1, 1 ], [ 'sniper', 0.5, 1, 1 ]],
+    table: [[ null, 3, 0, 0 ], [ 'armor', 3, 1, 1 ], [ 'shoes', 3, 1, 1 ], [ 'hammer', 2, 1, 1 ], [ 'rocket', 0.5, 1, 1 ], [ 'heal', 1, HEAL_MIN, HEAL_MAX ], ...weapons(8, 1, 1) ],
   },
   parcel: {
     count: [ 1, 2 ],
-    table: [[ 'shoes', 4, 1, 2 ], [ 'armor', 3, 1, 2 ], [ 'hammer', 2, 1, 1 ], [ 'rocket', 1, 1, 1 ], [ 'heal', 2, HEAL_MIN, HEAL_MAX ], [ 'pistol', 1.5, 1, 2 ], [ 'smg', 1.5, 1, 2 ], [ 'rifle', 1.5, 1, 2 ], [ 'shotgun', 1, 1, 2 ], [ 'crossbow', 1, 1, 2 ], [ 'sniper', 0.7, 1, 2 ]],
+    table: [[ 'shoes', 4, 1, 2 ], [ 'armor', 3, 1, 2 ], [ 'hammer', 2, 1, 1 ], [ 'rocket', 1, 1, 1 ], [ 'heal', 2, HEAL_MIN, HEAL_MAX ], ...weapons(7.2, 1, 2) ],
   },
   safe: {
     count: [ 2, 3 ],
-    table: [[ 'armor', 3, 2, 3 ], [ 'shoes', 3, 2, 3 ], [ 'rocket', 2, 1, 2 ], [ 'heal', 4, HEAL_MIN, HEAL_MAX ], [ 'hammer', 1, 2, 3 ], [ 'rifle', 2, 2, 3 ], [ 'shotgun', 1.5, 2, 3 ], [ 'smg', 1.5, 2, 3 ], [ 'sniper', 2, 2, 3 ], [ 'crossbow', 1.5, 2, 3 ]],
+    table: [[ 'armor', 3, 2, 3 ], [ 'shoes', 3, 2, 3 ], [ 'rocket', 2, 1, 2 ], [ 'heal', 4, HEAL_MIN, HEAL_MAX ], [ 'hammer', 1, 2, 3 ], ...weapons(8.5, 2, 3) ],
   },
 };
 
@@ -73,7 +80,7 @@ export function rollDrops(kind:PropKind, rand:() => number = Math.random):[numbe
 export const ZOMBIE_DROP_CHANCE:Record<number, number> = { 1: 0.1, 2: 0.25 };
 export const ZOMBIE_DROPS:DropRow[] = [
   [ 'armor', 3, 1, 2 ], [ 'shoes', 3, 1, 2 ], [ 'hammer', 1, 1, 1 ],
-  [ 'pistol', 2, 1, 2 ], [ 'smg', 1.5, 1, 2 ], [ 'rifle', 1.5, 1, 2 ], [ 'shotgun', 1.5, 1, 2 ], [ 'crossbow', 1, 1, 2 ], [ 'sniper', 0.5, 1, 1 ],
+  ...weapons(8, 1, 2),
 ];
 
 /** 좀비가 떨굴 것 (없으면 null) */

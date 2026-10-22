@@ -2,7 +2,7 @@ import type { Gear, ItemKind } from './items';
 
 /**
  * 원거리 무기 6종 (게임성 측정용 PoC — 수치는 첫 감, 밸런싱은 뒤로 미룸).
- * 1인 1무기, 무기 없이 시작. 예비 탄약 무한(탄창·재장전은 있음). 같은 무기를 주우면 강화(+1~+7).
+ * 1인 1무기, 무기 없이 시작. 예비 탄약 무한(탄창·재장전은 있음). 같은 무기를 주우면 강화(+1~+10).
  * 화면·서버가 같은 걸음(seq)에서 같은 계산을 하도록 여기 순수 함수로만 둔다 (탄 퍼짐도 걸음 번호로 정해지는 의사 난수).
  */
 
@@ -58,8 +58,8 @@ const BASE:Record<WeaponKind, Base> = {
   shotgun: { hitscan: true, damage: 12, pellets: 9, spread: 0.07, moveSpread: 0, intervalMs: 900, mag: 6, reloadMs: 3000, range: 15, falloffFrom: 8, falloffMin: 0.5, headMul: 1.2, moveMul: 0.95, noise: 60 },
   // 저격소총: 스코프 ×4, 머리 한 방 — 무겁고, 빗나가면 끝, 멀리까지 소리
   sniper: { hitscan: true, damage: 90, spread: 0.001, moveSpread: 0.05, intervalMs: 1400, mag: 5, reloadMs: 3500, range: 250, headMul: 2, moveMul: 0.85, scope: 4, noise: 120 },
-  // 석궁: 무소음(좀비가 안 몰림), 낙차 있는 화살 — 3발을 15도 간격 부채꼴로, 강화마다 2발씩 더 (7단계 15발 = 210도)
-  crossbow: { hitscan: false, damage: 70, pellets: 3, pelletsPerLv: 2, fan: Math.PI / 12, spread: 0.002, moveSpread: 0.01, intervalMs: 300, mag: 1, reloadMs: 1500, range: 90, speed: 60, gravity: 9.8, headMul: 1.5, moveMul: 0.95, noise: 0 },
+  // 석궁: 무소음(좀비가 안 몰림), 낙차 있는 화살 — 3발을 10도 간격 부채꼴로, 강화마다 2발씩 더 (7단계 15발 = 140도, 10단계 21발 = 200도)
+  crossbow: { hitscan: false, damage: 70, pellets: 3, pelletsPerLv: 2, fan: Math.PI / 18, spread: 0.002, moveSpread: 0.01, intervalMs: 300, mag: 1, reloadMs: 1500, range: 90, speed: 60, gravity: 9.8, headMul: 1.5, moveMul: 0.95, noise: 0 },
 };
 
 /** 무기 + 강화 단계 → 수치 (단계마다 피해 +8%, 연사 간격 -3%, 재장전 -6%, 퍼짐 -5%) */

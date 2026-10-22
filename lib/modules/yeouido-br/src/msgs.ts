@@ -39,7 +39,8 @@ export type BrServerMsg =
   | { k: 'itemAdd'; list: GroundItem[]; }
   | { k: 'itemGone'; ids: number[]; }
   /** 시체가 털림 (아이템 없음) */
-  | { k: 'looted'; id: number; }
+  /** 시체를 털었음: left = 남은 것 (턴 사람이 이미 최대라 못 가져간 것, 없으면 빈 시체) */
+  | { k: 'looted'; id: number; left?: CorpseItem[]; }
   /** 내 장비 (바뀔 때) */
   | { k: 'gear'; gear: Gear; }
   /** 내가 주움: 종류 번호, 바뀐 단계, 어디서 */
