@@ -23,6 +23,8 @@ export const SEE = {
   /** 들어간 건물(번호+1, 0이면 없음)은 cutY 위를 잘라 현재 층만 보이게 */
   cutBid: { value: 0 },
   cutY: { value: 0 },
+  /** 들어간 건물의 바깥 벽(지도 건물·랜드마크)은 지금 층 바닥 위부터 지운다 — 안에서 유리창 너머로 바깥이 보이게 (실내 벽·창은 실내 그리기가) */
+  shellY: { value: 0 },
   /** 문 구멍: A=(중심 x, z, 벽 방향 x, z), B=(반폭, 높이, 건물 번호+1, 0) */
   doorA: { value: Array.from({ length: MAX_DOORS }, () => new THREE.Vector4()) },
   doorB: { value: Array.from({ length: MAX_DOORS }, () => new THREE.Vector4()) },
@@ -52,6 +54,7 @@ uniform vec3 uSeeFoot;
 uniform vec2 uSeeToCam;
 uniform float uCutBid;
 uniform float uCutY;
+uniform float uShellY;
 uniform vec4 uDoorA[${MAX_DOORS}];
 uniform vec4 uDoorB[${MAX_DOORS}];
 float seeHash(vec2 p) {
@@ -61,7 +64,7 @@ float seeHash(vec2 p) {
 
 const FRAG_BODY = `
 if (vBid > 0.5) {
-  if (abs(vBid - uCutBid) < 0.5 && vSeeW.y > uCutY) discard;
+  if (abs(vBid - uCutBid) < 0.5 && vSeeW.y > uShellY) discard;
   for (int i = 0; i < ${MAX_DOORS}; i++) {
     if (abs(vBid - uDoorB[i].z) < 0.5) {
       vec2 dd = vSeeW.xz - uDoorA[i].xy;
@@ -93,12 +96,13 @@ export function seeThrough<T extends THREE.Material>(material:T):T {
       uSeeToCam: SEE.toCam,
       uCutBid: SEE.cutBid,
       uCutY: SEE.cutY,
+      uShellY: SEE.shellY,
       uDoorA: SEE.doorA,
       uDoorB: SEE.doorB,
     });
     shader.vertexShader = VERT_HEAD + shader.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>\n${VERT_BODY}`);
     shader.fragmentShader = FRAG_HEAD + shader.fragmentShader.replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>\n${FRAG_BODY}`);
   };
-  material.customProgramCacheKey = () => 'see-through-3';
+  material.customProgramCacheKey = () => 'see-through-4';
   return material;
 }

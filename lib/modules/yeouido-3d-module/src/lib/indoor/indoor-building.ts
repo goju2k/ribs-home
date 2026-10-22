@@ -9,6 +9,19 @@ import { MAX_DOORS, SEE, seeThrough } from '../world/see-through';
 
 const mat = (color?:string) => seeThrough(new THREE.MeshLambertMaterial(color ? { color } : { vertexColors: true }));
 
+/** 유리 (창·칸막이·자동문): 비쳐 보이게 — 판정은 그대로 막힘 (보이는 것 = 막는 것, 너머가 보일 뿐) */
+const GLASS = new THREE.MeshLambertMaterial({ color: '#cfe6f2', transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide });
+const glassMesh = (g:THREE.BufferGeometry) => {
+  const m = new THREE.Mesh(g, GLASS);
+  m.renderOrder = 2;
+  m.castShadow = false;
+  return m;
+};
+/** 창 높이: 바닥에서 창턱까지·천장에서 창 위까지 (m), 창틀 간격 */
+const SILL = 0.9;
+const HEAD = 0.5;
+const MULLION = 3;
+
 function colored(g:THREE.BufferGeometry, color:string) {
   const geo = g.index ? g.toNonIndexed() : g;
   const c = new THREE.Color(color);
@@ -148,7 +161,8 @@ export class IndoorView {
     g.add(new THREE.Mesh(colored(ceilGeo, '#ebe8e1'), mat()));
 
     const parts:THREE.BufferGeometry[] = [];
-    // 외벽 안쪽 면: 벽 + 창 띠 (문 자리는 비움)
+    const glass:THREE.BufferGeometry[] = [];
+    // 외벽 안쪽 면: 창턱·창 위 벽 + 그 사이 유리 띠 (창틀 3m마다) — 들어간 층은 바깥 벽을 지우므로 유리 너머로 바깥이 보인다. 문 자리는 비움
     const { ring } = frame;
     ring.forEach((a, i) => {
       const b = ring[(i + 1) % ring.length];
@@ -173,12 +187,21 @@ export class IndoorView {
       } else spans.push([ 0, len ]);
       spans.forEach(([ s, e ]) => {
         if (e - s < 0.05) return;
-        parts.push(wallBox(inset(at(s), 0.2), inset(at(e), 0.2), H, 0.2, 0, '#e8e4dc'));
-        parts.push(wallBox(inset(at(s), 0.32), inset(at(e), 0.32), H - 1.5, 0.04, 0.9, '#8fb2c6'));
+        parts.push(wallBox(inset(at(s), 0.2), inset(at(e), 0.2), SILL, 0.2, 0, '#e8e4dc'));
+        parts.push(wallBox(inset(at(s), 0.2), inset(at(e), 0.2), HEAD, 0.2, H - HEAD, '#e8e4dc'));
+        glass.push(wallBox(inset(at(s), 0.2), inset(at(e), 0.2), H - SILL - HEAD, 0.04, SILL, '#ffffff'));
+        for (let t = s + MULLION; t < e - 0.3; t += MULLION) parts.push(wallBox(inset(at(t - 0.04), 0.2), inset(at(t + 0.04), 0.2), H - SILL - HEAD, 0.14, SILL, '#59626c'));
       });
     });
-    // 칸막이·회의실 유리벽
-    plan.walls.forEach((w) => parts.push(wallBox(w.a, w.b, w.kind === 'glass' ? H - 0.4 : H - 0.2, w.kind === 'glass' ? 0.08 : WALL_T, 0, w.kind === 'glass' ? '#b7d0dd' : '#e9e6df')));
+    // 칸막이 벽, 회의실 유리벽 (유리는 비쳐 보이고 아래위 얇은 틀)
+    plan.walls.forEach((w) => {
+      if (w.kind !== 'glass') {
+        parts.push(wallBox(w.a, w.b, H - 0.2, WALL_T, 0, '#e9e6df'));
+        return;
+      }
+      glass.push(wallBox(w.a, w.b, H - 0.4, 0.06, 0, '#ffffff'));
+      parts.push(wallBox(w.a, w.b, 0.06, 0.1, 0, '#59626c'), wallBox(w.a, w.b, 0.06, 0.1, H - 0.46, '#59626c'));
+    });
     // 코어: 막힌 덩어리와 엘리베이터 칸
     plan.caps.forEach((r) => parts.push(rectBox(r, H, '#bdb6aa')));
     plan.cabs.forEach((r) => parts.push(rectBox({ u0: r.u0 + 0.05, u1: r.u1 - 0.05, v0: r.v0 + 0.05, v1: r.v1 - 0.05 }, 0.04, '#7f8a96', 0.03)));
@@ -187,11 +210,13 @@ export class IndoorView {
     parts.push(rectBox({ u0: -2, u1: 2, v0: hall.v0 - 1.5, v1: hall.v1 + 1.5 }, 0.02, '#d6d0c4', 0.03));
     plan.stairs.forEach((st) => parts.push(...stairGeometry(st, H)));
     g.add(new THREE.Mesh(mergeGeometries(parts), mat()));
+    if (glass.length) g.add(glassMesh(mergeGeometries(glass)));
 
     // 자동문: 두 짝이 u 방향으로 벌어진다 (고정 유리 바로 안쪽에서 미끄러짐)
     plan.autoDoors.forEach((d) => {
       const panel = () => {
-        const m = new THREE.Mesh(wallBox({ u: -d.hw / 2, v: 0 }, { u: d.hw / 2, v: 0 }, H - 0.5, 0.06, 0, '#9cc0d4'), mat());
+        // 유리문 (비쳐 보인다)
+        const m = glassMesh(wallBox({ u: -d.hw / 2, v: 0 }, { u: d.hw / 2, v: 0 }, H - 0.5, 0.06, 0, '#ffffff'));
         m.position.z = d.v - Math.sign(d.v) * 0.08;
         g.add(m);
         return m;

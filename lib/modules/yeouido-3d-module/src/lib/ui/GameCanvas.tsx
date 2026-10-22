@@ -684,6 +684,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       });
       SEE.cutBid.value = room ? room.bid + 1 : 0;
       SEE.cutY.value = room ? room.baseY(level) + room.floorH - 0.02 : 0;
+      SEE.shellY.value = room ? room.baseY(level) + 0.05 : 0;
       // 위 시점은 정해진 확대 단계로만 한 번에 넘어간다 (픽셀 퍼펙트: 도트 하나 = 늘 같은 m)
       // 손으로 맞춘 배율은 누를 때마다 꼭 한 단계, 자동(높이·실내)은 문턱을 넘어야 한 단계씩
       const autoLv = Math.log(autoZoom) / Math.log(ZOOM_STEP);
