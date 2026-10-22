@@ -19,6 +19,9 @@ import { SEE } from '../world/see-through';
 const PITCH = THREE.MathUtils.degToRad(48);
 /** 위 시점 확대 단계 비율: 도트 하나가 담는 m는 이 비율의 거듭제곱으로만 (연속으로 바뀌면 도트 크기가 매 장면 달라져 화면 전체가 일렁인다) */
 const ZOOM_STEP = 1.25;
+/** 해 그림자 카메라 깊이 범위 (m, 해는 그림자 중심에서 900m 뒤) */
+const SHADOW_NEAR = 400;
+const SHADOW_FAR = 1050;
 /** 확대 단계를 바꾸는 문턱 (단계 수): 바랄 확대가 지금 단계에서 이만큼 벗어나야 넘어간다 (경계에서 왔다 갔다 안 하게) */
 const ZOOM_HOLD = 0.75;
 const MIN_VIEW = 8; // 화면 세로가 담는 미터
@@ -152,7 +155,10 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     const sun = new THREE.DirectionalLight('#fff3dc', 2.4);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.bias = -0.0005;
+    // 그림자 깊이 범위(SHADOW_NEAR~FAR)가 650m라 bias는 깊이 비율: -0.00003 ≈ 2cm.
+    // (예전 -0.0005는 범위 2000m에서 약 1m라, 땅에서 1m 안쪽(상자 몸통·발)은 그림자가 안 생겨 가운데가 뚫려 보였다)
+    // 경사진 면의 얼룩(acne)은 normalBias(그림자 칸 한 개, 매 장면 맞춤)로 막는다
+    sun.shadow.bias = -0.00003;
     scene.add(sun, sun.target);
     const SUN_DIR = new THREE.Vector3(-0.55, 1, 0.45).normalize(); // 남서쪽 높이 뜬 해
     // 빛에서 본 가로·세로 방향 (그림자 칸 맞추기용)
@@ -796,6 +802,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       shadowSize = Math.ceil(shadowSize / 16) * 16;
       {
         const texel = (shadowSize * 2) / sun.shadow.mapSize.width;
+        sun.shadow.normalBias = texel;
         const pr = shadowAt.dot(LIGHT_R);
         const pu = shadowAt.dot(LIGHT_U);
         shadowAt.addScaledVector(LIGHT_R, Math.round(pr / texel) * texel - pr).addScaledVector(LIGHT_U, Math.round(pu / texel) * texel - pu);
@@ -805,8 +812,9 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       sc.right = shadowSize;
       sc.top = shadowSize;
       sc.bottom = -shadowSize;
-      sc.near = 1;
-      sc.far = 2000;
+      // 해는 900m 뒤: 가장 높은 건물(322m) 꼭대기도 400m보다 멀고, 그림자 범위 끝 땅도 1050m 안 — 깊이 범위를 좁혀야 bias가 작아진다
+      sc.near = SHADOW_NEAR;
+      sc.far = SHADOW_FAR;
       sc.updateProjectionMatrix();
       sun.position.copy(shadowAt).addScaledVector(SUN_DIR, 900);
       sun.target.position.copy(shadowAt);
