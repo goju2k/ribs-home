@@ -11,6 +11,9 @@ import { GameMode, ModeHost, ModeNpc, ModePlayer } from './mode';
 import { BattleRoyale } from './modes/battle-royale';
 import { createRtcLink, rtcAvailable, RtcLink } from './rtc';
 
+/** 한 월드에 동시에 들어오는 최대 인원 (넘으면 대기열). 개발용 접속(?debug)은 예외 */
+const MAX_PLAYERS = Number(process.env.MAX_PLAYERS) || 300;
+
 /** 입력 예산: 실제 시간만큼만 걸음을 처리한다 (빨리 보내도 더 빨리 못 감 = 스피드핵 방지). 밀린 것은 이만큼까지 몰아서 */
 const MAX_BURST = SIM_HZ / 5;
 /** 이보다 많이 밀리면 오래된 입력을 버린다 (1초) */
@@ -37,6 +40,11 @@ const NPC_FIRST = 40000;
 const NPC_LAST = 65000;
 /** 시뮬레이션 몇 틱에 스냅숏 한 번인지 (30Hz / 15Hz = 2) */
 const SPLIT = Math.round(SIM_HZ / SNAP_HZ);
+
+/** 대기열 한 사람: 자리가 나면 enter()로 입장 */
+interface Waiter {
+  ws: WebSocket; at: number; enter: () => void;
+}
 
 interface Player extends ModePlayer {
   ws: WebSocket;
@@ -74,6 +82,15 @@ export class World {
   private pick = new Int32Array(MAX_ROWS);
 
   private players = new Map<number, Player>();
+
+  /** 가득 찼을 때 기다리는 사람 (먼저 온 순) */
+  private waiting:Waiter[] = [];
+
+  /** 대기 순번이 바뀌어 알려야 하는지 (틱마다 한 번에) */
+  private queueDirty = false;
+
+  /** 대기열 기록 (서버를 켠 뒤로): 가장 길었던 대기 인원·그때, 가장 오래 기다린 시간, 기다렸던 사람 수 */
+  private queueStat = { peak: 0, peakAt: 0, longestMs: 0, total: 0 };
 
   /** 모드가 만든 NPC (좀비 등) — 사람과 같은 이동·스냅숏, 받는 사람은 아님 */
   private npcs = new Map<number, ModeNpc>();
@@ -158,6 +175,12 @@ export class World {
     return this.players.size;
   }
 
+  /** 상태 확인용: 대기열 */
+  get queueInfo() {
+    const { peak, peakAt, longestMs, total } = this.queueStat;
+    return { max: MAX_PLAYERS, now: this.waiting.length, peak, peakAt: peakAt ? new Date(peakAt).toISOString() : null, longestWaitS: Math.round(longestMs / 1000), total };
+  }
+
   start() {
     this.timer = setInterval(() => this.step(), 1000 / SIM_HZ);
   }
@@ -215,6 +238,7 @@ export class World {
   /** 새 연결: hello를 받으면 입장시킨다 */
   connect(ws:WebSocket) {
     let me:Player | null = null;
+    let waiter:Waiter | null = null;
     const hello = setTimeout(() => ws.close(4000, 'hello timeout'), 5000);
 
     ws.on('message', (raw, isBinary) => {
@@ -240,7 +264,21 @@ export class World {
         const debug = msg.debug === true;
         // 원하는 자리(?at=, 재접속)는 개발용 접속만 — 쓸지는 모드가 정한다
         const requested = (debug && msg.spawn && this.acceptSpawn(msg.spawn)) || null;
-        me = this.join(ws, String(msg.name || '').slice(0, 16) || '시민', requested, debug);
+        const name = String(msg.name || '').slice(0, 16) || '시민';
+        // 가득 찼거나 이미 기다리는 사람이 있으면 줄 끝에 (개발용 접속은 바로)
+        if (!debug && (this.players.size >= MAX_PLAYERS || this.waiting.length)) {
+          if (waiter) return;
+          waiter = {
+            ws,
+            at: Date.now(),
+            enter: () => {
+              me = this.join(ws, name, null, false);
+            },
+          };
+          this.enqueue(waiter);
+          return;
+        }
+        me = this.join(ws, name, requested, debug);
         return;
       }
       if (msg.t === 'input') World.inputCmds(me, msg.cmds);
@@ -253,6 +291,7 @@ export class World {
     ws.on('close', () => {
       clearTimeout(hello);
       if (me) this.leave(me);
+      else if (waiter) this.dequeue(waiter);
     });
     ws.on('error', () => ws.terminate());
   }
@@ -323,6 +362,51 @@ export class World {
     this.broadcast({ t: 'leave', id: p.id });
     this.say(`${p.name} 님이 나갔습니다. (${this.players.size}명)`, 'leave');
     console.log(`[${this.id}] leave #${p.id} ${p.name} (${this.players.size}명)`);
+    this.admit();
+  }
+
+  /** 대기열 끝에 세운다 */
+  private enqueue(w:Waiter) {
+    this.waiting.push(w);
+    this.queueDirty = true;
+    const st = this.queueStat;
+    st.total++;
+    if (this.waiting.length > st.peak) {
+      st.peak = this.waiting.length;
+      st.peakAt = Date.now();
+      console.log(`[${this.id}] 대기열 최고 ${st.peak}명 (접속 ${this.players.size}/${MAX_PLAYERS})`);
+    }
+  }
+
+  /** 기다리다 나감 */
+  private dequeue(w:Waiter) {
+    const i = this.waiting.indexOf(w);
+    if (i < 0) return;
+    this.waiting.splice(i, 1);
+    this.queueDirty = true;
+  }
+
+  /** 자리가 난 만큼 줄 앞부터 들여보낸다 */
+  private admit() {
+    while (this.players.size < MAX_PLAYERS && this.waiting.length) {
+      const w = this.waiting.shift()!;
+      this.queueDirty = true;
+      if (w.ws.readyState === WebSocket.OPEN) {
+        const waited = Date.now() - w.at;
+        this.queueStat.longestMs = Math.max(this.queueStat.longestMs, waited);
+        w.enter();
+      }
+    }
+  }
+
+  /** 기다리는 사람마다 순번 알림 (바뀐 틱에만) */
+  private sendQueue() {
+    if (!this.queueDirty) return;
+    this.queueDirty = false;
+    const size = this.waiting.length;
+    this.waiting.forEach((w, i) => {
+      if (w.ws.readyState === WebSocket.OPEN) w.ws.send(JSON.stringify({ t: 'queue', pos: i + 1, size, players: this.players.size, max: MAX_PLAYERS } satisfies ServerMsg));
+    });
   }
 
   /** 한 틱(1/30초): 각자 밀린 입력을 예산만큼 시뮬레이션, 2틱마다 스냅숏 */
@@ -353,6 +437,7 @@ export class World {
     // 이번 틱에 보낼 것(모드 메시지·스냅숏)을 사람마다 한 번의 쓰기로 묶는다 (보낼 때마다 시스템 호출이라 사람이 많으면 이게 크다)
     const corked = this.cork();
     this.flushMode();
+    this.sendQueue();
     const t1 = performance.now();
     this.lastSimMs = t1 - t0;
     // 받는 사람을 SPLIT 묶음으로 나눠 틱마다 번갈아 보낸다 → 각자 SNAP_HZ, 한 틱의 부담은 1/SPLIT

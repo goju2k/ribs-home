@@ -29,7 +29,7 @@ const server = http.createServer((req, res) => {
   lastElu = performance.eventLoopUtilization();
   const loop = { busy: Math.round(elu.utilization * 100) / 100, lagP99: Math.round(lag.percentile(99) / 1e6), lagMax: Math.round(lag.max / 1e6) };
   lag.reset();
-  res.end(JSON.stringify({ loop, ok: true, world: world.id, players: world.size, game: world.modeInfo, protocol: PROTOCOL_VERSION, tickMs: Math.round(world.lastTickMs * 100) / 100, simMs: Math.round(world.lastSimMs * 100) / 100, snapMs: Math.round(world.lastSnapMs * 100) / 100, sentKBps: Math.round(world.sentPerSec / 102.4) / 10, rtc: rtcAvailable() }));
+  res.end(JSON.stringify({ loop, ok: true, world: world.id, players: world.size, queue: world.queueInfo, game: world.modeInfo, protocol: PROTOCOL_VERSION, tickMs: Math.round(world.lastTickMs * 100) / 100, simMs: Math.round(world.lastSimMs * 100) / 100, snapMs: Math.round(world.lastSnapMs * 100) / 100, sentKBps: Math.round(world.sentPerSec / 102.4) / 10, rtc: rtcAvailable() }));
 });
 
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 4096 });

@@ -37,7 +37,13 @@ export interface Remote extends PlayerState {
   name: string;
 }
 
-export type NetState = 'connecting' | 'online' | 'offline';
+/** queued: 월드가 가득 차 대기열에서 기다리는 중 (자리가 나면 서버가 welcome을 보내 online) */
+export type NetState = 'connecting' | 'queued' | 'online' | 'offline';
+
+/** 대기열: 내 순번(1부터)·대기 인원·지금 인원·최대 인원 */
+export interface QueueInfo {
+  pos: number; size: number; players: number; max: number;
+}
 
 /** 서버가 확정한 내 상태: ack 순번까지의 입력을 반영한 결과 */
 export interface Authority {
@@ -124,6 +130,9 @@ export class GameClient {
   /** 내 상태 비트·게이지 (가장 최근 스냅숏) */
   meStatus = { s: 0, v: 0 };
 
+  /** 대기 중이면 순번 (아니면 null) */
+  queue:QueueInfo | null = null;
+
   constructor(url:string, name:string, spawn:SpawnFn) {
     this.url = url;
     this.name = name;
@@ -174,6 +183,7 @@ export class GameClient {
       this.closeRtc();
       this.lastTick = 0;
       this.state = 'offline';
+      this.queue = null;
       this.names.clear();
       this.samples.clear();
       this.later();
@@ -189,8 +199,12 @@ export class GameClient {
 
   private receive(msg:ServerMsg) {
     const now = performance.now();
-    if (msg.t === 'welcome') {
+    if (msg.t === 'queue') {
+      this.state = 'queued';
+      this.queue = { pos: msg.pos, size: msg.size, players: msg.players, max: msg.max };
+    } else if (msg.t === 'welcome') {
       this.state = 'online';
+      this.queue = null;
       this.startPing();
       this.myId = msg.id;
       msg.players.forEach((p) => this.names.set(p.id, p.name));

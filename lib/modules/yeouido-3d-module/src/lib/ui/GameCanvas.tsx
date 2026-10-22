@@ -10,7 +10,7 @@ import { snapToGrid } from './pixel-snap';
 import { createIndoorViews } from '../indoor/indoor-building';
 import { CamMode, InputState, nextMode, readLift, readMove, ROTATE_ENABLED } from '../input';
 import { Look, MODE_CLIENTS, ModeClient, PLAIN_LOOK } from '../modes';
-import { GameClient, myName, NetState, Remote, serverUrl, Transport } from '../net/client';
+import { GameClient, myName, NetState, QueueInfo, Remote, serverUrl, Transport } from '../net/client';
 import { createPerson } from '../player/person';
 import { RemotePlayers } from '../player/remote-players';
 import { buildCity } from '../world/build-city';
@@ -55,7 +55,7 @@ export interface GameStatus {
   /** 지금 시점 */
   mode: CamMode;
   /** 게임 서버 접속 상태, 접속자 수(나 포함), 오류, 마지막 서버 보정 크기(m)와 확인 대기 입력 수 */
-  net: { state: NetState; count: number; error: string; correction: number; pending: number; transport: Transport; rtt: number; jitter: number; };
+  net: { state: NetState; count: number; error: string; correction: number; pending: number; transport: Transport; rtt: number; jitter: number; queue: QueueInfo | null; };
   /** 방송 (최근 몇 줄, age 0~1: 사라지는 정도) */
   says: { id: number; text: string; kind: SayKind; age: number; }[];
   /** 게임 모드 이름과 그 모드 HUD 상태 (뜻은 모드 HUD만 안다) */
@@ -869,7 +869,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         flying,
         onRoof: !room && !flying && floor > 1,
         indoor: room ? { name: room.name, level, elevator: cab >= 0 } : null,
-        net: { state: net.state, count: net.count, error: net.error, correction, pending: pending.length, transport: net.transport, rtt: net.rtt, jitter: net.jitter },
+        net: { state: net.state, count: net.count, error: net.error, correction, pending: pending.length, transport: net.transport, rtt: net.rtt, jitter: net.jitter, queue: net.queue },
         mode,
         says: net.recentSays(performance.now(), SAY_MS, 3),
         gameMode: modeName,

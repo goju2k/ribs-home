@@ -26,6 +26,7 @@ const netLabel = (s:GameStatus) => {
     const ping = s.net.rtt ? ` · ${Math.round(s.net.rtt)}ms${DEBUG ? `±${Math.round(s.net.jitter)}` : ''}` : '';
     return `접속 ${s.net.count}명${ping}${DEBUG ? ` (${s.net.transport === 'rtc' ? 'UDP' : 'TCP'}·보정 ${Math.round(s.net.correction * 100)}cm·대기 ${s.net.pending})` : ''}`;
   }
+  if (s.net.state === 'queued' && s.net.queue) return `대기 ${s.net.queue.pos}번째 · ${s.net.queue.players}/${s.net.queue.max}명`;
   return s.net.state === 'connecting' ? '접속 중…' : '오프라인';
 };
 
@@ -36,7 +37,7 @@ const isTouch = () => typeof window !== 'undefined' && ('ontouchstart' in window
 export function Yeouido3DPage() {
   useGalmuriFont();
   const inputRef = useRef(createInput());
-  const statusRef = useRef<GameStatus>({ ready: false, buildMs: 0, pixel: 0, x: 0, z: 0, running: false, alt: 0, flying: false, onRoof: false, indoor: null, net: { state: 'connecting', count: 0, error: '', correction: 0, pending: 0, transport: 'ws', rtt: 0, jitter: 0 }, mode: START_MODE, says: [], gameMode: null, game: null });
+  const statusRef = useRef<GameStatus>({ ready: false, buildMs: 0, pixel: 0, x: 0, z: 0, running: false, alt: 0, flying: false, onRoof: false, indoor: null, net: { state: 'connecting', count: 0, error: '', correction: 0, pending: 0, transport: 'ws', rtt: 0, jitter: 0, queue: null }, mode: START_MODE, says: [], gameMode: null, game: null });
   const [ ready, setReady ] = useState(false);
   const [ touch ] = useState(isTouch);
   const [ status, setStatus ] = useState<GameStatus>(statusRef.current);
@@ -164,6 +165,14 @@ export function Yeouido3DPage() {
       {!touch && <KeyHint>이동 WASD/방향키 · 달리기 T(전환)/Shift · 점프·높이 Space·R / C·F · 시점 V(뒤·1인칭은 마우스 움직임 = 시점) · 회전 Q/E · 확대 휠/+/-</KeyHint>}
 
       {!ready && <Loading>여의도를 세우는 중…</Loading>}
+      {/* 대기열: 가득 차면 가운데에 순번 (자리가 나면 자동으로 들어간다) */}
+      {ready && status.net.state === 'queued' && status.net.queue && (
+        <Queue>
+          <QueueTitle>여의도가 가득 찼습니다 ({status.net.queue.players}/{status.net.queue.max}명)</QueueTitle>
+          <QueuePos>대기 {status.net.queue.pos}번째{status.net.queue.size > 1 ? ` / ${status.net.queue.size}명` : ''}</QueuePos>
+          <QueueHint>자리가 나면 자동으로 입장합니다. 창을 닫지 마세요.</QueueHint>
+        </Queue>
+      )}
       <Attribution href='https://www.openstreetmap.org/copyright' target='_blank' rel='noreferrer'>
         © OpenStreetMap contributors
       </Attribution>
@@ -271,6 +280,26 @@ const Loading = styled(Panel)({
   padding: '12px 16px',
   fontSize: 13,
 });
+
+const Queue = styled(Panel)({
+  position: 'absolute',
+  left: '50%',
+  top: '50%',
+  transform: 'translate(-50%, -50%)',
+  padding: '16px 24px',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  gap: 8,
+  textAlign: 'center',
+  zIndex: 20,
+});
+
+const QueueTitle = styled.div({ fontSize: 13, color: '#c9ced6' });
+
+const QueuePos = styled.div({ fontSize: 24, color: '#ffd84a' });
+
+const QueueHint = styled.div({ fontSize: 11, color: '#c9ced6' });
 
 const Attribution = styled.a({
   position: 'absolute',

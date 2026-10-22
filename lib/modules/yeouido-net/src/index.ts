@@ -115,6 +115,8 @@ export type ServerMsg =
   /** ack: 이 상태까지 반영한 내 입력 순번, me: 그 시점 내 상태 (정밀값), ms·mv: 내 상태 비트·게이지 */
   | { t: 'snap'; tick: number; ack: number; me: BodyTuple; ms: number; mv: number; ps: SnapRow[]; }
   | { t: 'error'; msg: string; }
+  /** 월드가 가득 차 기다리는 중: pos 내 순번(1부터), size 대기 인원, players·max 지금 인원·최대 인원 (자리가 나면 welcome이 온다) */
+  | { t: 'queue'; pos: number; size: number; players: number; max: number; }
   | { t: 'pong'; c: number; }
   /** 게임 모드 전용 알림 묶음 (한 틱 동안 모은 것, 형식은 모드 모듈이 정한다) */
   | { t: 'mode'; ds: unknown[]; };
