@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import {
   ACT_FARM, ACT_FIRE, ACT_RELOAD, BOSS, BrClientMsg, BrServerMsg, dayNight, FARM, ST_BURN, ST_SLAM, Z_BOSS, Z_RUNNER, Z_WALKER, Corpse, emptyGear, gaugeHp, Gear, isBrMsg, ITEM_KINDS, ITEM_NAMES, MatchPlan, meleeReaches, ST_DEAD, ST_HURT, ST_SHIELD, ST_SWING,
-  canFire, fire, FireState, fullMag, heldWeapon, isWeapon, MOVING_SPEED, PROP_KINDS, PROP_NAMES, PROP_RADIUS, reload, shotDirs, WeaponKind, weaponStats, zoneAt, ZoneNow,
+  canFire, fire, isConsumable, FireState, fullMag, heldWeapon, isWeapon, MOVING_SPEED, PROP_KINDS, PROP_NAMES, PROP_RADIUS, reload, shotDirs, WeaponKind, weaponStats, zoneAt, ZoneNow,
 } from 'yeouido-br';
 import { castRay, STEP } from 'yeouido-sim';
 
@@ -271,7 +271,8 @@ export class BrClient implements ModeClient {
     else if (m.k === 'gear') this.setGear(m.gear);
     else if (m.k === 'got') {
       const k = ITEM_KINDS[m.kind];
-      this.got.push({ id: ++this.seq, text: `${ITEM_NAMES[k]} +${m.lv}${m.from === 'corpse' ? ' (시체)' : ''}`, at: now });
+      const what = isConsumable(k) ? `${ITEM_NAMES[k]} · 체력 +${m.lv}%` : `${ITEM_NAMES[k]} +${m.lv}`;
+      this.got.push({ id: ++this.seq, text: `${what}${m.from === 'corpse' ? ' (시체)' : ''}`, at: now });
       if (this.got.length > 4) this.got.shift();
     }
   }
@@ -308,6 +309,10 @@ export class BrClient implements ModeClient {
     this.items.list.forEach(({ it }) => {
       if (Math.abs(it[3] - me.x) > 4 || Math.abs(it[5] - me.z) > 4 || !reach(it[3], it[4], it[5], it[6], it[7])) return;
       const k = ITEM_KINDS[it[1]];
+      if (isConsumable(k)) {
+        offer(it[3], it[5], gaugeHp(me.gv) >= 100 ? `${ITEM_NAMES[k]} ${it[2]}% (체력 가득)` : `좌클릭: ${ITEM_NAMES[k]} ${it[2]}% 먹기`);
+        return;
+      }
       const swap = held && isWeapon(k) && k !== held ? ` (${ITEM_NAMES[held]} 버림)` : '';
       offer(it[3], it[5], `좌클릭: ${ITEM_NAMES[k]} +${it[2]} 줍기${swap}`);
     });

@@ -1,4 +1,4 @@
-import { ITEM_KINDS, ItemKind } from './items';
+import { HEAL_MAX, HEAL_MIN, ITEM_KINDS, ItemKind } from './items';
 
 /**
  * 부술 수 있는 물건 (배틀로얄 모드, 게임성 측정용 PoC — 종류·수치·드롭 표는 가정).
@@ -28,15 +28,15 @@ export type DropRow = [ItemKind | null, number, number, number];
 export const DROPS:Record<PropKind, { count: [number, number]; table: DropRow[]; }> = {
   crate: {
     count: [ 1, 1 ],
-    table: [[ null, 3, 0, 0 ], [ 'armor', 3, 1, 1 ], [ 'shoes', 3, 1, 1 ], [ 'hammer', 2, 1, 1 ], [ 'rocket', 0.5, 1, 1 ], [ 'pistol', 2, 1, 1 ], [ 'smg', 1.5, 1, 1 ], [ 'rifle', 1.5, 1, 1 ], [ 'shotgun', 1.5, 1, 1 ], [ 'crossbow', 1, 1, 1 ], [ 'sniper', 0.5, 1, 1 ]],
+    table: [[ null, 3, 0, 0 ], [ 'armor', 3, 1, 1 ], [ 'shoes', 3, 1, 1 ], [ 'hammer', 2, 1, 1 ], [ 'rocket', 0.5, 1, 1 ], [ 'heal', 1, HEAL_MIN, HEAL_MAX ], [ 'pistol', 2, 1, 1 ], [ 'smg', 1.5, 1, 1 ], [ 'rifle', 1.5, 1, 1 ], [ 'shotgun', 1.5, 1, 1 ], [ 'crossbow', 1, 1, 1 ], [ 'sniper', 0.5, 1, 1 ]],
   },
   vending: {
     count: [ 1, 2 ],
-    table: [[ 'shoes', 4, 1, 2 ], [ 'armor', 3, 1, 2 ], [ 'hammer', 2, 1, 1 ], [ 'rocket', 1, 1, 1 ], [ 'pistol', 1.5, 1, 2 ], [ 'smg', 1.5, 1, 2 ], [ 'rifle', 1.5, 1, 2 ], [ 'shotgun', 1, 1, 2 ], [ 'crossbow', 1, 1, 2 ], [ 'sniper', 0.7, 1, 2 ]],
+    table: [[ 'shoes', 4, 1, 2 ], [ 'armor', 3, 1, 2 ], [ 'hammer', 2, 1, 1 ], [ 'rocket', 1, 1, 1 ], [ 'heal', 2, HEAL_MIN, HEAL_MAX ], [ 'pistol', 1.5, 1, 2 ], [ 'smg', 1.5, 1, 2 ], [ 'rifle', 1.5, 1, 2 ], [ 'shotgun', 1, 1, 2 ], [ 'crossbow', 1, 1, 2 ], [ 'sniper', 0.7, 1, 2 ]],
   },
   safe: {
     count: [ 2, 3 ],
-    table: [[ 'armor', 3, 2, 3 ], [ 'shoes', 3, 2, 3 ], [ 'rocket', 2, 1, 2 ], [ 'hammer', 1, 2, 3 ], [ 'rifle', 2, 2, 3 ], [ 'shotgun', 1.5, 2, 3 ], [ 'smg', 1.5, 2, 3 ], [ 'sniper', 2, 2, 3 ], [ 'crossbow', 1.5, 2, 3 ]],
+    table: [[ 'armor', 3, 2, 3 ], [ 'shoes', 3, 2, 3 ], [ 'rocket', 2, 1, 2 ], [ 'heal', 4, HEAL_MIN, HEAL_MAX ], [ 'hammer', 1, 2, 3 ], [ 'rifle', 2, 2, 3 ], [ 'shotgun', 1.5, 2, 3 ], [ 'smg', 1.5, 2, 3 ], [ 'sniper', 2, 2, 3 ], [ 'crossbow', 1.5, 2, 3 ]],
   },
 };
 
@@ -48,7 +48,10 @@ function rollOnce(table:DropRow[], rand:() => number):[number, number] | null {
     r -= t[1];
     return r < 0;
   }) ?? table[table.length - 1];
-  return row[0] ? [ ITEM_KINDS.indexOf(row[0]), row[2] + Math.floor(rand() * (row[3] - row[2] + 1)) ] : null;
+  if (!row[0]) return null;
+  // 회복약은 10% 단위 (20·30·…·100)
+  if (row[0] === 'heal') return [ ITEM_KINDS.indexOf('heal'), row[2] + 10 * Math.floor(rand() * (Math.floor((row[3] - row[2]) / 10) + 1)) ];
+  return [ ITEM_KINDS.indexOf(row[0]), row[2] + Math.floor(rand() * (row[3] - row[2] + 1)) ];
 }
 
 /** 드롭 표에서 뽑기: [종류 번호, 단계][] */

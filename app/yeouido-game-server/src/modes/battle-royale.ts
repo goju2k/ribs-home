@@ -1,7 +1,7 @@
 import {
   ACT_FARM, ACT_FIRE, ACT_RELOAD, BALL, BOSS_LIMIT_MS, BrClientMsg, Difficulty, DIFFICULTY, FARM, RESULT_MS, afterPickup, armorCut, BR_MODE, dayNight, breakPower, PROP_KINDS, PROP_RADIUS, rollDrops, rollZombieDrop, BrServerMsg, Corpse, CorpseItem, emptyGear, Gear, HP_MAX, HURT_MS, hpGauge, insideZone,
   ITEM_KINDS, insideZone as inZoneCircle, makeMatchPlan, pickRoofOf, MATCH_MS, MatchPlan, meleeReaches, pickSpawn, respawnDelay, rocketMul, shoeMul,
-  canFire, falloff, fire, FireState, fullMag, heldWeapon, isWeapon, MOVING_SPEED, reload, shotDirs, WEAPON_KINDS, weaponStats,
+  canFire, falloff, fire, healAmount, isConsumable, FireState, fullMag, heldWeapon, isWeapon, MOVING_SPEED, reload, shotDirs, WEAPON_KINDS, weaponStats,
   SPAWN_SHIELD_MS, ST_DEAD, ST_FROZEN, ST_HIDDEN, ST_HURT, ST_SHIELD, ST_SWING, zoneAt, zoneDps,
 } from 'yeouido-br';
 import { SIM_HZ } from 'yeouido-net';
@@ -280,6 +280,14 @@ export class BattleRoyale implements GameMode {
   /** 아이템 하나를 장비에 (같은 칸이면 강화) */
   private equip(p:ModePlayer, f:Fighter, kind:number, lv:number, from:'ground' | 'corpse') {
     const k = ITEM_KINDS[kind];
+    // 회복약: 장비가 아니라 바로 체력 회복
+    if (isConsumable(k)) {
+      f.hp = Math.min(HP_MAX, f.hp + healAmount(lv, HP_MAX));
+      const hs = this.stats.get(p.id);
+      if (hs) hs.picks[k]++;
+      this.send(p, { k: 'got', kind, lv, from });
+      return;
+    }
     // 무기는 한 종류만: 다른 종류를 주우면 들고 있던 것을 그 자리에 떨어뜨린다 (떨어뜨린 사람은 멀어질 때까지 못 줍는다)
     if (isWeapon(k)) {
       WEAPON_KINDS.filter((o) => o !== k && f.gear[o] > 0).forEach((o) => {
@@ -442,6 +450,8 @@ export class BattleRoyale implements GameMode {
     if (me.farmFresh) {
       this.items.near(body.x, body.z, FARM.range + 1).forEach((it) => {
         if (!this.items.canPick(it, p.id, body.x, body.z) || !reach(it[3], it[4], it[5], it[6], it[7])) return;
+        // 체력이 가득하면 회복약은 안 줍는다
+        if (isConsumable(ITEM_KINDS[it[1]]) && me.hp >= HP_MAX) return;
         offer(it[3], it[5], pick(() => {
           this.items.remove(it[0]);
           this.broadcast({ k: 'itemGone', ids: [ it[0] ] });

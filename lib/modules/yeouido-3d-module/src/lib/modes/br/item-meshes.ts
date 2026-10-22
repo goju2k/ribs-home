@@ -15,6 +15,7 @@ export const ITEM_COLORS:Record<ItemKind, string> = {
   shotgun: '#d94a6a',
   sniper: '#4ad9d9',
   crossbow: '#4ad9a0',
+  heal: '#ff5a8a',
 };
 
 /** 이보다 멀면 안 그린다 (m) */
@@ -33,6 +34,7 @@ function shapes() {
     shotgun: new THREE.BoxGeometry(0.8, 0.14, 0.12),
     sniper: new THREE.BoxGeometry(1.1, 0.14, 0.09),
     crossbow: new THREE.BoxGeometry(0.6, 0.12, 0.6),
+    heal: new THREE.BoxGeometry(0.3, 0.38, 0.3),
   };
   return g;
 }

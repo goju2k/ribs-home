@@ -1,7 +1,7 @@
 /* eslint-disable no-bitwise -- 행동 비트 */
 import { MouseEvent, MutableRefObject, PointerEvent } from 'react';
 import styled from 'styled-components';
-import { ACT_FARM, ACT_FIRE, ACT_RELOAD, isWeapon, ITEM_KINDS, ITEM_NAMES, STAGES } from 'yeouido-br';
+import { ACT_FARM, ACT_FIRE, ACT_RELOAD, isConsumable, isWeapon, ITEM_KINDS, ITEM_NAMES, STAGES } from 'yeouido-br';
 
 import type { BrHudState } from './br-client';
 import { ITEM_COLORS } from './item-meshes';
@@ -85,7 +85,7 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
             <span>{state.weapon ? state.weapon.name : '무기 없음'}</span>
             <b>{state.weapon ? `+${state.weapon.lv}` : '-'}</b>
           </Slot>
-          {ITEM_KINDS.filter((k) => !isWeapon(k)).map((k) => (
+          {ITEM_KINDS.filter((k) => !isWeapon(k) && !isConsumable(k)).map((k) => (
             <Slot key={k} $on={state.gear[k] > 0} title={ITEM_NAMES[k]}>
               <i style={{ background: ITEM_COLORS[k] }} />
               <span>{ITEM_NAMES[k]}</span>

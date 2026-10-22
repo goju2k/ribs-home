@@ -7,7 +7,7 @@ import { WEAPON_KINDS } from './weapons';
  */
 
 /** 순서가 곧 번호 (메시지에 번호로 오간다 — 슈터 개편에서 다시 매김, 프로토콜 v12) */
-export const ITEM_KINDS = [ 'armor', 'shoes', 'rocket', 'hammer', ...WEAPON_KINDS ] as const;
+export const ITEM_KINDS = [ 'armor', 'shoes', 'rocket', 'hammer', ...WEAPON_KINDS, 'heal' ] as const;
 export type ItemKind = typeof ITEM_KINDS[number];
 
 export const ITEM_NAMES:Record<ItemKind, string> = {
@@ -21,7 +21,19 @@ export const ITEM_NAMES:Record<ItemKind, string> = {
   shotgun: '산탄총',
   sniper: '저격소총',
   crossbow: '석궁',
+  heal: '회복약',
 };
+
+/**
+ * 회복약: 줍는 순간 체력을 회복하는 소모품 (장비 칸에 남지 않고, 시체에도 안 남는다).
+ * 떨어진 아이템의 '단계' 칸에 회복 %(20~100, 10 단위)가 들어 있다. 체력이 가득하면 줍지 않는다.
+ * 회복은 밸런스가 까다로워 드물게: 물건(상자·자판기·금고)에서만, 로켓슈트의 2배 비율
+ */
+export const HEAL_MIN = 20;
+export const HEAL_MAX = 100;
+export const isConsumable = (k:ItemKind) => k === 'heal';
+/** 회복약 하나의 회복량 (체력) */
+export const healAmount = (pct:number, hpMax:number) => Math.round((hpMax * pct) / 100);
 
 /** 땅에 뿌릴 때 비율 (로켓슈트는 땅에 안 뿌린다 — 물건을 부숴야 나온다). 무기 없이 시작하니 무기는 여기저기 */
 export const DROP_WEIGHTS:Record<ItemKind, number> = {
@@ -35,6 +47,7 @@ export const DROP_WEIGHTS:Record<ItemKind, number> = {
   shotgun: 2,
   sniper: 1,
   crossbow: 1.5,
+  heal: 0,
 };
 
 export const MAX_LEVEL = 7;
