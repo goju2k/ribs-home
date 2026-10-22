@@ -9,7 +9,7 @@
  * - 자기 메시지는 { t: 'mode' } 통로로만 주고받는다 (형식은 모드 모듈이 정한다).
  */
 
-export const PROTOCOL_VERSION = 13;
+export const PROTOCOL_VERSION = 14;
 
 /** 클라이언트가 알려 주는 화면 지연(다른 사람을 얼마나 늦게 보는지)의 상한 (ms) — 지연 보정이 이보다 더 되감지 않는다 */
 export const MAX_LAG_MS = 300;
@@ -34,14 +34,17 @@ export const VIEW_DEFAULT = 300;
 /** 이보다 먼 사람은 스냅숏 두 번에 한 번만 (m) */
 export const NEAR = 150;
 
-/** 서버 시뮬레이션 빈도 = 입력 한 걸음 빈도 (Hz, yeouido-sim STEP과 같아야 함) */
-export const SIM_HZ = 60;
+/**
+ * 서버 시뮬레이션 빈도 = 입력 한 걸음 빈도 (Hz, yeouido-sim STEP과 같아야 함).
+ * 배그 방식 30Hz·스냅숏 15Hz (v14): 60/30보다 한 판에 약 1.7배 더 받고 송신량은 절반 — 손맛에 문제가 느껴지면 다시 올린다
+ */
+export const SIM_HZ = 30;
 
 /** 서버가 스냅숏을 뿌리는 빈도 (Hz) */
-export const SNAP_HZ = 30;
+export const SNAP_HZ = 15;
 
-/** 다른 사람 위치를 이만큼 늦게 그려 두 스냅숏 사이를 보간한다 (ms) */
-export const INTERP_DELAY_MS = 60;
+/** 다른 사람 위치를 이만큼 늦게 그려 두 스냅숏 사이를 보간한다 (ms, 스냅숏 간격 67ms의 약 2배) */
+export const INTERP_DELAY_MS = 120;
 
 /** 실외면 -1, 실내면 건물 번호 */
 export const OUTDOOR = -1;

@@ -107,6 +107,9 @@ export const canFire = (fs:FireState, seq:number) => seq >= fs.nextSeq;
 
 /** 쏜다 (canFire일 때만): 탄 하나, 다음 발까지 — 비면 바로 재장전 */
 export function fire(fs:FireState, st:WeaponStats, seq:number, stepSec:number) {
+  // 쉬지 않고 이어 쏘면(쏠 수 있게 된 바로 그 걸음) 걸음 단위로 못 채운 자투리를 다음 발로 넘긴다
+  // → 걸음이 굵어도(30Hz = 33ms) 평균 연사 속도·강화 차이가 그대로 (예: 83ms면 2·3걸음을 번갈아)
+  const base = !fs.reloading && seq - fs.nextSeq < 1 ? fs.nextSeq : seq;
   if (fs.reloading) {
     fs.reloading = false;
     fs.ammo = st.mag;
@@ -116,7 +119,7 @@ export function fire(fs:FireState, st:WeaponStats, seq:number, stepSec:number) {
     fs.ammo = 0;
     fs.reloading = true;
     fs.nextSeq = seq + msToSteps(st.reloadMs, stepSec);
-  } else fs.nextSeq = seq + msToSteps(st.intervalMs, stepSec);
+  } else fs.nextSeq = base + Math.max(1, st.intervalMs / 1000 / stepSec);
 }
 
 /** 손으로 재장전 (R): 탄이 덜 찼고 재장전 중이 아니면. 시작했으면 true */
