@@ -1,3 +1,4 @@
+import { Decor, DecorBox, inBox, isVehicle, placeDecor, vehicleBoxes } from './decor';
 import { BLOCK, decodeCollision, WorldData } from './world-data';
 
 const BUCKET = 50; // 건물 높이 찾기용 공간 격자(m)
@@ -56,6 +57,12 @@ export class Collision {
 
   private maxH = 0;
 
+  /** 도심 꾸미기 (그리기용으로도 내준다) */
+  readonly decor:Decor[];
+
+  /** 차 충돌 상자 (BUCKET 격자) — 이동·총알을 막는다 */
+  private boxBuckets = new Map<number, DecorBox[]>();
+
   constructor(data:WorldData) {
     this.grid = decodeCollision(data.collision);
     this.w = data.collision.w;
@@ -101,6 +108,33 @@ export class Collision {
       }
     }
     this.maxH = data.maxBuildingHeight;
+
+    this.decor = placeDecor(data, (x, z) => this.at(x, z) === BLOCK.NONE);
+    this.decor.forEach((d) => {
+      if (!isVehicle(d.k)) return;
+      vehicleBoxes(d).forEach((b) => {
+        const r = Math.hypot(b.hl, b.hw);
+        for (let bx = Math.floor((b.cx - r) / BUCKET); bx <= Math.floor((b.cx + r) / BUCKET); bx++) {
+          for (let bz = Math.floor((b.cz - r) / BUCKET); bz <= Math.floor((b.cz + r) / BUCKET); bz++) {
+            const list = this.boxBuckets.get(bx * 100000 + bz);
+            if (list) list.push(b);
+            else this.boxBuckets.set(bx * 100000 + bz, [ b ]);
+          }
+        }
+      });
+    });
+  }
+
+  /** (x, z)의 차 충돌 상자 중 가장 높은 것 (없으면 0) — 그보다 낮으면 막히고, 위에 서면 바닥 */
+  private boxTop(x:number, z:number, below = Infinity) {
+    const list = this.boxBuckets.get(Math.floor(x / BUCKET) * 100000 + Math.floor(z / BUCKET));
+    if (!list) return 0;
+    let top = 0;
+    for (let i = 0; i < list.length; i++) {
+      const b = list[i];
+      if (b.h > top && b.h <= below && inBox(b, x, z)) top = b.h;
+    }
+    return top;
   }
 
   private treeHit(x:number, y:number, z:number) {
@@ -147,20 +181,32 @@ export class Collision {
     this.footprintsAt(x, z).forEach((f) => {
       if (f.h <= y + 0.3) floor = Math.max(floor, f.h);
     });
+    // 차 지붕에도 내려설 수 있다 (날다가 내려오면)
+    floor = Math.max(floor, this.boxTop(x, z, y + 0.3));
     if (floor === 0 && this.at(x, z) === BLOCK.WATER) floor = 1;
     return floor;
   }
 
   /** 높이 y에서 한 점이 막혔는지 (총알 광선이 0.4m마다 부르므로 배열을 만들지 않고 바로 훑는다) */
   private blockedPoint(x:number, z:number, y:number) {
-    if (y < 0.3) return this.at(x, z) !== BLOCK.NONE;
-    const list = this.buckets.get(Math.floor(x / BUCKET) * 100000 + Math.floor(z / BUCKET));
-    if (!list) return false;
-    for (let i = 0; i < list.length; i++) {
-      const f = this.footprints[list[i]];
-      if (f.solid && f.h > y + 0.3 && x >= f.minX && x <= f.maxX && z >= f.minZ && z <= f.maxZ && inside(f.ring, x, z)) return true;
+    if (y < 0.3) {
+      if (this.at(x, z) !== BLOCK.NONE) return true;
+    } else {
+      const list = this.buckets.get(Math.floor(x / BUCKET) * 100000 + Math.floor(z / BUCKET));
+      if (list) {
+        for (let i = 0; i < list.length; i++) {
+          const f = this.footprints[list[i]];
+          if (f.solid && f.h > y + 0.3 && x >= f.minX && x <= f.maxX && z >= f.minZ && z <= f.maxZ && inside(f.ring, x, z)) return true;
+        }
+      }
     }
-    return false;
+    // 차: 건물처럼 그 높이보다 낮으면 막힌다 (0.3m 턱은 넘는다)
+    return this.boxTop(x, z) > y + 0.3;
+  }
+
+  /** 총알·시선용: 한 점이 막혔는지 — 걸을 때의 0.3m 턱 여유 없이 차는 그 높이까지 막는다 (엄폐물) */
+  solidAt(x:number, z:number, y:number) {
+    return this.blockedPoint(x, z, y) || this.boxTop(x, z) > y;
   }
 
   /** 반지름 r 원이 막힌 곳에 걸리는지 (중심 + 네 방향) */

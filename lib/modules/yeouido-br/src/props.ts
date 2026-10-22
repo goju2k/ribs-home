@@ -7,19 +7,20 @@ import { HEAL_MAX, HEAL_MIN, ITEM_KINDS, ItemKind } from './items';
  */
 
 /** 순서가 곧 번호 */
-export const PROP_KINDS = [ 'crate', 'vending', 'safe' ] as const;
+/** 번호(스냅숏·메시지에 쓰는 순서)는 그대로 둔다: 1번은 자판기였다가 택배 상자 더미로 바뀜 */
+export const PROP_KINDS = [ 'crate', 'parcel', 'safe' ] as const;
 export type PropKind = typeof PROP_KINDS[number];
 
-export const PROP_NAMES:Record<PropKind, string> = { crate: '나무 상자', vending: '자판기', safe: '금고' };
+export const PROP_NAMES:Record<PropKind, string> = { crate: '나무 상자', parcel: '택배 상자', safe: '금고' };
 
-/** 내구도: 맨손(10) 상자 3대·자판기 8대·금고 22대, 망치 +1(25) 2·4·9대 */
-export const PROP_HP:Record<PropKind, number> = { crate: 30, vending: 80, safe: 220 };
+/** 내구도: 맨손(10) 상자 3대·택배 8대·금고 22대, 망치 +1(25) 2·4·9대 */
+export const PROP_HP:Record<PropKind, number> = { crate: 30, parcel: 80, safe: 220 };
 
 /** 맞는 반경 (사거리에 더한다, m) */
-export const PROP_RADIUS:Record<PropKind, number> = { crate: 0.6, vending: 0.5, safe: 0.5 };
+export const PROP_RADIUS:Record<PropKind, number> = { crate: 0.6, parcel: 0.6, safe: 0.5 };
 
 /** 뿌릴 때 비율 */
-export const PROP_WEIGHTS:Record<PropKind, number> = { crate: 12, vending: 4, safe: 1 };
+export const PROP_WEIGHTS:Record<PropKind, number> = { crate: 12, parcel: 4, safe: 1 };
 
 /** 드롭 표 한 줄: [아이템 종류(null = 꽝), 비율, 최소 단계, 최대 단계] */
 export type DropRow = [ItemKind | null, number, number, number];
@@ -30,7 +31,7 @@ export const DROPS:Record<PropKind, { count: [number, number]; table: DropRow[];
     count: [ 1, 1 ],
     table: [[ null, 3, 0, 0 ], [ 'armor', 3, 1, 1 ], [ 'shoes', 3, 1, 1 ], [ 'hammer', 2, 1, 1 ], [ 'rocket', 0.5, 1, 1 ], [ 'heal', 1, HEAL_MIN, HEAL_MAX ], [ 'pistol', 2, 1, 1 ], [ 'smg', 1.5, 1, 1 ], [ 'rifle', 1.5, 1, 1 ], [ 'shotgun', 1.5, 1, 1 ], [ 'crossbow', 1, 1, 1 ], [ 'sniper', 0.5, 1, 1 ]],
   },
-  vending: {
+  parcel: {
     count: [ 1, 2 ],
     table: [[ 'shoes', 4, 1, 2 ], [ 'armor', 3, 1, 2 ], [ 'hammer', 2, 1, 1 ], [ 'rocket', 1, 1, 1 ], [ 'heal', 2, HEAL_MIN, HEAL_MAX ], [ 'pistol', 1.5, 1, 2 ], [ 'smg', 1.5, 1, 2 ], [ 'rifle', 1.5, 1, 2 ], [ 'shotgun', 1, 1, 2 ], [ 'crossbow', 1, 1, 2 ], [ 'sniper', 0.7, 1, 2 ]],
   },

@@ -14,6 +14,7 @@ import { GameClient, myName, NetState, QueueInfo, Remote, serverUrl, Transport }
 import { createPerson } from '../player/person';
 import { RemotePlayers } from '../player/remote-players';
 import { buildCity } from '../world/build-city';
+import { DecorMeshes } from '../world/build-decor';
 import { SEE } from '../world/see-through';
 
 const PITCH = THREE.MathUtils.degToRad(48);
@@ -141,6 +142,8 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     const { collision } = sim;
     const views = createIndoorViews(sim.indoors);
     views.forEach((v) => scene.add(v.group));
+    // 도심 꾸미기 (차·가로등·정류장·소품): 배치는 공용 시뮬레이션이 서버와 같게 정한다 (차는 막힘)
+    const decor = new DecorMeshes(scene, collision.decor);
     const buildMs = Math.round(performance.now() - t0);
 
     const hemi = new THREE.HemisphereLight('#e6f4ff', '#8a8573', 1.6);
@@ -663,6 +666,9 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       const lv = Math.round(Math.log(view / scr.visH) / Math.log(ZOOM_STEP)) + zoomLevel;
       const shown = persp3 ? Math.min(MAX_SHOWN_VIEW, view * autoZoom) : Math.min(MAX_SHOWN_VIEW, scr.visH * ZOOM_STEP ** lv);
 
+      // 꾸미기는 가까운 칸만 (1인칭·뒤는 300m, 내려다보기는 보이는 만큼)
+      decor.update(pos.x, pos.z, persp3 ? 300 : Math.min(900, shown));
+
       // 내려다보기에서 축소할수록 캐릭터를 키워 점으로 사라지지 않게 (3인칭·1인칭은 실제 크기)
       const big = persp3 ? 1 : THREE.MathUtils.clamp(shown / 60, 1, 5);
       // 내 모습: 게임 모드가 상태 비트로 정한다 (죽음 = 숨김, 무적 = 깜빡임, 휘두르기, 맞음)
@@ -889,6 +895,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       net.close();
       miniRef.current?.removeEventListener('pointerdown', onMini);
       others.dispose();
+      decor.dispose();
       observer.disconnect();
       window.removeEventListener('resize', onDpr);
       canvas.removeEventListener('wheel', onWheel);

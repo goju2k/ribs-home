@@ -266,6 +266,33 @@ function buildBuildings(data:WorldData) {
   return [ wallMesh, roofMesh ];
 }
 
+/**
+ * 윤중로 벚꽃: 국회 북쪽 강변 길(여의서로 일대) 20m 안 나무는 분홍 꽃 (모양·판정은 다른 나무와 같고 색만)
+ * 길은 이름이 없어 자리로 고른다: 가운데가 국회 북쪽 강가(z < -760, x -1500~-200)인 다리 아닌 길
+ */
+function cherryTest(data:WorldData) {
+  const segs:number[][] = [];
+  data.roads.forEach((r) => {
+    const p = r.slice(5);
+    let sx = 0;
+    let sz = 0;
+    for (let k = 0; k < p.length; k += 2) {
+      sx += p[k];
+      sz += p[k + 1];
+    }
+    const cx = sx / (p.length / 2);
+    const cz = sz / (p.length / 2);
+    if (r[4] === 1 || r[1] > 15 || cz > -760 || cx < -1500 || cx > -200) return;
+    for (let k = 2; k < p.length; k += 2) segs.push([ p[k - 2], p[k - 1], p[k], p[k + 1] ]);
+  });
+  return (x:number, z:number) => z < -700 && segs.some(([ x0, z0, x1, z1 ]) => {
+    const vx = x1 - x0;
+    const vz = z1 - z0;
+    const t = Math.max(0, Math.min(1, ((x - x0) * vx + (z - z0) * vz) / (vx * vx + vz * vz || 1)));
+    return Math.hypot(x0 + vx * t - x, z0 + vz * t - z) < 20;
+  });
+}
+
 function buildTrees(data:WorldData) {
   const n = data.trees.length / 3;
   const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.12, 0.18, 2.2, 5).translate(0, 1.1, 0), seeThrough(new THREE.MeshLambertMaterial({ color: '#7a5636' })), n);
@@ -276,6 +303,8 @@ function buildTrees(data:WorldData) {
   const p = new THREE.Vector3();
   const c = new THREE.Color();
   const greens = [ '#4f9a4f', '#5aa856', '#438a45', '#6bb35e', '#3f7f43' ];
+  const pinks = [ '#f6c1d6', '#f3afc8', '#f9d4e2', '#eea0bd' ];
+  const cherry = cherryTest(data);
   for (let i = 0; i < n; i++) {
     const x = data.trees[i * 3];
     const z = data.trees[i * 3 + 1];
@@ -286,7 +315,7 @@ function buildTrees(data:WorldData) {
     m.compose(p, q, s);
     trunk.setMatrixAt(i, m);
     crown.setMatrixAt(i, m);
-    crown.setColorAt(i, c.set(greens[i % greens.length]));
+    crown.setColorAt(i, c.set(cherry(x, z) ? pinks[i % pinks.length] : greens[i % greens.length]));
   }
   [ trunk, crown ].forEach((t) => {
     t.castShadow = true;

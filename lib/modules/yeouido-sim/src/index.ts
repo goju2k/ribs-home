@@ -2,6 +2,7 @@
 // 게임 규칙(판·전투 등)은 여기 두지 않는다 — 모드 모듈(예: yeouido-br)에
 export * from './world-data';
 export * from './collision';
+export * from './decor';
 export * from './indoor/spec';
 export * from './indoor/plan';
 export * from './indoor/indoor-grid';

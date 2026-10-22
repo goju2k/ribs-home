@@ -19,7 +19,7 @@ export function castRay(w:SimWorld, x:number, y:number, z:number, dx:number, dy:
     const pz = z + dz * t;
     if (room) {
       if (py <= base || py >= top || room.isOutside(l, px, pz) || room.wallAt(l, px, py, pz)) return t;
-    } else if (py <= 0 || w.collision.blocked(px, pz, 0, py)) return t;
+    } else if (py <= 0 || w.collision.solidAt(px, pz, py)) return t;
   }
   return max;
 }
