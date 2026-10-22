@@ -29,6 +29,9 @@ const MIN_VIEW = 8; // 화면 세로가 담는 미터
 const MAX_VIEW = 900;
 const ALT_ZOOM = 60; // 이만큼(m) 오를 때마다 보이는 범위가 기본만큼 넓어진다
 const MAX_SHOWN_VIEW = 1600;
+/** 엘리베이터 층 바뀜 효과 시간(ms)·카메라가 오던 쪽에서 시작하는 높이 차(m) */
+const RIDE_MS = 450;
+const RIDE_DROP = 0.35;
 const SKY = '#a8dcf5';
 // 3인칭·1인칭: 가시거리(안개 끝)와 안개 시작, 드래그 감도(라디안/px), 3인칭 카메라 거리 범위
 const FAR = 450;
@@ -52,7 +55,8 @@ export interface GameStatus {
   /** 지붕 위에 서 있음 (물 위에 떠 있는 1m는 제외) */
   onRoof: boolean;
   /** 실내에 있을 때 건물 이름·층·엘리베이터 안인지 */
-  indoor: { name: string; level: number; elevator: boolean; } | null;
+  /** riding: 엘리베이터가 방금 움직인 방향 (1 위, -1 아래, 0 멈춤) */
+  indoor: { name: string; level: number; levels: number; elevator: boolean; riding: number; } | null;
   /** 지금 시점 */
   mode: CamMode;
   /** 게임 서버 접속 상태, 접속자 수(나 포함), 오류, 마지막 서버 보정 크기(m)와 확인 대기 입력 수 */
@@ -124,6 +128,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const tagRef = useRef<HTMLDivElement>(null);
   const crossRef = useRef<HTMLDivElement>(null);
+  const liftRef = useRef<HTMLDivElement>(null);
   const miniRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -198,6 +203,10 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     let correction = 0;
     const pos = { x: body.x, y: body.y, z: body.z }; // 화면에 그리는 위치
     const lastPos = { ...pos }; // 지난 장면에 그린 위치 (1인칭 조준: 이번 장면 눈 위치 내다보기)
+    // 엘리베이터: 층이 바뀐 순간·방향 (잠깐 어두워지고, 카메라가 오던 쪽에서 미끄러져 멈춘다)
+    let ride = { at: -1e9, dir: 0 };
+    let rideB = body.b;
+    let rideL = body.l;
     let facing = body.f;
     player.root.position.set(pos.x, pos.y, pos.z);
     scene.add(player.root);
@@ -641,6 +650,16 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       pos.x = (smooth ? prev.x + (body.x - prev.x) * k : body.x) + err.x;
       pos.y = (smooth ? prev.y + (body.y - prev.y) * k : body.y) + err.y;
       pos.z = (smooth ? prev.z + (body.z - prev.z) * k : body.z) + err.z;
+      // 엘리베이터로 층이 바뀜: 같은 건물 안에서 층만 달라졌을 때
+      if (body.b >= 0 && body.b === rideB && body.l !== rideL) ride = { at: now, dir: Math.sign(body.l - rideL) };
+      rideB = body.b;
+      rideL = body.l;
+      const rideT = (now - ride.at) / RIDE_MS;
+      if (rideT < 1) {
+        // 내려가면 위에서 내려오듯, 올라가면 아래에서 올라오듯 (끝에 살짝 늦춰 멈춘다)
+        pos.y += -ride.dir * RIDE_DROP * (1 - rideT) ** 2;
+        if (liftRef.current) liftRef.current.style.opacity = String(0.55 * (1 - rideT) ** 1.5);
+      } else if (liftRef.current && liftRef.current.style.opacity !== '0') liftRef.current.style.opacity = '0';
       facing = prev.f + Math.atan2(Math.sin(body.f - prev.f), Math.cos(body.f - prev.f)) * k;
       const { room, floor, flying, cab } = describe(sim, body);
       const level = body.l;
@@ -880,7 +899,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         alt: pos.y,
         flying,
         onRoof: !room && !flying && floor > 1,
-        indoor: room ? { name: room.name, level, elevator: cab >= 0 } : null,
+        indoor: room ? { name: room.name, level, levels: room.levels, elevator: cab >= 0, riding: now - ride.at < RIDE_MS * 1.5 ? ride.dir : 0 } : null,
         net: { state: net.state, count: net.count, error: net.error, correction, pending: pending.length, transport: net.transport, rtt: net.rtt, jitter: net.jitter, queue: net.queue },
         mode,
         says: net.recentSays(performance.now(), SAY_MS, 3),
@@ -922,6 +941,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       <Canvas ref={canvasRef} />
       <TagLayer ref={tagRef} />
       <Crosshair ref={crossRef} />
+      <LiftFade ref={liftRef} />
       <MiniCanvas ref={miniRef} aria-label='미니맵 (누르면 배율 변경)' />
     </>
   );
@@ -943,6 +963,15 @@ const MiniCanvas = styled.canvas({
 });
 
 /** 조준선: 화면 가운데 작은 + */
+/** 엘리베이터 층 바뀜: 문이 닫혔다 열리듯 잠깐 어둡게 (매 장면 직접) */
+const LiftFade = styled.div({
+  position: 'absolute',
+  inset: 0,
+  background: '#0b0e22',
+  opacity: 0,
+  pointerEvents: 'none',
+});
+
 const Crosshair = styled.div({
   display: 'none',
   position: 'absolute',

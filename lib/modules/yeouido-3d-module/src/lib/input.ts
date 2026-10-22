@@ -62,7 +62,8 @@ export function readMove(input:InputState) {
 /** 위(+1)·아래(-1)·정지(0) */
 export function readLift(input:InputState) {
   const k = input.keys;
-  const up = input.upHeld || k.has('Space') || k.has('KeyR') || k.has('PageUp');
+  // R은 재장전 (예전엔 위로도 겹쳐 있어 재장전하면 뛰거나 엘리베이터가 올라갔다)
+  const up = input.upHeld || k.has('Space') || k.has('PageUp');
   const down = input.downHeld || k.has('KeyC') || k.has('KeyF') || k.has('PageDown');
   return (up ? 1 : 0) - (down ? 1 : 0);
 }

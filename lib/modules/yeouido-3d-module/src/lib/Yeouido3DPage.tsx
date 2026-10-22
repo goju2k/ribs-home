@@ -162,7 +162,20 @@ export function Yeouido3DPage() {
           {run ? '달리기' : '걷기'}
         </RunButton>
       </SideButtons>
-      {!touch && <KeyHint>이동 WASD/방향키 · 달리기 T(전환)/Shift · 점프·높이 Space·R / C·F · 시점 V(뒤·1인칭은 마우스 움직임 = 시점) · 회전 Q/E · 확대 휠/+/-</KeyHint>}
+      {/* 엘리베이터 칸 안: 층 표시판 + 조작 안내 */}
+      {status.indoor?.elevator && (
+        <Elevator>
+          <ElevArrow $on={status.indoor.riding > 0}>▲</ElevArrow>
+          <ElevFloor>{status.indoor.level}F</ElevFloor>
+          <ElevArrow $on={status.indoor.riding < 0}>▼</ElevArrow>
+          <ElevInfo>
+            <b>엘리베이터 · {status.indoor.levels}층 건물</b>
+            <span>{touch ? '오른쪽 ▲▼ 버튼을 누르고 있으면 층 이동' : '▲ Space · PageUp / ▼ C · F · PageDown (누르고 있으면 계속)'}</span>
+          </ElevInfo>
+        </Elevator>
+      )}
+
+      {!touch && <KeyHint>이동 WASD/방향키 · 달리기 T(전환)/Shift · 점프·높이 Space / C·F · 시점 V(뒤·1인칭은 마우스 움직임 = 시점) · 회전 Q/E · 확대 휠/+/-</KeyHint>}
 
       {!ready && <Loading>여의도를 세우는 중…</Loading>}
       {/* 대기열: 가득 차면 가운데에 순번 (자리가 나면 자동으로 들어간다) */}
@@ -270,6 +283,38 @@ const KeyHint = styled(Panel)({
   left: 10,
   bottom: 10,
   padding: '6px 10px',
+});
+
+const Elevator = styled(Panel)({
+  position: 'absolute',
+  left: '50%',
+  bottom: 96,
+  transform: 'translateX(-50%)',
+  padding: '8px 14px',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  pointerEvents: 'none',
+});
+
+const ElevFloor = styled.div({
+  minWidth: 52,
+  padding: '2px 6px',
+  textAlign: 'center',
+  fontSize: 24,
+  color: '#ff8a3a',
+  background: '#0b0e22',
+  boxShadow: '0 0 0 1px #3a4272',
+});
+
+const ElevArrow = styled.div<{ $on: boolean; }>(({ $on }) => ({ fontSize: 16, color: $on ? '#ffd84a' : '#3a4272' }));
+
+const ElevInfo = styled.div({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+  b: { fontWeight: 'normal', fontSize: 12, color: '#f4f4f8' },
+  span: { fontSize: 11, color: '#c9ced6' },
 });
 
 const Loading = styled(Panel)({
