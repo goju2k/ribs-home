@@ -8,6 +8,12 @@ export const Z_BOSS = 3;
 
 /** 보스가 나온 뒤 이 시간 안에 못 쓰러뜨리면 패배 (ms) */
 export const BOSS_LIMIT_MS = 5 * 60 * 1000;
+/**
+ * 탈출 (치킨): 보스전 동안은 휴전(사람끼리 피해 없음). 보스가 쓰러진 자리에 탈출구가 생기고, truceMs 뒤 휴전이 끝나며 열린다.
+ * 열린 탈출구에 가장 먼저 닿은 1명이 치킨 — 판 끝. limitMs 안에 아무도 못 닿거나 모두 쓰러지면 치킨 없이 끝
+ */
+export const ESCAPE = { truceMs: 3000, limitMs: 90_000, radius: 2 } as const;
+
 /** 판이 끝나고 결과를 보여 준 뒤 새 판까지 (ms) */
 export const RESULT_MS = 15_000;
 

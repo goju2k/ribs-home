@@ -175,9 +175,10 @@ export function Yeouido3DPage() {
 const SAY_ICON:Record<SayKind, string> = { info: '·', join: '▶', leave: '◀', event: '★', warn: '!' };
 const SAY_COLOR:Record<SayKind, string> = { info: '#f4f4f8', join: '#8fe08f', leave: '#c9ced6', event: '#ffd84a', warn: '#ff8a7a' };
 
+// 보스 막대·휴전 안내(위쪽 가운데) 아래에 둔다
 const Says = styled.div({
   position: 'absolute',
-  top: 62,
+  top: 172,
   left: '50%',
   transform: 'translateX(-50%)',
   display: 'flex',
@@ -186,7 +187,7 @@ const Says = styled.div({
   gap: 4,
   pointerEvents: 'none',
   zIndex: 5,
-  '@media (max-width: 560px)': { top: 114 },
+  '@media (max-width: 560px)': { top: 224 },
 });
 
 const Say = styled(Panel)<{ $kind: SayKind; }>(({ $kind }) => ({

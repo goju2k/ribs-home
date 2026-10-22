@@ -1,5 +1,5 @@
 import {
-  ACT_FARM, ACT_FIRE, ACT_RELOAD, BALL, BOSS_LIMIT_MS, BrClientMsg, Difficulty, DIFFICULTY, FARM, RESULT_MS, afterPickup, armorCut, BR_MODE, dayNight, breakPower, PROP_KINDS, PROP_RADIUS, rollDrops, rollZombieDrop, BrServerMsg, Corpse, CorpseItem, emptyGear, Gear, HP_MAX, HURT_MS, hpGauge, insideZone,
+  ACT_FARM, ACT_FIRE, ACT_RELOAD, BALL, BOSS_LIMIT_MS, ESCAPE, BrClientMsg, Difficulty, DIFFICULTY, FARM, RESULT_MS, afterPickup, armorCut, BR_MODE, dayNight, breakPower, PROP_KINDS, PROP_RADIUS, rollDrops, rollZombieDrop, BrServerMsg, Corpse, CorpseItem, emptyGear, Gear, HP_MAX, HURT_MS, hpGauge, insideZone,
   ITEM_KINDS, insideZone as inZoneCircle, makeMatchPlan, pickRoofOf, MATCH_MS, MatchPlan, meleeReaches, pickSpawn, respawnDelay, rocketMul, shoeMul,
   canFire, falloff, fire, healAmount, isConsumable, FireState, fullMag, heldWeapon, isWeapon, MOVING_SPEED, reload, shotDirs, WEAPON_KINDS, weaponStats,
   SPAWN_SHIELD_MS, ST_DEAD, ST_FROZEN, ST_HIDDEN, ST_HURT, ST_SHIELD, ST_SWING, zoneAt, zoneDps,
@@ -128,7 +128,11 @@ export class BattleRoyale implements GameMode {
   private boss:Boss;
 
   /** 판 단계: 진행 → 보스 → 끝(결과 보여 주는 중) */
-  private phase:'play' | 'boss' | 'end' = 'play';
+  /** play 파밍(PvP) → boss 보스전(휴전) → escape 탈출전(휴전 카운트다운 뒤 PvP, 탈출구 열림) → end */
+  private phase:'play' | 'boss' | 'escape' | 'end' = 'play';
+
+  /** 탈출구 (보스가 쓰러진 자리)·열리는 시각 */
+  private exit:{ x: number; y: number; z: number; openAt: number; } | null = null;
 
   private endAt = 0;
 
@@ -226,6 +230,7 @@ export class BattleRoyale implements GameMode {
     this.match = makeMatchPlan(this.host.sim, id, (Math.random() * 2 ** 32) >>> 0); // eslint-disable-line no-bitwise
     this.matchAt = Date.now() - TIME_OFFSET;
     this.phase = 'play';
+    this.exit = null;
     this.startedAt = Date.now();
     this.stats.clear();
     this.boss.clear();
@@ -320,7 +325,10 @@ export class BattleRoyale implements GameMode {
   private shotTargets(now:number, lagMs:number):ShotTarget<ModePlayer>[] {
     const pos = (id:number, b:Body) => (lagMs > 0 ? this.host.past(id, lagMs) ?? b : b);
     const out:ShotTarget<ModePlayer>[] = [];
+    // 휴전 중엔 사람은 맞힐 대상이 아니다 (총알이 지나간다)
+    const truce = this.truce(now);
     this.all.forEach((o) => {
+      if (truce) return;
       const f = this.fighters.get(o.id);
       if (!f || f.respawnAt || now < f.shieldUntil) return;
       const at = pos(o.id, o.body);
@@ -712,9 +720,23 @@ export class BattleRoyale implements GameMode {
         const f = this.fighters.get(p.id);
         return f && !f.respawnAt;
       });
-      if (!this.boss.alive) this.finish('win', now);
+      if (!this.boss.alive) this.openExit(now);
       else if (!standing) this.finish('lose', now, 'wiped');
       else if (now - this.boss.spawnedAt > BOSS_LIMIT_MS) this.finish('lose', now, 'time');
+    } else if (this.phase === 'escape' && this.exit) {
+      // 탈출전: 쓰러진 보스는 누워 있고, 열린 탈출구에 먼저 닿는 사람이 치킨
+      this.boss.tick(now, all);
+      const ex = this.exit;
+      const standing = all.filter((p) => {
+        const f = this.fighters.get(p.id);
+        return f && !f.respawnAt;
+      });
+      const winner = now >= ex.openAt ? standing.find((p) => p.body.b < 0 && Math.abs(p.body.y - ex.y) < 3 && Math.hypot(p.body.x - ex.x, p.body.z - ex.z) <= ESCAPE.radius) : undefined;
+      if (winner) {
+        this.host.say(`${winner.name} 탈출 성공 · 치킨 획득!`, 'event');
+        this.finish('win', now, undefined, winner.name);
+      } else if (!standing.length) this.finish('lose', now, 'wiped');
+      else if (now - ex.openAt > ESCAPE.limitMs) this.finish('lose', now, 'noescape');
     }
     // 결과를 보여 준 뒤 새 판: 모두 새 원 안에서 살아난다
     if (this.phase === 'end' && now >= this.endAt) {
@@ -752,8 +774,8 @@ export class BattleRoyale implements GameMode {
       if (propLack > 0) this.broadcast({ k: 'propAdd', list: this.props.scatter(this.host.sim, zone, propLack) });
     }
     // 밤이면 좀비 (해 뜨면 불탄다)
-    // 보스전 중에는 낮에도 좀비가 생긴다 (끝나면 해가 떠 있으면 불탄다)
-    this.horde.tick(now, dayNight(this.elapsed + DAY_OFFSET).night || this.boss.alive, all);
+    // 보스전·탈출전에는 낮에도 좀비가 생긴다 (끝나면 해가 떠 있으면 불탄다)
+    this.horde.tick(now, dayNight(this.elapsed + DAY_OFFSET).night || this.phase === 'boss' || this.phase === 'escape', all);
     const tA = performance.now();
     this.flyArrows(now);
     this.arrowMs = Math.max(this.arrowMs * 0.98, performance.now() - tA);
@@ -803,15 +825,31 @@ export class BattleRoyale implements GameMode {
     });
   }
 
-  /** 판 끝: 결과(마지막 일격·보스 피해 순위)를 알리고 RESULT_MS 뒤 새 판 */
-  private finish(result:'win' | 'lose', now:number, why?:'time' | 'wiped') {
+  /** 보스가 쓰러짐: 그 자리에 탈출구, 휴전 카운트다운 */
+  private openExit(now:number) {
+    const b = this.boss.npc?.body;
+    this.phase = 'escape';
+    this.exit = { x: b?.x ?? 0, y: 0, z: b?.z ?? 0, openAt: now + ESCAPE.truceMs };
+    const r1 = (n:number) => Math.round(n * 10) / 10;
+    this.broadcast({ k: 'exit', x: r1(this.exit.x), y: 0, z: r1(this.exit.z), r: ESCAPE.radius, opensIn: ESCAPE.truceMs });
+    this.host.say(`최종 보스 처치! (${this.boss.killer ?? '?'}) ${ESCAPE.truceMs / 1000}초 뒤 휴전 끝 · 보스 자리 탈출구에 먼저 닿으면 치킨`, 'event');
+    console.log(`[br] boss down by ${this.boss.killer} → exit at ${Math.round(this.exit.x)},${Math.round(this.exit.z)}`);
+  }
+
+  /** 휴전 중인지: 보스전, 그리고 보스가 쓰러진 뒤 탈출구가 열리기 전까지 (사람끼리 피해 없음 — 총알이 그냥 지나간다) */
+  private truce(now:number) {
+    return this.phase === 'boss' || (this.phase === 'escape' && !!this.exit && now < this.exit.openAt);
+  }
+
+  /** 판 끝: 결과(치킨·마지막 일격·보스 피해 순위)를 알리고 RESULT_MS 뒤 새 판 */
+  private finish(result:'win' | 'lose', now:number, why?:'time' | 'wiped' | 'noescape', chicken:string | null = null) {
     this.saveRecord(result, why ?? null);
     const top = [ ...this.boss.dmgBy.entries() ].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([ n, d ]):[string, number] => [ n, Math.round(d) ]);
     this.broadcast({ k: 'boss', id: this.boss.npc?.id ?? 0, hp: 0, max: this.boss.max, remain: 0 });
     // 좀비 처치 순위 (한 마리 이상)
     const zk = [ ...this.stats.values() ].filter((s) => s.zombieKills > 0).sort((a, b) => b.zombieKills - a.zombieKills).slice(0, 5).map((s):[string, number] => [ s.name, s.zombieKills ]);
-    this.broadcast({ k: 'end', result, why, killer: this.boss.killer, top, zk, next: RESULT_MS });
-    console.log(`[br] match #${this.match?.id} ${result} (killer ${this.boss.killer})`);
+    this.broadcast({ k: 'end', result, why, killer: this.boss.killer, chicken, top, zk, next: RESULT_MS });
+    console.log(`[br] match #${this.match?.id} ${result} (killer ${this.boss.killer}, chicken ${chicken})`);
     this.phase = 'end';
     this.endAt = now + RESULT_MS;
     // 쓰러진 보스는 잠깐 누워 있다 사라지게 상태만 두고, 판이 바뀔 때 치운다

@@ -47,6 +47,8 @@ export interface ModeHostClient {
   send: (d:unknown) => void;
   /** 내 번호 (서버 알림 중 내 것을 가려낼 때) */
   myId: () => number;
+  /** 내 이름 */
+  myName: () => string;
 }
 
 /** 행동을 보낸 그 걸음의 내 자리·조준 (예측한 값 — 서버도 같은 걸음에서 같은 자리) */

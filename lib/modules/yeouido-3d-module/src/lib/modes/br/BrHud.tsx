@@ -16,8 +16,16 @@ const dayLabel = (d:NonNullable<BrHudState['day']>) => {
 };
 
 const endTitle = (e:NonNullable<BrHudState['end']>) => {
-  if (e.result === 'win') return '승리! 최종 보스를 쓰러뜨렸다';
+  if (e.chicken) return e.mine ? '치킨 획득! 탈출 성공' : `${e.chicken} 탈출 · 치킨 획득`;
+  if (e.why === 'noescape') return '아무도 탈출하지 못했다';
   return e.why === 'wiped' ? '패배… 모두 쓰러졌다' : '패배… 시간 안에 보스를 쓰러뜨리지 못했다';
+};
+
+/** 휴전·탈출 안내 한 줄 */
+const escapeLabel = (e:NonNullable<BrHudState['escape']>) => {
+  if (e.exitDist === null) return '보스전 휴전 중 · 사람끼리는 피해 없음';
+  if (e.truce) return `${e.opensIn}초 뒤 휴전 끝 · 탈출구 열림 (${Math.round(e.exitDist)}m)`;
+  return `탈출구 열림! 먼저 닿으면 치킨 · ${Math.round(e.exitDist)}m`;
 };
 
 const hpColor = (hp:number) => {
@@ -123,6 +131,8 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
       {state.hits.map((h) => (
         <HitNum key={h.id} $head={h.head} style={{ transform: `translate(-50%, ${-30 - h.age * 40}px)`, opacity: 1 - h.age }}>{h.head ? '머리 ' : ''}-{h.dmg}</HitNum>
       ))}
+
+      {state.escape && !state.end && <EscapeBar $open={!state.escape.truce}>{escapeLabel(state.escape)}</EscapeBar>}
 
       {state.boss && (
         <BossBar>
@@ -370,6 +380,19 @@ const ReloadButton = styled(AttackButton)({
   background: '#5a5f7a',
   '&:active': { transform: 'translateY(1px)', background: '#454a62' },
 });
+
+/** 휴전·탈출 안내 (보스 막대 아래) */
+const EscapeBar = styled(Panel)<{ $open: boolean; }>(({ $open }) => ({
+  position: 'absolute',
+  left: '50%',
+  top: 136,
+  transform: 'translateX(-50%)',
+  padding: '4px 12px',
+  color: $open ? '#ffd84a' : '#9fe0ff',
+  whiteSpace: 'nowrap',
+  pointerEvents: 'none',
+  '@media (max-width: 560px)': { top: 188 },
+}));
 
 const BossBar = styled(Panel)({
   position: 'absolute',

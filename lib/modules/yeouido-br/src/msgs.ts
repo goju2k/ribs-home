@@ -69,7 +69,10 @@ export type BrServerMsg =
   /** 판 끝: 승리(보스 쓰러짐)·패배(시간 초과), 마지막 일격, 보스에게 준 피해 순위, 새 판까지(ms) */
   /** why: 패배 이유 — time 시간 초과, wiped 참가자가 모두 쓰러짐 */
   /** zk: 좀비 처치 순위 [이름, 마리] */
-  | { k: 'end'; result: 'win' | 'lose'; why?: 'time' | 'wiped'; killer: string | null; top: [string, number][]; zk: [string, number][]; next: number; }
+  /** chicken: 탈출해 치킨을 먹은 사람 (없으면 null) */
+  | { k: 'end'; result: 'win' | 'lose'; why?: 'time' | 'wiped' | 'noescape'; killer: string | null; chicken: string | null; top: [string, number][]; zk: [string, number][]; next: number; }
+  /** 탈출구: 보스가 쓰러진 자리, opensIn ms 뒤 열림(그때까지 휴전), 반경 r — 먼저 닿는 사람이 치킨 */
+  | { k: 'exit'; x: number; y: number; z: number; r: number; opensIn: number; }
   /**
    * 관전: 이번 판은 더 못 뛰고 남을 따라 본다 (target: 보고 있는 사람 이름, 없으면 보스).
    * reason: dead = 보스전 중에 쓰러짐, late = 보스전·결과 중에 들어옴 (다음 판에 참여)

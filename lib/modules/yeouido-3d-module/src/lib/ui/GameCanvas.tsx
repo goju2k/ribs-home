@@ -549,7 +549,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       if (net.modeName !== modeName) {
         modeClient?.dispose();
         modeName = net.modeName;
-        modeClient = modeName && MODE_CLIENTS[modeName] ? MODE_CLIENTS[modeName]({ scene, sim, send: (d) => net.sendMode(d), myId: () => net.myId }) : null;
+        modeClient = modeName && MODE_CLIENTS[modeName] ? MODE_CLIENTS[modeName]({ scene, sim, send: (d) => net.sendMode(d), myId: () => net.myId, myName: () => myName() }) : null;
         if (dbg) dbg.mode = modeClient;
       }
       net.takeModeMessages().forEach((d) => modeClient?.receive(d, now));

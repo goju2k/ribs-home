@@ -58,7 +58,9 @@ export interface BrHudState {
   /** 보스: 체력 비율 0~1·체력·남은 초 (안 나왔으면 null) */
   boss: { ratio: number; hp: number; remain: number; } | null;
   /** 판 끝 결과 (새 판까지 남은 초) */
-  end: { result: 'win' | 'lose'; why?: 'time' | 'wiped'; killer: string | null; top: [string, number][]; zk: [string, number][]; next: number; } | null;
+  end: { result: 'win' | 'lose'; why?: 'time' | 'wiped' | 'noescape'; killer: string | null; chicken: string | null; mine: boolean; top: [string, number][]; zk: [string, number][]; next: number; } | null;
+  /** 휴전·탈출: 보스전 휴전 중, 탈출구까지 거리(m)·열리기까지 초(0 = 열림) */
+  escape: { truce: boolean; exitDist: number | null; opensIn: number; } | null;
   /** 관전 중: 보고 있는 사람(null = 보스), 이유(dead 보스전 중 쓰러짐·late 늦게 들어옴) */
   spec: { target: string | null; reason: 'dead' | 'late'; } | null;
   /** 관전 대상 바꾸기 (HUD 버튼) */
@@ -139,7 +141,14 @@ export class BrClient implements ModeClient {
 
   private specInfo:{ target: string | null; reason: 'dead' | 'late'; } | null = null;
 
-  private endInfo:{ result: 'win' | 'lose'; why?: 'time' | 'wiped'; killer: string | null; top: [string, number][]; zk: [string, number][]; until: number; } | null = null;
+  private endInfo:{ result: 'win' | 'lose'; why?: 'time' | 'wiped' | 'noescape'; killer: string | null; chicken: string | null; top: [string, number][]; zk: [string, number][]; until: number; } | null = null;
+
+  /** 탈출구 (보스가 쓰러진 자리)·열리는 시각, 화면 표시(바닥 고리·빛기둥) */
+  private exitInfo:{ x: number; y: number; z: number; r: number; openAt: number; } | null = null;
+
+  private exitRing:THREE.Mesh;
+
+  private exitBeam:THREE.Mesh;
 
   /** 땅 울리기 경고 원 */
   private slamRing:THREE.Mesh;
@@ -190,6 +199,12 @@ export class BrClient implements ModeClient {
     );
     this.landRing.visible = false;
     host.scene.add(this.landRing);
+    // 탈출구: 바닥 고리 + 하늘까지 빛기둥 (열리기 전 흰색, 열리면 금색)
+    this.exitRing = new THREE.Mesh(new THREE.RingGeometry(1.4, 2, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ffd84a', side: THREE.DoubleSide, transparent: true, opacity: 0.9 }));
+    this.exitBeam = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 120, 24, 1, true).translate(0, 60, 0), new THREE.MeshBasicMaterial({ color: '#ffd84a', transparent: true, opacity: 0.25, depthWrite: false, side: THREE.DoubleSide }));
+    this.exitRing.visible = false;
+    this.exitBeam.visible = false;
+    host.scene.add(this.exitRing, this.exitBeam);
   }
 
   /** 관전 대상 바꾸기 요청 */
@@ -205,6 +220,7 @@ export class BrClient implements ModeClient {
       // 새 판이면 지난 판 결과·보스 표시를 지운다
       if (this.match?.plan.id !== m.id) {
         this.endInfo = null;
+        this.exitInfo = null;
         this.specInfo = null;
         this.deadInfo = null;
         this.bossInfo = null;
@@ -253,6 +269,10 @@ export class BrClient implements ModeClient {
     } else if (m.k === 'boss') {
       this.bossId = m.id;
       this.bossInfo = m.hp > 0 ? { hp: m.hp, max: m.max, remain: m.remain, at: now } : null;
+    } else if (m.k === 'exit') {
+      // 보스가 쓰러졌다: 보스 막대는 내리고 탈출구를 띄운다
+      this.exitInfo = { x: m.x, y: m.y, z: m.z, r: m.r, openAt: now + m.opensIn };
+      this.bossInfo = null;
     } else if (m.k === 'bossCast') this.castUntil = now + m.ms;
     else if (m.k === 'ball') this.shots.ball(m.id, m.o, m.v, m.g, now);
     else if (m.k === 'ballEnd') this.shots.ballEnd(m.id, m.at, m.splash, now);
@@ -261,7 +281,8 @@ export class BrClient implements ModeClient {
       this.landRing.position.set(m.x, 0.08, m.z);
       this.landUntil = now + m.ms;
     } else if (m.k === 'end') {
-      this.endInfo = { result: m.result, why: m.why, killer: m.killer, top: m.top, zk: m.zk ?? [], until: now + m.next };
+      this.endInfo = { result: m.result, why: m.why, killer: m.killer, chicken: m.chicken ?? null, top: m.top, zk: m.zk ?? [], until: now + m.next };
+      this.exitInfo = null;
       this.bossInfo = null;
     // 내 총·화살은 쏠 때 이미 그렸다 (서버 알림은 늦게 와서 그사이 지나온 자리에서 나가 보인다) — 화살은 번호만 잇는다
     } else if (m.k === 'shot') {
@@ -295,6 +316,10 @@ export class BrClient implements ModeClient {
     this.reloadFrom = 0;
     this.reloadTo = 0;
     this.scoped = false;
+  }
+
+  private myName() {
+    return this.host.myName();
   }
 
   private weaponNow() {
@@ -415,6 +440,19 @@ export class BrClient implements ModeClient {
       this.slamRing.visible = Math.floor(f.now / 120) % 2 === 0;
     }
     if (boss) this.slamRing.position.set(boss.x, boss.y + 0.05, boss.z);
+    // 탈출구
+    const ex = this.exitInfo;
+    this.exitRing.visible = !!ex;
+    this.exitBeam.visible = !!ex;
+    if (ex) {
+      const open = f.now >= ex.openAt;
+      this.exitRing.position.set(ex.x, ex.y + 0.07, ex.z);
+      this.exitBeam.position.set(ex.x, ex.y, ex.z);
+      const c = open ? '#ffd84a' : '#f4f4f8';
+      (this.exitRing.material as THREE.MeshBasicMaterial).color.set(c);
+      (this.exitBeam.material as THREE.MeshBasicMaterial).color.set(c);
+      (this.exitBeam.material as THREE.MeshBasicMaterial).opacity = open ? 0.25 + 0.1 * Math.sin(f.now / 150) : 0.15;
+    }
   }
 
   acted(act:number, now:number, aim:ActAim) {
@@ -548,6 +586,12 @@ export class BrClient implements ModeClient {
       g.stroke();
       g.setLineDash([]);
     }
+    // 탈출구: 금색 큰 점
+    if (this.exitInfo) {
+      g.fillStyle = '#ffd84a';
+      const r = (5 * dpr) / k;
+      g.fillRect(this.exitInfo.x - r, this.exitInfo.z - r, r * 2, r * 2);
+    }
     // 땅 아이템: 종류 색 점
     const dot = (1.5 * dpr) / k;
     this.items.list.forEach(({ it }) => {
@@ -593,11 +637,21 @@ export class BrClient implements ModeClient {
       gear: this.gear,
       got: this.got.map(({ id, text }) => ({ id, text })),
       boss: this.bossInfo ? { ratio: this.bossInfo.hp / this.bossInfo.max, hp: this.bossInfo.hp, remain: Math.ceil(Math.max(0, this.bossInfo.remain - (now - this.bossInfo.at)) / 1000) } : null,
-      end: this.endInfo ? { result: this.endInfo.result, why: this.endInfo.why, killer: this.endInfo.killer, top: this.endInfo.top, zk: this.endInfo.zk, next: Math.max(0, Math.ceil((this.endInfo.until - now) / 1000)) } : null,
+      escape: this.escapeHud(now),
+      end: this.endInfo ? { result: this.endInfo.result, why: this.endInfo.why, killer: this.endInfo.killer, chicken: this.endInfo.chicken, mine: !!this.endInfo.chicken && this.endInfo.chicken === this.myName(), top: this.endInfo.top, zk: this.endInfo.zk, next: Math.max(0, Math.ceil((this.endInfo.until - now) / 1000)) } : null,
       weapon: this.weaponHud(now),
       prompt: this.prompt,
       press: (b) => this.press(b),
     };
+  }
+
+  /** 휴전·탈출 안내 */
+  private escapeHud(now:number):BrHudState['escape'] {
+    const ex = this.exitInfo;
+    const { me } = this;
+    if (ex) return { truce: now < ex.openAt, exitDist: me ? Math.hypot(me.x - ex.x, me.z - ex.z) : null, opensIn: Math.max(0, Math.ceil((ex.openAt - now) / 1000)) };
+    if (this.bossInfo && !this.endInfo) return { truce: true, exitDist: null, opensIn: 0 };
+    return null;
   }
 
   private weaponHud(now:number):BrHudState['weapon'] {
@@ -625,7 +679,9 @@ export class BrClient implements ModeClient {
     this.items.dispose();
     this.props.dispose();
     this.shots.dispose();
-    this.host.scene.remove(this.slamRing, this.landRing);
+    this.host.scene.remove(this.slamRing, this.landRing, this.exitRing, this.exitBeam);
+    this.exitRing.geometry.dispose();
+    this.exitBeam.geometry.dispose();
     this.landRing.geometry.dispose();
     this.slamRing.geometry.dispose();
     this.lootGeo.dispose();
