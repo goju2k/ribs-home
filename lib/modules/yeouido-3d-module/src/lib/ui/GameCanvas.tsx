@@ -217,6 +217,8 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     drop.frustumCulled = false;
     scene.add(drop);
     let autoZoom = 1;
+    // 처음·다시 시작(순간 이동)엔 자동 확대를 바로 맞춘다 (따라가면 확대가 단계로 넘어가 뚝뚝 끊겨 보인다)
+    let zoomSnap = true;
     let zoomLevel = NaN; // 위 시점 자동 확대(높이·실내) 단계
     const bufSize = new THREE.Vector2();
     let seeFade = 0;
@@ -545,8 +547,10 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       if (auth) {
         const before = copyBody(body);
         Object.assign(body, fromBody(auth.me));
-        if (auth.reset) pending.length = 0;
-        else pending.splice(0, pending.length, ...pending.filter((c) => c.seq > auth.ack));
+        if (auth.reset) {
+          pending.length = 0;
+          zoomSnap = true;
+        } else pending.splice(0, pending.length, ...pending.filter((c) => c.seq > auth.ack));
         prev = copyBody(body);
         pending.forEach((c) => {
           prev = copyBody(body);
@@ -622,7 +626,9 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       const actual = body.a;
 
       // 높이 오를수록 자동으로 멀리 본다 (손으로 맞춘 배율에 곱한다)
-      autoZoom += ((inside ? 0.8 : 1 + pos.y / ALT_ZOOM) - autoZoom) * (1 - Math.exp(-dt * 4));
+      const zoomWant = inside ? 0.8 : 1 + pos.y / ALT_ZOOM;
+      autoZoom = zoomSnap ? zoomWant : autoZoom + (zoomWant - autoZoom) * (1 - Math.exp(-dt * 4));
+      zoomSnap = false;
       // 들어간 건물은 현재 층, 가까운 건물은 1층 로비만 (문 너머로 보이게)
       views.forEach((v) => {
         if (v === inside) v.show(level);

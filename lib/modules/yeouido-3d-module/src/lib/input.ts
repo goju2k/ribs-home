@@ -31,7 +31,10 @@ export interface InputState {
   actTap: number;
 }
 
-export const createInput = ():InputState => ({ mode: 'top', look: { dx: 0, dy: 0 }, joy: { x: 0, y: 0 }, keys: new Set(), runToggle: true, upHeld: false, downHeld: false, rotate: 0, zoom: 1, act: 0, actTap: 0 });
+/** 처음 시점: 1인칭 */
+export const START_MODE:CamMode = 'fp';
+
+export const createInput = ():InputState => ({ mode: START_MODE, look: { dx: 0, dy: 0 }, joy: { x: 0, y: 0 }, keys: new Set(), runToggle: true, upHeld: false, downHeld: false, rotate: 0, zoom: 1, act: 0, actTap: 0 });
 
 /** 다음 시점으로 */
 export const nextMode = (m:CamMode) => CAM_MODES[(CAM_MODES.indexOf(m) + 1) % CAM_MODES.length];

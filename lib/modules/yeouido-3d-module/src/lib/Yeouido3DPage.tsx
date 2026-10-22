@@ -4,7 +4,7 @@ import { MouseEvent, PointerEvent, useEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
 
 import { useGalmuriFont } from './hooks/use-galmuri-font';
-import { CamMode, capturePointer, createInput, nextMode, ROTATE_ENABLED } from './input';
+import { CamMode, capturePointer, createInput, nextMode, ROTATE_ENABLED, START_MODE } from './input';
 import { MODE_HUDS } from './modes/huds';
 import { GameCanvas, GameStatus } from './ui/GameCanvas';
 import { Panel, PIXEL_FONT, PixelButton } from './ui/pixel';
@@ -35,7 +35,7 @@ const isTouch = () => typeof window !== 'undefined' && ('ontouchstart' in window
 export function Yeouido3DPage() {
   useGalmuriFont();
   const inputRef = useRef(createInput());
-  const statusRef = useRef<GameStatus>({ ready: false, buildMs: 0, pixel: 0, x: 0, z: 0, running: false, alt: 0, flying: false, onRoof: false, indoor: null, net: { state: 'connecting', count: 0, error: '', correction: 0, pending: 0, transport: 'ws', rtt: 0, jitter: 0 }, mode: 'top', gameMode: null, game: null });
+  const statusRef = useRef<GameStatus>({ ready: false, buildMs: 0, pixel: 0, x: 0, z: 0, running: false, alt: 0, flying: false, onRoof: false, indoor: null, net: { state: 'connecting', count: 0, error: '', correction: 0, pending: 0, transport: 'ws', rtt: 0, jitter: 0 }, mode: START_MODE, gameMode: null, game: null });
   const [ ready, setReady ] = useState(false);
   const [ touch ] = useState(isTouch);
   const [ status, setStatus ] = useState<GameStatus>(statusRef.current);
