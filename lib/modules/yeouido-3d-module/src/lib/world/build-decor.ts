@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { Decor, DecorKind, DECOR_KINDS, VEHICLES } from 'yeouido-sim';
+import { COVERS, Decor, DecorKind, DECOR_KINDS, VEHICLES } from 'yeouido-sim';
 
 import { seeThrough } from './see-through';
 
@@ -48,6 +48,58 @@ function carParts(k:'sedan' | 'suv' | 'taxi'):Part[] {
   ];
   // 택시: 지붕 위 표시등 (충돌 높이보다 조금 높다 — 작아서 지나가도 된다)
   if (k === 'taxi') parts.push([ 0.3, 0.14, 0.6, cx, s.top + 0.07, 0, '#ffd84a' ]);
+  return parts;
+}
+
+/** 컨테이너: 칠한 몸통 + 골판(칠한 세로 홈이 살짝 튀어나와 그늘이 진다) + 짙은 위아래 테·모서리 기둥 + 앞(+x) 문 */
+function containerParts():Part[] {
+  const { len: L, wid: W, h: H } = COVERS.container;
+  const parts:Part[] = [[ L, H, W, 0, H / 2, 0, null ]];
+  for (let x = -L / 2 + 0.4; x < L / 2 - 0.3; x += 0.55) parts.push([ 0.14, H - 0.3, W + 0.04, x, H / 2, 0, null ]);
+  const FRAME = '#3a3d42';
+  // 위아래 테: 가장자리 띠만 (판 한 장이면 지붕이 통째로 짙어진다)
+  [ 0.07, H - 0.07 ].forEach((y) => {
+    parts.push([ L + 0.02, 0.14, 0.12, 0, y, W / 2 - 0.05, FRAME ], [ L + 0.02, 0.14, 0.12, 0, y, -(W / 2 - 0.05), FRAME ]);
+    parts.push([ 0.12, 0.14, W + 0.02, L / 2 - 0.05, y, 0, FRAME ], [ 0.12, 0.14, W + 0.02, -(L / 2 - 0.05), y, 0, FRAME ]);
+  });
+  [[ 1, 1 ], [ 1, -1 ], [ -1, 1 ], [ -1, -1 ]].forEach(([ a, b ]) => parts.push([ 0.16, H, 0.16, a * (L / 2 - 0.07), H / 2, b * (W / 2 - 0.07), FRAME ]));
+  parts.push([ 0.04, H - 0.3, 0.06, L / 2 + 0.01, H / 2, 0, '#26292d' ]);
+  [ -0.6, -0.25, 0.25, 0.6 ].forEach((z) => parts.push([ 0.05, H - 0.4, 0.05, L / 2 + 0.02, H / 2, z, '#6b7078' ]));
+  return parts;
+}
+
+/** 나무 상자 (n단): 칠한 몸통 + 짙은 모서리 기둥·위 테·단마다 띠 */
+function crateParts(n:number):Part[] {
+  const S = COVERS.crate.len;
+  const H = COVERS.crate.h * n;
+  const WOOD = '#6b4a2a';
+  const parts:Part[] = [[ S, H, S, 0, H / 2, 0, null ]];
+  [[ 1, 1 ], [ 1, -1 ], [ -1, 1 ], [ -1, -1 ]].forEach(([ a, b ]) => parts.push([ 0.1, H, 0.1, a * (S / 2 - 0.04), H / 2, b * (S / 2 - 0.04), WOOD ]));
+  for (let k = 0; k < n; k++) {
+    const y = k * COVERS.crate.h;
+    parts.push([ S + 0.02, 0.08, S + 0.02, 0, y + 0.5, 0, WOOD ]);
+    if (k > 0) parts.push([ S + 0.03, 0.05, S + 0.03, 0, y, 0, '#4a3220' ]);
+  }
+  parts.push([ S + 0.02, 0.06, 0.1, 0, H - 0.03, S / 2 - 0.04, WOOD ], [ S + 0.02, 0.06, 0.1, 0, H - 0.03, -(S / 2 - 0.04), WOOD ]);
+  parts.push([ 0.1, 0.06, S + 0.02, S / 2 - 0.04, H - 0.03, 0, WOOD ], [ 0.1, 0.06, S + 0.02, -(S / 2 - 0.04), H - 0.03, 0, WOOD ]);
+  return parts;
+}
+
+/** 모래주머니 벽: 자루를 엇갈려 세 줄 (칠 = 자루 색) */
+function sandbagParts():Part[] {
+  const { len: L, wid: W, h: H } = COVERS.sandbag;
+  const row = H / 3;
+  const parts:Part[] = [];
+  for (let r = 0; r < 3; r++) {
+    const y = row * r + row / 2;
+    const xs = r % 2 ? [ -0.9, -0.3, 0.3, 0.9 ] : [ -1.05, -0.6, 0, 0.6, 1.05 ];
+    xs.forEach((x, i) => {
+      const half = r % 2 === 0 && (i === 0 || i === xs.length - 1);
+      parts.push([ half ? 0.28 : 0.58, row - 0.02, W - (r * 0.08), x, y, 0, null ]);
+    });
+  }
+  // 자루 사이 그늘 (짙은 줄)
+  parts.push([ L - 0.02, 0.02, W - 0.02, 0, row, 0, '#6b5f40' ], [ L - 0.02, 0.02, W - 0.1, 0, row * 2, 0, '#6b5f40' ]);
   return parts;
 }
 
@@ -121,6 +173,15 @@ const PARTS:Record<DecorKind, Part[]> = {
     [ 1.2, 0.35, 0.36, 0, 0.5, 0, '#e8e6e0' ], [ 0.2, 0.6, 0.3, 0.55, 0.8, 0, '#e8e6e0' ], [ 0.06, 0.06, 0.62, 0.6, 1.12, 0, '#22262c' ],
     [ 0.6, 0.1, 0.32, -0.15, 0.74, 0, '#22262c' ], [ 0.46, 0.42, 0.46, -0.55, 1.0, 0, null ],
   ],
+  container: containerParts(),
+  crate: crateParts(1),
+  crates: crateParts(2),
+  // 콘크리트 방호벽 (아래 넓고 위 좁은 단면) + 칠한 반사 띠
+  barrier: [
+    [ COVERS.barrier.len, 0.3, COVERS.barrier.wid, 0, 0.15, 0, '#b4b1a9' ], [ COVERS.barrier.len, 0.6, 0.34, 0, 0.6, 0, '#c6c3bb' ],
+    [ 0.45, 0.18, 0.36, -0.55, 0.72, 0, null ], [ 0.45, 0.18, 0.36, 0.55, 0.72, 0, null ],
+  ],
+  sandbag: sandbagParts(),
   // 공사장 콘
   cone: [[ 0.42, 0.05, 0.42, 0, 0.025, 0, '#ff7a2a' ], [ 0.26, 0.3, 0.26, 0, 0.2, 0, '#ff7a2a' ], [ 0.2, 0.12, 0.2, 0, 0.41, 0, '#f4f4f8' ], [ 0.13, 0.22, 0.13, 0, 0.58, 0, '#ff7a2a' ]],
 };
@@ -136,10 +197,15 @@ const PAINT:Partial<Record<DecorKind, string[]>> = {
   planter: [ '#ff8ab0', '#ffd84a', '#f4f4f8', '#ff7a5a', '#c58aff', '#ff8ab0' ],
   bike: [ '#4fae5a' ],
   scooter: [ '#d9483b', '#3d6fd8', '#ffd84a', '#4fd0c0', '#f4f4f8', '#ff8a3a' ],
+  container: [ '#c8402f', '#2f5fa8', '#3f8a4f', '#d9822b', '#7a7f86', '#b8b2a5', '#8a3a2f', '#2f7f8a' ],
+  crate: [ '#b98a52', '#a87a45', '#c49a62', '#9a6c3c' ],
+  crates: [ '#b98a52', '#a87a45', '#c49a62', '#9a6c3c' ],
+  barrier: [ '#d9483b', '#f2c94c' ],
+  sandbag: [ '#b7a57a', '#a8996e', '#c2b38a' ],
 };
 
 /** 그림자를 드리울 만큼 큰 것 (작은 소품은 그림자 그리기 비용만 든다) */
-const SHADOW:Partial<Record<DecorKind, boolean>> = { sedan: true, suv: true, taxi: true, bus: true, shelter: true, lamp: true, signal: true };
+const SHADOW:Partial<Record<DecorKind, boolean>> = { sedan: true, suv: true, taxi: true, bus: true, shelter: true, lamp: true, signal: true, container: true, crate: true, crates: true, barrier: true, sandbag: true };
 
 /** 칸 크기 (m)·그리는 거리 (칸 가장자리까지) */
 const CHUNK = 400;

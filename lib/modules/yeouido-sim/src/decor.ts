@@ -4,8 +4,10 @@ import type { WorldData } from './world-data';
  * 도심 꾸미기 (서버·클라이언트 공용): 도로 데이터에서 정해진 씨앗으로 자리를 뽑아, 양쪽이 똑같은 배치를 얻는다.
  * - 막는 것: 차(승용차·SUV·택시·버스) — 이동·총알을 막는 엄폐물. 충돌은 몸통·지붕 두 상자 (그려지는 모양과 같게)
  * - 안 막는 것: 가로등·신호등·버스 정류장·벤치·쓰레기통·화분·자전거·배달 오토바이·공사장 콘 (나무·상자처럼 보이지만 지나간다)
+ * - 엄폐물 (넓은 빈 땅에 무리로): 컨테이너·나무 상자·2단 상자·콘크리트 방호벽·모래주머니 — 막고, 위에 올라선다.
+ *   점프로 한 번에 오르는 높이는 약 1.2m (정점 0.92m + 턱 0.3m)라 상자(1.0) → 2단 상자(2.0) → 컨테이너(2.6)를 계단처럼 붙여 둔다
  */
-export const DECOR_KINDS = [ 'sedan', 'suv', 'taxi', 'bus', 'lamp', 'signal', 'shelter', 'bench', 'bin', 'planter', 'bike', 'scooter', 'cone' ] as const;
+export const DECOR_KINDS = [ 'sedan', 'suv', 'taxi', 'bus', 'lamp', 'signal', 'shelter', 'bench', 'bin', 'planter', 'bike', 'scooter', 'cone', 'container', 'crate', 'crates', 'barrier', 'sandbag' ] as const;
 export type DecorKind = typeof DECOR_KINDS[number];
 
 /** 놓인 것 하나: 종류, 자리, 방향(앞 = (dx, dz)), 색 등 변형 번호 */
@@ -25,6 +27,19 @@ export type VehicleKind = keyof typeof VEHICLES;
 
 export const isVehicle = (k:DecorKind):k is VehicleKind => k in VEHICLES;
 
+/** 엄폐물 치수 (m): 길이(앞 방향)·폭·높이 — 상자 하나로 막는다 */
+export const COVERS = {
+  container: { len: 6, wid: 2.4, h: 2.6 },
+  crate: { len: 1.2, wid: 1.2, h: 1.0 },
+  crates: { len: 1.2, wid: 1.2, h: 2.0 },
+  barrier: { len: 2, wid: 0.6, h: 0.9 },
+  sandbag: { len: 2.4, wid: 0.9, h: 1.1 },
+} as const;
+
+export type CoverKind = keyof typeof COVERS;
+
+export const isCover = (k:DecorKind):k is CoverKind => k in COVERS;
+
 /** 충돌 상자 하나 (차의 몸통 또는 지붕): 가운데·방향(길이 쪽 단위 벡터)·반 길이·반 폭·높이 */
 export interface DecorBox {
   cx: number; cz: number; dx: number; dz: number; hl: number; hw: number; h: number;
@@ -36,6 +51,12 @@ export function vehicleBoxes(d:Decor):DecorBox[] {
   const body:DecorBox = { cx: d.x, cz: d.z, dx: d.dx, dz: d.dz, hl: s.len / 2, hw: s.wid / 2, h: s.body };
   if (s.top <= s.body) return [ body ];
   return [ body, { cx: d.x + d.dx * s.cabOff, cz: d.z + d.dz * s.cabOff, dx: d.dx, dz: d.dz, hl: s.cabLen / 2, hw: s.wid / 2 - 0.05, h: s.top }];
+}
+
+/** 엄폐물 → 충돌 상자 */
+export function coverBox(d:Decor):DecorBox {
+  const s = COVERS[d.k as CoverKind];
+  return { cx: d.x, cz: d.z, dx: d.dx, dz: d.dz, hl: s.len / 2, hw: s.wid / 2, h: s.h };
 }
 
 /** 점이 상자 바닥 넓이 안인지 */
@@ -273,6 +294,90 @@ export function placeDecor(data:WorldData, free:(x:number, z:number) => boolean)
     }
   });
 
+  placeCovers(data, rand, free, onOtherRoad, clear, put);
+
   cache.set(data, out);
   return out;
+}
+/** 엄폐물 무리 하나: [종류, 앞 방향 위치, 옆 위치, 돌림(무리 방향에서, 도)] */
+type Piece = [CoverKind, number, number, number];
+
+/**
+ * 엄폐물 무리 모양 (무리 방향 = +앞). 올라가는 길은 상자(1.0) → 2단 상자(2.0) → 컨테이너(2.6) 순으로 틈 없이 붙인다
+ * (틈이 있으면 못 넘고 떨어질 때 몸 가운데가 틈에 걸려 바닥까지 떨어진다 — 붙어 있으면 아래 단 가장자리에 서서 다시 뛴다)
+ */
+const COVER_SETS:Piece[][] = [
+  // 컨테이너 야적장: 나란한 컨테이너 둘 + 올라가는 상자 계단 + 앞 방호벽
+  [[ 'container', 0, 0, 0 ], [ 'container', 0, 3.3, 0 ], [ 'crates', 3.6, 0, 0 ], [ 'crate', 4.8, 0, 0 ],
+    [ 'barrier', -1.2, -3.4, 0 ], [ 'barrier', 1.4, -3.4, 0 ], [ 'crate', -3.8, 4.8, 15 ]],
+  // 자재 더미: 상자 몇 개 (하나는 2단) + 방호벽 줄 + 모래주머니
+  [[ 'crates', 0, 0, 0 ], [ 'crate', 1.2, 0, 0 ], [ 'crate', 0, 1.2, 0 ], [ 'crate', -2.6, -1.4, 20 ],
+    [ 'barrier', 4, 2.2, 90 ], [ 'barrier', 4, -0.4, 90 ], [ 'sandbag', -3.4, 1.6, 90 ]],
+  // 모래주머니 진지: ㄷ자 + 뒤 컨테이너 (상자 계단)
+  [[ 'sandbag', 0, 2.2, 0 ], [ 'sandbag', -1.7, 0.6, 90 ], [ 'sandbag', 1.7, 0.6, 90 ],
+    [ 'container', 0, -3.4, 0 ], [ 'crates', 3.6, -3.4, 0 ], [ 'crate', 4.8, -3.4, 0 ]],
+  // 컨테이너 하나 + 상자 계단 + 흩어진 상자
+  [[ 'container', 0, 0, 0 ], [ 'crates', -3.6, 0, 0 ], [ 'crate', -4.8, 0, 0 ], [ 'crate', 1.5, 2.4, 30 ], [ 'barrier', 2.5, -2.6, 10 ]],
+];
+
+/** 무리를 찾는 칸 크기 (m) — 칸마다 하나까지. 도심 빌딩 사이 공터에도 들어가게 지도 전체를 칸으로 훑는다 */
+const COVER_CELL = 130;
+/** 칸 하나에서 자리·모양을 바꿔 보는 횟수 */
+const COVER_TRIES = 8;
+function placeCovers(
+  data:WorldData,
+  rand:() => number,
+  free:(x:number, z:number) => boolean,
+  onOtherRoad:(x:number, z:number, self:number, margin:number) => boolean,
+  clear:(x:number, z:number, r:number) => boolean,
+  put:(d:Decor, r:number) => void,
+) {
+  // 나무 격자 (8m)
+  const TREE_CELL = 8;
+  const trees = new Map<number, number[]>();
+  const tk = (cx:number, cz:number) => (cx + 2000) * 8192 + (cz + 2000);
+  for (let i = 0; i + 2 < data.trees.length; i += 3) {
+    const k = tk(Math.floor(data.trees[i] / TREE_CELL), Math.floor(data.trees[i + 1] / TREE_CELL));
+    const list = trees.get(k);
+    if (list) list.push(data.trees[i], data.trees[i + 1]);
+    else trees.set(k, [ data.trees[i], data.trees[i + 1] ]);
+  }
+  const nearTree = (x:number, z:number, r:number) => {
+    for (let cx = Math.floor((x - r) / TREE_CELL); cx <= Math.floor((x + r) / TREE_CELL); cx++) {
+      for (let cz = Math.floor((z - r) / TREE_CELL); cz <= Math.floor((z + r) / TREE_CELL); cz++) {
+        const list = trees.get(tk(cx, cz));
+        if (list) for (let i = 0; i < list.length; i += 2) if (Math.hypot(list[i] - x, list[i + 1] - z) < r) return true;
+      }
+    }
+    return false;
+  };
+  const { w: hw, d: hd } = data.half;
+  for (let gz = -hd; gz < hd - COVER_CELL / 2; gz += COVER_CELL) {
+    for (let gx = -hw; gx < hw - COVER_CELL / 2; gx += COVER_CELL) {
+      let placed = false;
+      for (let t = 0; t < COVER_TRIES && !placed; t++) {
+        // 칸 가운데 쪽 (이웃 칸 무리와 너무 붙지 않게 가장자리 10m는 비운다)
+        const x = gx + 10 + (COVER_CELL - 20) * rand();
+        const z = gz + 10 + (COVER_CELL - 20) * rand();
+        const set = COVER_SETS[Math.floor(rand() * COVER_SETS.length)];
+        const a = rand() * Math.PI * 2;
+        const fx = Math.cos(a);
+        const fz = Math.sin(a);
+        const pieces = set.map(([ k, along, side, rot ]):Decor => {
+          const r = a + (rot * Math.PI) / 180;
+          return { k, x: x + fx * along - fz * side, z: z + fz * along + fx * side, dx: Math.cos(r), dz: Math.sin(r), v: Math.floor(rand() * 8) };
+        });
+        const fits = free(x, z) && pieces.every((d) => {
+          const s = COVERS[d.k as CoverKind];
+          const corners = [[ 1, 1 ], [ 1, -1 ], [ -1, 1 ], [ -1, -1 ], [ 0, 0 ]].map(([ p, q ]) => [ d.x + d.dx * (s.len / 2) * p - d.dz * (s.wid / 2) * q, d.z + d.dz * (s.len / 2) * p + d.dx * (s.wid / 2) * q ]);
+          const r = Math.hypot(s.len, s.wid) / 2;
+          return corners.every(([ cx, cz ]) => free(cx, cz) && !onOtherRoad(cx, cz, -1, 1.5)) && clear(d.x, d.z, r) && !nearTree(d.x, d.z, r + 1.2);
+        });
+        if (fits) {
+          pieces.forEach((d) => put(d, Math.hypot(COVERS[d.k as CoverKind].len, COVERS[d.k as CoverKind].wid) / 2));
+          placed = true;
+        }
+      }
+    }
+  }
 }

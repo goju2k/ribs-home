@@ -47,6 +47,11 @@ interface Zed {
 
 /** 같은 공간인지 (실외끼리 높이 차 2.5m 안, 실내는 같은 건물·층) */
 const sameSpace = (a:Body, b:Body) => a.b === b.b && (a.b >= 0 ? a.l === b.l : Math.abs(a.y - b.y) <= 2.5);
+/** 좀비는 점프하지 못한다: 사람이 이만큼 높이 있으면 물지 못한다 (상자 1.0m는 닿고, 2단 상자 2.0m·컨테이너 2.6m는 못 닿는다) */
+const Z_CLIMB = 1.5;
+/** 실외에서 사람이 이 높이 안쪽 위에 있으면 (엄폐물 위) 아래로 몰려와 맴돈다 — 잊지 않고 기다린다 */
+const Z_BESIEGE = 4;
+const besieges = (p:Body, z:Body) => p.b < 0 && z.b < 0 && p.y - z.y > 0 && p.y - z.y <= Z_BESIEGE;
 
 export interface HordeHooks {
   /** 이 사람을 노려도 되는지 (살아 있음) */
@@ -190,7 +195,7 @@ export class Horde {
       }
       if (now >= z.thinkAt) {
         z.thinkAt = now + THINK_MS;
-        const inSight = (p:ModePlayer) => sameSpace(p.body, npc.body) && Math.hypot(p.body.x - npc.body.x, p.body.z - npc.body.z) <= Z_SIGHT;
+        const inSight = (p:ModePlayer) => (sameSpace(p.body, npc.body) || besieges(p.body, npc.body)) && Math.hypot(p.body.x - npc.body.x, p.body.z - npc.body.z) <= Z_SIGHT;
         // 쫓는 중: 시야 밖으로 나가면 시계를 재고, 5초 넘으면 포기 (그동안은 계속 따라간다)
         if (z.target) {
           if (!this.hooks.alive(z.target)) z.target = null;
@@ -224,7 +229,7 @@ export class Horde {
         if (far) z.deadAt = now;
       }
       // 따라가는 동안은 층·높이가 달라져도 쫓는다 (계단·문을 따라가진 못하니 같은 공간일 때만 실제로 다가간다)
-      const t = z.target && sameSpace(z.target.body, npc.body) ? z.target : null;
+      const t = z.target && (sameSpace(z.target.body, npc.body) || besieges(z.target.body, npc.body)) ? z.target : null;
       if (t) {
         const dx = t.body.x - npc.body.x;
         const dz = t.body.z - npc.body.z;
@@ -238,7 +243,8 @@ export class Horde {
         } else {
           npc.input.mx = 0;
           npc.input.mz = 0;
-          if (now >= z.attackAt) {
+          // 엄폐물 위(1.5m 이상)는 닿지 않는다 — 아래에서 서성인다
+          if (now >= z.attackAt && t.body.y - npc.body.y < Z_CLIMB) {
             z.attackAt = now + st.cooldownMs;
             z.swingUntil = now + SWING_MS;
             this.hooks.bite(t, st.damage, now, npc.body);
@@ -352,8 +358,8 @@ export class Horde {
     const floor = collision.floorAt(at.x, at.z, at.y + 0.5);
     for (let i = 0; i < 30; i++) {
       const a = Math.random() * Math.PI * 2;
-      // 옥상이면 같은 옥상 위 8~25m, 땅이면 30~60m (넓게 흩어 생기게)
-      const onRoof = floor > 1;
+      // 옥상이면 같은 옥상 위 8~25m, 땅이면 30~60m (넓게 흩어 생기게). 엄폐물(컨테이너 2.6m 등) 위는 옥상이 아니다 — 그 위에 생기면 피할 곳이 없다
+      const onRoof = floor > 4;
       const d = onRoof ? 8 + Math.random() * 17 : 30 + Math.random() * 30;
       const x = at.x + Math.cos(a) * d;
       const z = at.z + Math.sin(a) * d;

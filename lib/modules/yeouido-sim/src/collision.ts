@@ -1,4 +1,4 @@
-import { Decor, DecorBox, inBox, isVehicle, placeDecor, vehicleBoxes } from './decor';
+import { coverBox, Decor, DecorBox, inBox, isCover, isVehicle, placeDecor, vehicleBoxes } from './decor';
 import { landmarkBoxes } from './landmark-boxes';
 import { BLOCK, decodeCollision, WorldData } from './world-data';
 
@@ -123,6 +123,7 @@ export class Collision {
     };
     this.decor.forEach((d) => {
       if (isVehicle(d.k)) vehicleBoxes(d).forEach(addBox);
+      else if (isCover(d.k)) addBox(coverBox(d));
     });
     // 블렌더 랜드마크 외형의 옥상 설비·난간 (몸체는 지도 바닥 다각형 그대로)
     landmarkBoxes(data).forEach(addBox);
