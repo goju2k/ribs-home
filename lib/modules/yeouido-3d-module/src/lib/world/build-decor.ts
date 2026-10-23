@@ -54,6 +54,9 @@ function carParts(k:'sedan' | 'suv' | 'taxi'):Part[] {
   return parts;
 }
 
+/** 몸통 윗면 위로 살짝 (테·기둥 윗면이 몸통 윗면과 같은 높이면 서로 번갈아 보여 반짝인다 — 깊이 겨룸) */
+const LIP = 0.012;
+
 /** 컨테이너: 칠한 몸통 + 골판(칠한 세로 홈이 살짝 튀어나와 그늘이 진다) + 짙은 위아래 테·모서리 기둥 + 앞(+x) 문 */
 function containerParts():Part[] {
   const { len: L, wid: W, h: H } = COVERS.container;
@@ -61,11 +64,11 @@ function containerParts():Part[] {
   for (let x = -L / 2 + 0.4; x < L / 2 - 0.3; x += 0.55) parts.push([ 0.14, H - 0.3, W + 0.04, x, H / 2, 0, null ]);
   const FRAME = '#3a3d42';
   // 위아래 테: 가장자리 띠만 (판 한 장이면 지붕이 통째로 짙어진다)
-  [ 0.07, H - 0.07 ].forEach((y) => {
+  [ 0.07, H - 0.07 + LIP ].forEach((y) => {
     parts.push([ L + 0.02, 0.14, 0.12, 0, y, W / 2 - 0.05, FRAME ], [ L + 0.02, 0.14, 0.12, 0, y, -(W / 2 - 0.05), FRAME ]);
     parts.push([ 0.12, 0.14, W + 0.02, L / 2 - 0.05, y, 0, FRAME ], [ 0.12, 0.14, W + 0.02, -(L / 2 - 0.05), y, 0, FRAME ]);
   });
-  [[ 1, 1 ], [ 1, -1 ], [ -1, 1 ], [ -1, -1 ]].forEach(([ a, b ]) => parts.push([ 0.16, H, 0.16, a * (L / 2 - 0.07), H / 2, b * (W / 2 - 0.07), FRAME ]));
+  [[ 1, 1 ], [ 1, -1 ], [ -1, 1 ], [ -1, -1 ]].forEach(([ a, b ]) => parts.push([ 0.16, H + LIP, 0.16, a * (L / 2 - 0.07), (H + LIP) / 2, b * (W / 2 - 0.07), FRAME ]));
   parts.push([ 0.04, H - 0.3, 0.06, L / 2 + 0.01, H / 2, 0, '#26292d' ]);
   [ -0.6, -0.25, 0.25, 0.6 ].forEach((z) => parts.push([ 0.05, H - 0.4, 0.05, L / 2 + 0.02, H / 2, z, '#6b7078' ]));
   return parts;
@@ -77,14 +80,16 @@ function crateParts(n:number):Part[] {
   const H = COVERS.crate.h * n;
   const WOOD = '#6b4a2a';
   const parts:Part[] = [[ S, H, S, 0, H / 2, 0, null ]];
-  [[ 1, 1 ], [ 1, -1 ], [ -1, 1 ], [ -1, -1 ]].forEach(([ a, b ]) => parts.push([ 0.1, H, 0.1, a * (S / 2 - 0.04), H / 2, b * (S / 2 - 0.04), WOOD ]));
+  [[ 1, 1 ], [ 1, -1 ], [ -1, 1 ], [ -1, -1 ]].forEach(([ a, b ]) => parts.push([ 0.1, H + LIP, 0.1, a * (S / 2 - 0.04), (H + LIP) / 2, b * (S / 2 - 0.04), WOOD ]));
   for (let k = 0; k < n; k++) {
     const y = k * COVERS.crate.h;
     parts.push([ S + 0.02, 0.08, S + 0.02, 0, y + 0.5, 0, WOOD ]);
     if (k > 0) parts.push([ S + 0.03, 0.05, S + 0.03, 0, y, 0, '#4a3220' ]);
   }
-  parts.push([ S + 0.02, 0.06, 0.1, 0, H - 0.03, S / 2 - 0.04, WOOD ], [ S + 0.02, 0.06, 0.1, 0, H - 0.03, -(S / 2 - 0.04), WOOD ]);
-  parts.push([ 0.1, 0.06, S + 0.02, S / 2 - 0.04, H - 0.03, 0, WOOD ], [ 0.1, 0.06, S + 0.02, -(S / 2 - 0.04), H - 0.03, 0, WOOD ]);
+  // 위 테: 윗면이 몸통 윗면보다 LIP 위
+  const ty = H - 0.03 + LIP;
+  parts.push([ S + 0.02, 0.06, 0.1, 0, ty, S / 2 - 0.04, WOOD ], [ S + 0.02, 0.06, 0.1, 0, ty, -(S / 2 - 0.04), WOOD ]);
+  parts.push([ 0.1, 0.06, S + 0.02, S / 2 - 0.04, ty, 0, WOOD ], [ 0.1, 0.06, S + 0.02, -(S / 2 - 0.04), ty, 0, WOOD ]);
   return parts;
 }
 
