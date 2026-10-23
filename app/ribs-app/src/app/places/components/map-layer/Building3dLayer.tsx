@@ -2,25 +2,25 @@ import { ChangeEvent, useEffect, useRef, useState } from 'react';
 
 import { Site, SunShadowLayer } from './sun-shadow-layer';
 
-import { testdata } from '../../../components/library/map-libre/data';
 import { SunPositionUtil } from '../../../components/library/map-libre/util/SunPositionUtil';
 import { NaverMap3d } from '../../../components/library/naver-map/components/map/naver-map-types';
 import { NaverMarker } from '../../../components/library/naver-map/components/marker/NaverMarker';
 import { useKBLandNaverMap } from '../../../components/library/naver-map/KBLandNaverMap';
 
-/** 3D 건물을 올린 장소들: 시험 건물(바닥 다각형 세우기) · 63빌딩(블렌더 모델) */
+/** 3D 건물을 올린 장소들 (블렌더 모델, 원점 = 지도 바닥 다각형 점들의 평균) */
 const SITES:(Site & { name: string; zoom: number; })[] = [
   {
     id: 'dasan',
-    name: '다산 시험 건물',
-    origin: testdata.properties.center as [number, number],
-    zoom: 16,
-    buildings: [{ ring: testdata.geometry.coordinates[0], height: testdata.properties.height }],
+    name: '다산 5302동',
+    // scripts/blender/build_dasan5302.py (다산자연앤이편한세상 3차 5302동)
+    origin: [ 127.1570904, 37.6200763 ],
+    zoom: 16.4,
+    buildings: [{ model: '/models/places/dasan-5302.glb' }],
   },
   {
     id: 'yeouido-63',
     name: '여의도 63빌딩',
-    // 모델 원점 = 지도 바닥 다각형 점들의 평균 (scripts/blender/build63.py)
+    // 게임 브랜치의 scripts/blender/build63.py
     origin: [ 126.9402258, 37.5198342 ],
     zoom: 15.6,
     buildings: [{ model: '/models/places/63-building.glb' }],

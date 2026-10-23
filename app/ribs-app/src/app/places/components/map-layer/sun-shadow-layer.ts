@@ -36,7 +36,6 @@ interface SiteState {
   hemi: THREE.HemisphereLight;
   /** 건물들을 감싸는 상자 (그림자 카메라 맞춤용) */
   bounds: THREE.Box3;
-  nightMats: THREE.MeshStandardMaterial[];
 }
 
 /** 해 높이가 이보다 낮으면 그림자를 끈다 (그림자가 수 km로 늘어나 의미가 없다) */
@@ -155,7 +154,7 @@ export class SunShadowLayer implements CustomLayerInterface {
     ground.frustumCulled = false;
     scene.add(ground);
 
-    const state:SiteState = { site, origin, meter, scene, sun, hemi, bounds: new THREE.Box3(), nightMats: [] };
+    const state:SiteState = { site, origin, meter, scene, sun, hemi, bounds: new THREE.Box3() };
     const toLocal = ([ lng, lat ]:number[]) => {
       const p = maplibregl.MercatorCoordinate.fromLngLat([ lng, lat ], 0);
       return new THREE.Vector2((p.x - origin.x) / meter, (p.y - origin.y) / meter);
@@ -191,11 +190,9 @@ export class SunShadowLayer implements CustomLayerInterface {
               mat.roughness = 0.32;
               mat.envMapIntensity = 0.55;
             }
-            // 밤 불빛: 파일은 빛 세기 0, 텍스처만 들어 있다 (게임과 같은 방식)
-            if (mat.emissiveMap) {
-              mat.emissive.set('#ffffff');
-              state.nightMats.push(mat);
-            }
+            // 밤 불빛은 쓰지 않는다 (지도가 밤에 화면 전체를 어둡게 깐다)
+            mat.emissiveMap = null;
+            mat.emissive.set('#000000');
           });
           scene.add(gltf.scene);
           state.bounds.expandByObject(gltf.scene);
@@ -219,9 +216,6 @@ export class SunShadowLayer implements CustomLayerInterface {
     sun.color.set('#ffb070').lerp(new THREE.Color('#fff6e8'), THREE.MathUtils.clamp(alt / 25, 0, 1));
     hemi.intensity = 0.15 + 0.25 * day;
     sun.castShadow = alt > MIN_SHADOW_ALT && !bounds.isEmpty();
-    s.nightMats.forEach((m) => {
-      m.emissiveIntensity = 1 - day;
-    });
     if (bounds.isEmpty() || !sun.castShadow) return;
 
     const center = bounds.getCenter(new THREE.Vector3());
