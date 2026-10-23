@@ -59,7 +59,7 @@ const BASE:Record<WeaponKind, Base> = {
   // 저격소총: 스코프 ×4, 머리 한 방 — 무겁고, 빗나가면 끝, 멀리까지 소리
   sniper: { hitscan: true, damage: 90, spread: 0.001, moveSpread: 0.05, intervalMs: 1400, mag: 5, reloadMs: 3500, range: 450, headMul: 2, moveMul: 0.85, scope: 4, noise: 120 },
   // 석궁: 무소음(좀비가 안 몰림), 낙차 있는 화살 — 3발을 10도 간격 부채꼴로, 강화마다 2발씩 더 (7단계 15발 = 140도, 10단계 21발 = 200도)
-  crossbow: { hitscan: false, damage: 40, pellets: 3, pelletsPerLv: 2, fan: Math.PI / 18, spread: 0.002, moveSpread: 0.01, intervalMs: 300, mag: 1, reloadMs: 750, range: 90, speed: 60, gravity: 9.8, headMul: 1.5, moveMul: 0.95, noise: 0 },
+  crossbow: { hitscan: false, damage: 40, pellets: 3, pelletsPerLv: 2, fan: Math.PI / 36, spread: 0.002, moveSpread: 0.01, intervalMs: 300, mag: 1, reloadMs: 750, range: 90, speed: 60, gravity: 9.8, headMul: 1.5, moveMul: 0.95, noise: 0 },
 };
 
 /** 무기 + 강화 단계 → 수치 (단계마다 피해 +8%, 연사 간격 -3%, 재장전 -6%, 퍼짐 -5%) */
@@ -80,6 +80,8 @@ export function weaponStats(kind:WeaponKind, lv:number):WeaponStats {
     intervalMs: Math.round(b.intervalMs * (1 - 0.03 * k)),
     reloadMs: Math.round(b.reloadMs * (1 - 0.06 * k)),
     spread: b.spread * (1 - 0.05 * k),
+    // 최대 장탄: 단계마다 +10% (+10이면 1.9배). 한 발씩 장전하는 석궁은 그대로
+    mag: b.mag > 1 ? Math.round(b.mag * (1 + 0.1 * k)) : b.mag,
   } as WeaponStats;
 }
 
@@ -87,6 +89,18 @@ export const isWeapon = (k:ItemKind):k is WeaponKind => (WEAPON_KINDS as readonl
 
 /** 들고 있는 무기 (없으면 null) */
 export const heldWeapon = (g:Gear):WeaponKind | null => WEAPON_KINDS.find((k) => g[k] > 0) ?? null;
+
+/** 총·석궁 피해는 좁은 범위에서 무작위 (±10%), CRIT 확률로 치명타 — 피해 두 배 */
+export const DMG_SPREAD = 0.1;
+export const CRIT_CHANCE = 0.1;
+export const CRIT_MUL = 2;
+
+/** 한 발 피해 굴리기: 기본 피해(거리·머리 반영한 값) → [피해, 치명타인지] */
+export function rollDamage(base:number, rand:() => number = Math.random):[number, boolean] {
+  const crit = rand() < CRIT_CHANCE;
+  const k = 1 + (rand() * 2 - 1) * DMG_SPREAD;
+  return [ Math.max(1, Math.round(base * k * (crit ? CRIT_MUL : 1))), crit ];
+}
 
 /** 거리 d(m)에서 위력 배율 */
 export function falloff(st:WeaponStats, d:number) {

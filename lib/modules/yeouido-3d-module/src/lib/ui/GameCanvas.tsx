@@ -119,12 +119,11 @@ function markerTexture() {
 }
 
 /** 화면 세로 기준 몇 CSS 픽셀을 한 도트로 그릴지 (주소의 ?pix= 로 바꿀 수 있다) */
-function pixelSize(w:number, h:number, fp = false) {
+function pixelSize() {
   const q = Number(new URLSearchParams(window.location.search).get('pix'));
   if (q >= 1 && q <= 8) return q;
-  const base = Math.max(2, Math.round(Math.min(w, h) / 260));
-  // 1인칭은 몸을 돌릴 때마다 모든 가장자리 계단이 출렁여 눈이 피로하다 → 도트를 더 잘게 (3 → 2)
-  return fp ? Math.max(1, Math.round(base * 0.6)) : base;
+  // 기본 1px (모든 시점 같게 — 예전엔 화면 크기로 3~4px, 1인칭만 0.6배라 시점마다 달라 보였다. 1px이 더 낫다는 시험 결과로 2026-10-24)
+  return 1;
 }
 
 export function GameCanvas({ inputRef, statusRef, onReady }:{
@@ -140,7 +139,9 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
 
   useEffect(() => {
     const canvas = canvasRef.current!;
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+    // 로그 깊이: 땅 위 층(잔디·도로·차선)이 몇 cm 간격이라, 로켓슈트로 높이 올라 멀리 비스듬히 보면 깊이 정밀도가 모자라 번쩍였다
+    // (원근 카메라 앞 경계 0.1m — 1인칭 손에 든 총 때문에 더 밀 수 없다). 로그 깊이는 먼 곳도 고르게 나눠 담는다
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', logarithmicDepthBuffer: true });
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.BasicShadowMap; // 각진 도트 그림자
 
@@ -328,7 +329,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       const w = host.clientWidth;
       const h = host.clientHeight;
       const dpr = window.devicePixelRatio || 1;
-      const dot = Math.max(1, Math.round(pixelSize(w, h, mode === 'fp') * dpr));
+      const dot = Math.max(1, Math.round(pixelSize() * dpr));
       const bw = Math.max(1, Math.ceil((w * dpr) / dot) + 2);
       const bh = Math.max(1, Math.ceil((h * dpr) / dot) + 2);
       Object.assign(scr, { bw, bh, visH: (h * dpr) / dot, dot, dpr });
@@ -914,6 +915,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         if (tagRef.current) tagRef.current.style.transform = shift;
       }
       others.placeTags(cam, w, h);
+      modeClient?.placeTags?.(cam, w, h);
       // 뒤·1인칭: 화면 가운데 조준선 (원거리가 정확히 여기로 간다)
       if (crossRef.current) crossRef.current.style.display = persp3 && !away ? 'block' : 'none';
       renderer.render(scene, cam);
@@ -991,6 +993,8 @@ const MiniCanvas = styled.canvas({
   boxShadow: 'inset -2px -2px 0 rgba(0,0,0,0.45), inset 2px 2px 0 rgba(255,255,255,0.22), 0 0 0 2px #0b0e22',
   // 좁은 화면에선 상단 바가 두 줄이 된다
   '@media (max-width: 560px)': { top: 126 },
+  // PC(넓은 화면)는 크게 — 150px은 작았다 (킬 로그 BrHud Feed가 바로 아래)
+  '@media (min-width: 900px) and (min-height: 600px)': { width: 240 },
 });
 
 /** 조준선: 화면 가운데 작은 + */

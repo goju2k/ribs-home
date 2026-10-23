@@ -54,8 +54,10 @@ const Z_BESIEGE = 4;
 const besieges = (p:Body, z:Body) => p.b < 0 && z.b < 0 && p.y - z.y > 0 && p.y - z.y <= Z_BESIEGE;
 
 export interface HordeHooks {
-  /** 이 사람을 노려도 되는지 (살아 있음) */
+  /** 이 사람을 노려도 되는지 (살아 있음 — 차에 탄 사람도) */
   alive(p:ModePlayer): boolean;
+  /** 이 사람에게 닿는 거리인지 (좀비 자리, reach m) — 없으면 가운데끼리 거리. 차에 탄 사람은 차 몸체 둘레에서 닿는다 */
+  reaches?(p:ModePlayer, x:number, z:number, reach:number): boolean;
   /** 좀비가 사람을 때림 */
   bite(p:ModePlayer, dmg:number, now:number, from:Body): void;
   /** 사람이 좀비를 쓰러뜨림 (쓰러진 자리·모습 종류) */
@@ -236,7 +238,7 @@ export class Horde {
         const d = Math.hypot(dx, dz);
         npc.input.face = Math.round(Math.atan2(dx, dz) * 10000) / 10000;
         npc.body.sm = st.chaseMul;
-        if (d > st.reach) {
+        if (!(this.hooks.reaches ? this.hooks.reaches(t, npc.body.x, npc.body.z, st.reach) : d <= st.reach)) {
           npc.input.mx = dx / d;
           npc.input.mz = dz / d;
           npc.input.run = st.chaseRun;

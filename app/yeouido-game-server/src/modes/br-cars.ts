@@ -69,6 +69,14 @@ export class CarPark {
     return this.drivers.has(pid);
   }
 
+  /** 운전 중인 사람에게 (x, z)에서 reach m로 닿는지 (차 몸체 둘레 + 좀비 몸 반지름), 운전 중이 아니면 null */
+  reaches(p:ModePlayer, x:number, z:number, reach:number) {
+    const idx = this.drivers.get(p.id);
+    if (idx === undefined) return null;
+    const { body } = p;
+    return inCar(this.host.sim.collision.decor[idx].k as VehicleKind, body.x, body.z, body.f, x, z, reach + RADIUS);
+  }
+
   /** 타기 (가장 가까운 빈 차). 못 타면 까닭 */
   enter(p:ModePlayer):string | null {
     const { body } = p;
@@ -136,7 +144,7 @@ export class CarPark {
 
   /**
    * 틱마다: 운전 중인 차의 판정 상자를 몸 자리로 옮기고, 연료가 바닥나 멈추면 내린다.
-   * 친 것: 차 몸체에 겹친 사람·좀비 — 시속 20km가 넘으면 피해, 겹치면 속도와 상관없이 차가 선다
+   * 친 것: 차 몸체에 겹친 사람·좀비 — 가는 쪽 절반에 겹치면 — 시속 20km가 넘으면 피해, 속도와 상관없이 차가 선다
    */
   tick(victims:() => CarVictim[]) {
     if (!this.drivers.size) return;
@@ -160,7 +168,10 @@ export class CarPark {
       if (Math.abs(body.spd) > 0.3) {
         list ??= victims();
         const k = sim.collision.decor[idx].k as VehicleKind;
-        const hit = list.filter((v) => v.id !== pid && v.b < 0 && inCar(k, body.x, body.z, body.f, v.x, v.z, 0.35));
+        // 가는 쪽 절반만 (옆·뒤에 붙은 좀비 때문에 차가 꼼짝 못 하지 않게)
+        const dir = Math.sign(body.spd);
+        const ahead = (v:CarVictim) => ((v.x - body.x) * Math.sin(body.f) + (v.z - body.z) * Math.cos(body.f)) * dir > 0;
+        const hit = list.filter((v) => v.id !== pid && v.b < 0 && ahead(v) && inCar(k, body.x, body.z, body.f, v.x, v.z, 0.35));
         if (hit.length) {
           const dmg = carHitDamage(body.spd);
           if (dmg > 0) hit.forEach((v) => v.hit(dmg, p));

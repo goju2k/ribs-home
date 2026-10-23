@@ -166,7 +166,10 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
       {state.hitMark && <HitMark $head={state.hitMark.head} style={{ opacity: 1 - state.hitMark.age }}>✕</HitMark>}
 
       {state.hits.map((h) => (
-        <HitNum key={h.id} $head={h.head} style={{ transform: `translate(-50%, ${-30 - h.age * 40}px)`, opacity: 1 - h.age }}>{h.head ? '머리 ' : ''}-{h.dmg}</HitNum>
+        // 치명타: 크게 튀어나왔다가(처음 0.15에 1.6배 → 1) 떠오른다
+        <HitNum key={h.id} $head={h.head} $crit={h.crit} style={{ transform: `translate(calc(-50% + ${Math.round(h.x * 28)}px), ${-34 - h.age * 48}px) scale(${h.crit ? 1 + Math.max(0, 0.6 - h.age * 4) : 1})`, opacity: 1 - h.age * h.age }}>
+          {h.crit ? '치명! ' : ''}{h.head ? '머리 ' : ''}-{h.dmg}
+        </HitNum>
       ))}
 
       {state.escape && !state.end && <EscapeBar $open={!state.escape.truce}>{escapeLabel(state.escape)}</EscapeBar>}
@@ -341,16 +344,21 @@ const Feed = styled(Panel)({
   maxWidth: 220,
   pointerEvents: 'none',
   '@media (max-width: 560px)': { top: 286 },
+  // 미니맵이 240px로 커지는 넓은 화면 (GameCanvas MiniCanvas)
+  '@media (min-width: 900px) and (min-height: 600px)': { top: 324 },
 });
 
-const HitNum = styled.div<{ $head: boolean; }>(({ $head }) => ({
+/** 피해 숫자: 보통 노랑, 머리 빨강, 치명타 크게 주황 + 빛 테두리 */
+const HitNum = styled.div<{ $head: boolean; $crit: boolean; }>(({ $head, $crit }) => ({
   position: 'absolute',
   left: '50%',
   top: '45%',
   fontFamily: PIXEL_FONT,
-  fontSize: $head ? 20 : 16,
-  color: $head ? '#ff5a4a' : '#ffd84a',
-  textShadow: '2px 2px 0 #0b0e22',
+  fontSize: $crit ? 34 : $head ? 26 : 22, // eslint-disable-line no-nested-ternary
+  fontWeight: $crit ? 700 : 400,
+  color: $crit ? '#ff8a1a' : $head ? '#ff5a4a' : '#ffd84a', // eslint-disable-line no-nested-ternary
+  textShadow: $crit ? '3px 3px 0 #0b0e22, 0 0 8px #ffd84a' : '2px 2px 0 #0b0e22',
+  whiteSpace: 'nowrap',
   pointerEvents: 'none',
 }));
 

@@ -189,9 +189,9 @@ export function placeDecor(data:WorldData, free:(x:number, z:number) => boolean)
       sides.forEach((side) => {
         const off = r.w / 2 - 1.2;
         walk(r, () => 5.5 + rand() * 4, 14, (x, z, dx, dz) => {
-          // 차는 탈 수 있는 장거리 빠른 이동 수단이라 드물게 (예전 큰길 12%·작은 길 42% → 1%·3.2%, 약 4.5천 대 → 3백여 대).
+          // 차는 탈 수 있는 장거리 빠른 이동 수단이라 드물게 (예전 큰길 12%·작은 길 42% → 0.5%·1.6%, 약 4.5천 대 → 2백 대 안팎).
           // 지붕 위(SUV 1.8m)는 좀비가 못 때리는 자리라 많으면 밸런스가 깨진다
-          if (rand() > (main ? 0.01 : 0.032)) return;
+          if (rand() > (main ? 0.005 : 0.016)) return;
           // 오른쪽(side 1) = 진행 방향 오른손: (dx, dz)를 시계 방향으로 90도 = (-dz, dx)
           const px = x - dz * off * side;
           const pz = z + dx * off * side;

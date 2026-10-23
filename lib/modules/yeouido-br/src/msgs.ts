@@ -27,7 +27,8 @@ export type BrServerMsg =
   /** 누가 누구를 (killer 없음 = 전장 밖에서) */
   | { k: 'kill'; killer: string | null; victim: string; }
   /** 내가 맞힘 (target: 맞은 사람·좀비 id, head: 머리) */
-  | { k: 'hit'; target: number; dmg: number; head?: boolean; }
+  /** crit: 치명타 (피해 두 배 — 화면 글자가 크고 다르다) */
+  | { k: 'hit'; target: number; dmg: number; head?: boolean; crit?: boolean; }
   /** 내가 맞음 (from: 때린 사람 이름, 없으면 전장 피해) */
   /** at: 때린 쪽 자리 [x, z] (화면이 맞은 방향을 그린다 — 전장 밖·중독처럼 방향이 없으면 없음) */
   | { k: 'hurt'; dmg: number; from: string | null; at?: [number, number]; }

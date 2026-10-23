@@ -92,6 +92,8 @@ export interface ModeClient {
    * 없으면 기본 거리
    */
   aimRange?(): number;
+  /** 카메라를 맞춘 뒤: 화면 위 HTML 표식을 제자리로 (예: 아이템 이름표). w, h = 캔버스 CSS 크기 */
+  placeTags?(camera:THREE.Camera, w:number, h:number): void;
   /** 상태 비트·게이지 → 모습 (mine: 나 자신, key: 사람 번호 — 동작 진행을 사람마다 잰다) */
   look(st:number, gv:number, now:number, mine:boolean, key?:number): Look;
   /** 모습 종류(k, 0 = 사람) → NPC 모습. null이면 사람 모습 */

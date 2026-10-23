@@ -1,7 +1,7 @@
 import {
   ACT_FARM, ACT_FIRE, isMaxed, MAX_LEVEL, ACT_RELOAD, BALL, BOSS_LIMIT_MS, ESCAPE, BrClientMsg, Difficulty, DIFFICULTY, FARM, RESULT_MS, afterPickup, armorCut, BR_MODE, dayNight, breakPower, PROP_KINDS, PROP_RADIUS, rollDrops, rollZombieDrop, BrServerMsg, Corpse, CorpseItem, emptyGear, Gear, HP_MAX, HURT_MS, hpGauge, insideZone,
   ITEM_KINDS, insideZone as inZoneCircle, makeMatchPlan, pickRoofOf, LOBBY_COUNTDOWN_MS, MATCH_MS, MatchPlan, meleeReaches, pickSpawn, respawnDelay, rocketMul, shoeMul,
-  canFire, falloff, fire, healAmount, isConsumable, PICK_GAP_MS, PICK_RANGE, PICK_RELEASE, FireState, fullMag, heldWeapon, isWeapon, MOVING_SPEED, reload, shotDirs, WEAPON_KINDS, weaponStats,
+  canFire, falloff, fire, rollDamage, healAmount, isConsumable, PICK_GAP_MS, PICK_RANGE, PICK_RELEASE, FireState, fullMag, heldWeapon, isWeapon, MOVING_SPEED, reload, shotDirs, WEAPON_KINDS, weaponStats,
   SPAWN_SHIELD_MS, ST_DEAD, ST_FROZEN, ST_HIDDEN, ST_HURT, ST_SHIELD, ST_SWING, zoneAt, zoneDps,
 } from 'yeouido-br';
 import { SIM_HZ } from 'yeouido-net';
@@ -43,11 +43,13 @@ const EMPTY_CLOSE_MS = 60_000;
 const MAX_CORPSES = 150;
 /** 전장 밖 피해 간격 (ms) */
 const ZONE_TICK_MS = 1000;
-/** 판 시작 때 섬에 뿌리는 아이템 수, 원이 줄면 원 넓이만큼 줄여 유지 (최소 ITEM_MIN) — 아이템은 주로 물건을 부숴서 얻는다 */
-const ITEM_START = 50;
-const ITEM_MIN = 5;
+/** 판 시작 때 섬에 뿌리는 아이템 수, 원이 줄면 원 넓이만큼 줄여 유지 (최소 ITEM_MIN) — 아이템은 주로 물건을 부숴서 얻는다 (50 → 30: 상자 파밍 유도) */
+const ITEM_START = 30;
+const ITEM_MIN = 3;
 /** 이만큼마다 원 안 아이템을 채운다 (ms) */
 const ITEM_REFILL_MS = 20_000;
+/** 로켓슈트는 한 판에 상자에서 이만큼까지만 나온다 (사기성 아이템 — 없어져도 다시 안 나온다). 보스가 나오면 모두 부서진다 */
+const ROCKETS = 2;
 /** 전장 밖 아이템을 치우는 간격 (ms) — 원이 줄면 밖에 남은 아이템은 사라진다 */
 const ITEM_SWEEP_MS = 1000;
 /** 부술 수 있는 물건: 판 시작 수, 최소 유지 수 (원 넓이만큼 유지, 아이템과 같은 주기) */
@@ -164,6 +166,12 @@ export class BattleRoyale implements GameMode {
   /** 자동차 (타기·내리기·연료) */
   private cars:CarPark;
 
+  /** 이번 판에 상자에서 나온 로켓슈트 수 */
+  private rocketsDropped = 0;
+
+  /** 지금 맞히는 한 발이 치명타인지 (맞힘 알림에 싣는다 — 사람·좀비·보스 맞힘이 모두 이 틈에 알린다) */
+  private critShot = false;
+
   /** 이번 판이 실제로 시작된 시각 (기록용, 개발용 시계 당김과 무관) */
   private startedAt = 0;
 
@@ -186,11 +194,12 @@ export class BattleRoyale implements GameMode {
     this.cars = new CarPark(host, (msg) => this.broadcast(msg));
     this.announce = new Announcer((text, kind, to) => this.host.say(text, kind, to));
     this.horde = new Horde(host, {
-      // 차에 탄 사람은 노리지 않는다
+      // 차에 탄 사람도 노린다 (빠른 차는 따라잡지 못하고, 멈춰 있으면 차 옆에서 문다 — 차 안이 안전지대가 되지 않게)
       alive: (p) => {
         const f = this.fighters.get(p.id);
-        return !!f && !f.respawnAt && !this.cars.driving(p.id);
+        return !!f && !f.respawnAt;
       },
+      reaches: (p, x, z, reach) => this.cars.reaches(p, x, z, reach) ?? Math.hypot(p.body.x - x, p.body.z - z) <= reach,
       // 좀비를 쓰러뜨리면 가끔 아이템을 떨군다 (걷는 좀비 10%, 뛰는 좀비 25%)
       killed: (at, k) => {
         const got = rollZombieDrop(k);
@@ -272,6 +281,7 @@ export class BattleRoyale implements GameMode {
     this.broadcast(this.cars.listMsg());
     this.items.clear();
     this.items.scatter(this.host.sim, this.match.circles[0], ITEM_START);
+    this.rocketsDropped = 0;
     this.props.clear();
     this.props.scatter(this.host.sim, this.match.circles[0], PROP_START);
     this.refillAt = this.matchAt + ITEM_REFILL_MS;
@@ -462,7 +472,7 @@ export class BattleRoyale implements GameMode {
     });
     // 사람은 damage()가 쏜 사람에게 맞힘 알림을 보내고, 좀비·보스는 여기서
     const zeds = this.horde.shotTargets(now, (by, id, dmg, killed, head) => {
-      this.send(by, { k: 'hit', target: id, dmg, head });
+      this.send(by, { k: 'hit', target: id, dmg, head, crit: this.critShot });
       const st = this.stats.get(by.id);
       if (killed && st) st.zombieKills++;
     }, pos);
@@ -471,7 +481,7 @@ export class BattleRoyale implements GameMode {
       const { hit } = boss;
       boss.hit = (dmg, by, head) => {
         hit(dmg, by);
-        this.send(by, { k: 'hit', target: boss.id, dmg, head });
+        this.send(by, { k: 'hit', target: boss.id, dmg, head, crit: this.critShot });
       };
       out.push(boss);
     }
@@ -505,7 +515,12 @@ export class BattleRoyale implements GameMode {
       };
       const es = dirs.map((dir) => {
         const { end, target, head, dist } = hitscan(this.host.sim, o, dir, st.range, body.b, body.l, targets, p.id);
-        if (target) target.hit(Math.max(1, Math.round(st.damage * falloff(st, dist) * (head ? st.headMul : 1))), p, head);
+        if (target) {
+          const [ dmg, crit ] = rollDamage(st.damage * falloff(st, dist) * (head ? st.headMul : 1));
+          this.critShot = crit;
+          target.hit(dmg, p, head);
+          this.critShot = false;
+        }
         ht.push(target ? hitType(target.id, head) : dist < st.range - 0.05 ? 0 : 3); // eslint-disable-line no-nested-ternary
         return at3(...end);
       });
@@ -555,7 +570,12 @@ export class BattleRoyale implements GameMode {
       const moved = Math.hypot(end[0] - a.x, end[1] - a.y, end[2] - a.z);
       [ a.x, a.y, a.z ] = end;
       a.left -= seg;
-      if (target && shooter) target.hit(Math.round(a.dmg * (head ? a.headMul : 1)), shooter, head);
+      if (target && shooter) {
+        const [ dmg, crit ] = rollDamage(a.dmg * (head ? a.headMul : 1));
+        this.critShot = crit;
+        target.hit(dmg, shooter, head);
+        this.critShot = false;
+      }
       // 맞았거나, 벽에 막혀 덜 갔거나, 사거리 끝
       if (target || moved < seg - 0.01 || a.left <= 0) {
         this.sendNear(a.x, a.z, { k: 'arrowEnd', id: a.id, at: at3(a.x, a.y, a.z) });
@@ -792,6 +812,28 @@ export class BattleRoyale implements GameMode {
     /* eslint-enable no-bitwise */
   }
 
+  /** 보스 등장: 로켓슈트를 모두 부순다 (형평성 — 날아서 보스를 피하지 못하게): 장비·땅·시체에서 */
+  private destroyRockets() {
+    const kind = ITEM_KINDS.indexOf('rocket');
+    let any = false;
+    this.fighters.forEach((f, id) => {
+      if (f.gear.rocket <= 0) return;
+      f.gear.rocket = 0;
+      any = true;
+      const p = this.host.get(id);
+      if (p) this.applyGear(p, f);
+    });
+    const ground = this.items.list().filter((it) => it[1] === kind).map((it) => it[0]);
+    ground.forEach((id) => this.items.remove(id));
+    if (ground.length) this.broadcast({ k: 'itemGone', ids: ground });
+    this.corpses.forEach((c) => {
+      if (!c.items.some(([ k ]) => k === kind)) return;
+      c.items = c.items.filter(([ k ]) => k !== kind);
+      this.broadcast({ k: 'looted', id: c.id, left: c.items });
+    });
+    if (any || ground.length) this.host.say('최종 보스의 기운에 로켓슈트가 모두 부서졌습니다', 'warn');
+  }
+
   /** 차 타기·내리기 (F·화면 버튼): 타고 있으면 내리고, 아니면 가까운 차에. 시작 대기·보스전 뒤로는 못 탄다 */
   private drive(p:ModePlayer) {
     const f = this.fighters.get(p.id);
@@ -848,7 +890,15 @@ export class BattleRoyale implements GameMode {
     }
     this.props.remove(o.id);
     this.broadcast({ k: 'propGone', ids: [ o.id ] });
-    const drops = rollDrops(PROP_KINDS[o.kind]).map(([ kind, lv ], i, list) => {
+    // 로켓슈트는 한 판에 ROCKETS개까지만 (넘으면 이번 드롭에서 뺀다)
+    const rocket = ITEM_KINDS.indexOf('rocket');
+    const rolled = rollDrops(PROP_KINDS[o.kind]).filter(([ kind ]) => {
+      if (kind !== rocket) return true;
+      if (this.rocketsDropped >= ROCKETS) return false;
+      this.rocketsDropped++;
+      return true;
+    });
+    const drops = rolled.map(([ kind, lv ], i, list) => {
       // 여러 개면 둘레에 조금씩 떨어뜨린다
       const a = (i / Math.max(1, list.length)) * Math.PI * 2;
       const d = list.length > 1 ? 0.6 : 0;
@@ -868,7 +918,7 @@ export class BattleRoyale implements GameMode {
     f.hurtUntil = now + HURT_MS;
     const at = src ?? by?.body;
     this.send(t, { k: 'hurt', dmg, from: by?.name ?? byName, ...(at ? { at: [ Math.round(at.x * 10) / 10, Math.round(at.z * 10) / 10 ] as [number, number] } : {}) });
-    if (by) this.send(by, { k: 'hit', target: t.id, dmg, head });
+    if (by) this.send(by, { k: 'hit', target: t.id, dmg, head, crit: this.critShot });
     // 기록: 준 피해·처치·사망
     const bySt = by ? this.stats.get(by.id) : undefined;
     if (bySt) bySt.damage += dmg;
@@ -926,8 +976,9 @@ export class BattleRoyale implements GameMode {
     // 20분: 최종 원 가운데에 보스
     if (this.phase === 'play' && this.elapsed >= MATCH_MS) {
       this.phase = 'boss';
-      // 보스전: 모두 차에서 내린다 (이제 못 탄다)
+      // 보스전: 모두 차에서 내린다 (이제 못 탄다), 로켓슈트는 부서진다
       this.cars.exitAll();
+      this.destroyRockets();
       const alive = all.filter((p) => !this.fighters.get(p.id)?.respawnAt).length;
       this.boss.spawn(this.match.circles[this.match.circles.length - 1], alive, DIFF, now);
       // 땅의 좀비는 모두 불타 사라지고, 이제부터는 보스가 부르는 좀비만

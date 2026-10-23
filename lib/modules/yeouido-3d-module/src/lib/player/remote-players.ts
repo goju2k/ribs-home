@@ -35,13 +35,16 @@ function nameTag(name:string) {
     textAlign: 'center',
   });
   // 이름표 아래 막대 (게임 모드가 정함 — 예: 체력)
+  // 막 깎인 만큼은 하얀 띠(lag)로 잠깐 남았다가 줄어든다 — 한 방에 많이 깎여도 얼마나 깎였는지 보이게
   const bar = document.createElement('div');
-  Object.assign(bar.style, { height: '3px', marginTop: '1px', background: '#0b0e22', display: 'none' });
+  Object.assign(bar.style, { position: 'relative', height: '4px', marginTop: '1px', background: '#0b0e22', outline: '1px solid #0b0e22', display: 'none' });
+  const lag = document.createElement('div');
+  Object.assign(lag.style, { position: 'absolute', left: '0', top: '0', height: '100%', width: '100%', background: '#f4f4f8', transition: 'width 0.45s ease-in 0.2s' });
   const fill = document.createElement('div');
-  Object.assign(fill.style, { height: '100%', width: '100%', background: '#5fd35f' });
-  bar.appendChild(fill);
+  Object.assign(fill.style, { position: 'absolute', left: '0', top: '0', height: '100%', width: '100%', background: '#5fd35f' });
+  bar.append(lag, fill);
   el.appendChild(bar);
-  return { el, bar, fill };
+  return { el, bar, fill, lag };
 }
 
 interface Shown {
@@ -49,6 +52,7 @@ interface Shown {
   tag: HTMLDivElement;
   bar: HTMLDivElement;
   fill: HTMLDivElement;
+  lag: HTMLDivElement;
   /** 지금 막대 값 (바뀔 때만 DOM을 고친다) */
   barV: number | null;
   /** 모습 종류 (바뀌면 다시 만든다), 몸 크기 배율 */
@@ -102,13 +106,13 @@ export class RemotePlayers {
         if (s) this.remove(r.id);
         const app = r.k ? appearance(r.k) : null;
         const person = createPerson(app?.look ?? { shirt: SHIRTS[r.id % SHIRTS.length], pants: PANTS[r.id % PANTS.length], skin: '#f1c7a0', hair: '#2a1d14' });
-        const { el: tag, bar, fill } = nameTag(r.name || (r.k ? '' : `#${r.id}`));
+        const { el: tag, bar, fill, lag } = nameTag(r.name || (r.k ? '' : `#${r.id}`));
         // NPC는 이름표 대신 막대만 (모드가 이름표를 원하면 이름 칸을 쓴다)
         if (app && !app.tag) tag.firstChild!.textContent = '';
         else if (app?.name) tag.firstChild!.textContent = app.name;
         this.scene.add(person.root);
         this.layer.appendChild(tag);
-        s = { person, tag, bar, fill, barV: null, k: r.k, scale: app?.scale ?? 1, name: r.name, head: new THREE.Vector3(), on: false, lx: r.x, lz: r.z, speed: 0 };
+        s = { person, tag, bar, fill, lag, barV: null, k: r.k, scale: app?.scale ?? 1, name: r.name, head: new THREE.Vector3(), on: false, lx: r.x, lz: r.z, speed: 0 };
         this.shown.set(r.id, s);
       }
       const lk = look(r);
@@ -118,12 +122,14 @@ export class RemotePlayers {
       const bare = !s.tag.firstChild?.textContent;
       s.tag.style.padding = bare ? '0' : '1px 5px';
       s.tag.style.background = bare ? 'transparent' : 'rgba(11,14,34,0.7)';
-      s.tag.style.minWidth = bare ? '24px' : '';
+      // 이름 없는 NPC(좀비·보스)는 막대만: 몸 위에 보일 만큼 넓게
+      s.tag.style.minWidth = bare ? '40px' : '';
       if (lk.bar !== s.barV) {
         s.barV = lk.bar;
         s.bar.style.display = lk.bar === null ? 'none' : 'block';
         if (lk.bar !== null) {
           s.fill.style.width = `${Math.round(lk.bar * 100)}%`;
+          s.lag.style.width = `${Math.round(lk.bar * 100)}%`;
           s.fill.style.background = barColor(lk.bar);
         }
       }

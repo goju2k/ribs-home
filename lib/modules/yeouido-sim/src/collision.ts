@@ -75,7 +75,15 @@ export class Collision {
   /** 차가 옮겨지거나(pose) 누가 타서 빠질 때(null) — 화면이 따라 그린다 */
   readonly vehicleListeners:((idx:number, pose:VehiclePose | null, driven:boolean) => void)[] = [];
 
+  /** 걸어서 갈 수 있는 땅 (4m 칸, 처음 물을 때 만든다) — 시작 기준점은 지도의 시작 자리(여의도공원) */
+  private reach:Uint8Array | null = null;
+
+  private spawn:{ x: number; z: number; };
+
+  private reachW = 0;
+
   constructor(data:WorldData) {
+    this.spawn = data.spawn;
     this.grid = decodeCollision(data.collision);
     this.w = data.collision.w;
     this.h = data.collision.h;
@@ -169,6 +177,43 @@ export class Collision {
     boxes.forEach(this.addBox);
     this.vehicleBoxesOf.set(idx, boxes);
     this.vehicleListeners.forEach((fn) => fn(idx, pose, driven));
+  }
+
+  /**
+   * 시작 자리(여의도공원)에서 걸어서 갈 수 있는 땅인지 — 다리로 이어진 땅은 되고, 밤섬처럼 물로 끊긴 섬은 안 된다.
+   * 4m 칸마다 가운데 1m 칸이 빈 땅인지로 이어 본다 (서버가 시작 자리·아이템 놓을 때만 쓴다)
+   */
+  isReachable(x:number, z:number) {
+    const C = 4;
+    if (!this.reach) {
+      const W = Math.ceil((this.halfW * 2) / C);
+      const H = Math.ceil((this.halfD * 2) / C);
+      const open = (cx:number, cz:number) => this.at(cx * C - this.halfW + C / 2, cz * C - this.halfD + C / 2) === BLOCK.NONE;
+      const mark = new Uint8Array(W * H);
+      const sx = Math.floor((this.spawn.x + this.halfW) / C);
+      const sz = Math.floor((this.spawn.z + this.halfD) / C);
+      const stack = [ sz * W + sx ];
+      mark[sz * W + sx] = 1;
+      while (stack.length) {
+        const i = stack.pop()!;
+        const cx = i % W;
+        const cz = (i - cx) / W;
+        [[ 1, 0 ], [ -1, 0 ], [ 0, 1 ], [ 0, -1 ]].forEach(([ dx, dz ]) => {
+          const nx = cx + dx;
+          const nz = cz + dz;
+          if (nx < 0 || nz < 0 || nx >= W || nz >= H) return;
+          const j = nz * W + nx;
+          if (mark[j] || !open(nx, nz)) return;
+          mark[j] = 1;
+          stack.push(j);
+        });
+      }
+      this.reach = mark;
+      this.reachW = W;
+    }
+    const cx = Math.floor((x + this.halfW) / C);
+    const cz = Math.floor((z + this.halfD) / C);
+    return this.reach[cz * this.reachW + cx] === 1;
   }
 
   /** (x, z)의 차 충돌 상자 중 가장 높은 것 (없으면 0) — 그보다 낮으면 막히고, 위에 서면 바닥 */

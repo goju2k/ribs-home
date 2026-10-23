@@ -141,7 +141,8 @@ export function pickSpawn(sim:SimWorld, zone:Circle, rand:() => number = Math.ra
   const ground = ():Spawn | null => {
     for (let i = 0; i < 200; i++) {
       const p = randomIn();
-      if (inZone(p.x, p.z) && !collision.blocked(p.x, p.z, 0.6)) return { x: p.x, y: 0, z: p.z, b: -1, l: 1 };
+      // 걸어서 못 나오는 곳(밤섬 등 다리 없는 섬)은 건너뛴다
+      if (inZone(p.x, p.z) && !collision.blocked(p.x, p.z, 0.6) && collision.isReachable(p.x, p.z)) return { x: p.x, y: 0, z: p.z, b: -1, l: 1 };
     }
     return null;
   };

@@ -49,7 +49,7 @@ export interface BrHudState {
   /** 맞힘 표시 (조준선 X, 0~1 사라지는 정도·머리) */
   hitMark: { age: number; head: boolean; } | null;
   /** 방금 내가 준 피해 (사라지는 숫자, 머리면 크게) */
-  hits: { id: number; dmg: number; age: number; head: boolean; }[];
+  hits: { id: number; dmg: number; age: number; head: boolean; crit: boolean; x: number; }[];
   /** 중독: 남은 초 (0 = 아님, 화면 가장자리 초록) */
   poison: number;
   /** 내 장비 (칸마다 단계, 0 = 없음) */
@@ -104,7 +104,8 @@ export class BrClient implements ModeClient {
 
   private feed:{ id: number; text: string; at: number; }[] = [];
 
-  private hits:{ id: number; dmg: number; at: number; head: boolean; }[] = [];
+  /** x: 숫자가 겹치지 않게 좌우로 조금씩 (-1~1) */
+  private hits:{ id: number; dmg: number; at: number; head: boolean; crit: boolean; x: number; }[] = [];
 
   private seq = 0;
 
@@ -250,7 +251,7 @@ export class BrClient implements ModeClient {
     this.wall.renderOrder = 10;
     this.wall.visible = false;
     host.scene.add(this.wall);
-    this.items = new ItemMeshes(host.scene);
+    this.items = new ItemMeshes(host.scene, host.overlay);
     this.props = new PropMeshes(host.scene);
     this.shots = new ShotFx(host.scene);
     this.viewGun = new ViewGun(host.camera);
@@ -404,7 +405,7 @@ export class BrClient implements ModeClient {
     else if (m.k === 'hit') {
       this.hitMarkAt = now;
       this.hitMarkHead = !!m.head;
-      this.hits.push({ id: ++this.seq, dmg: m.dmg, at: now, head: !!m.head });
+      this.hits.push({ id: ++this.seq, dmg: m.dmg, at: now, head: !!m.head, crit: !!m.crit, x: Math.random() * 2 - 1 });
       if (this.hits.length > 6) this.hits.shift();
     } else if (m.k === 'hurt') {
       this.hurtAt = now;
@@ -443,7 +444,7 @@ export class BrClient implements ModeClient {
     else if (m.k === 'propGone') m.ids.forEach((id) => this.props.remove(id));
     else if (m.k === 'hitProp') {
       this.props.hit(m.id, -1, now);
-      this.hits.push({ id: ++this.seq, dmg: m.dmg, at: now, head: false });
+      this.hits.push({ id: ++this.seq, dmg: m.dmg, at: now, head: false, crit: false, x: Math.random() * 2 - 1 });
       if (this.hits.length > 6) this.hits.shift();
     } else if (m.k === 'boss') {
       this.bossId = m.id;
@@ -698,6 +699,10 @@ export class BrClient implements ModeClient {
     return fuel > 0 ? `F: 차 타기 (연료 ${fuel}%)` : '연료가 없는 차 (탈 수 없음)';
   }
 
+  placeTags(camera:THREE.Camera, w:number, h:number) {
+    this.items.placeTags(camera, w, h);
+  }
+
   acted(act:number, now:number, aim:ActAim) {
     // 시작 대기 중엔 걷기만 (서버도 쏘기·파밍을 받지 않는다), 차 안에서는 무기·파밍 없음
     if (this.lobbyElapsed !== null || (this.me && this.me.car >= 0)) return 0;
@@ -893,7 +898,7 @@ export class BrClient implements ModeClient {
       } : null,
       setReady: this.setReady,
       feed: this.feed.map(({ id, text }) => ({ id, text })),
-      hits: this.hits.map(({ id, dmg, at, head }) => ({ id, dmg, age: (now - at) / HIT_MS, head })),
+      hits: this.hits.map(({ id, dmg, at, head, crit, x }) => ({ id, dmg, age: (now - at) / HIT_MS, head, crit, x })),
       hitMark: now - this.hitMarkAt < HIT_MARK_MS ? { age: (now - this.hitMarkAt) / HIT_MARK_MS, head: this.hitMarkHead } : null,
       poison: this.deadInfo ? 0 : Math.max(0, Math.ceil((this.poisonUntil - now) / 1000)),
       gear: this.gear,

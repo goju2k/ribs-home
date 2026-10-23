@@ -32,7 +32,7 @@ export type DropRow = [ItemKind | null, number, number, number];
  */
 const weapons = (total:number, lo:number, hi:number):DropRow[] => WEAPON_KINDS.map((k):DropRow => [ k, total / WEAPON_KINDS.length, lo, hi ]);
 
-/** 물건마다: 떨어뜨리는 개수 범위와 표 (개수만큼 표에서 따로 뽑는다) */
+/** 물건마다: 떨어뜨리는 개수 범위와 표 (개수만큼 표에서 따로 뽑는다). 로켓슈트는 사기성이라 상자에서만, 한 판에 최대 두 개 (서버 ROCKETS) */
 export const DROPS:Record<PropKind, { count: [number, number]; table: DropRow[]; }> = {
   crate: {
     count: [ 1, 1 ],
@@ -40,11 +40,11 @@ export const DROPS:Record<PropKind, { count: [number, number]; table: DropRow[];
   },
   parcel: {
     count: [ 1, 2 ],
-    table: [[ 'shoes', 4, 1, 2 ], [ 'armor', 3, 1, 2 ], [ 'hammer', 2, 1, 1 ], [ 'rocket', 1, 1, 1 ], [ 'heal', 2, HEAL_MIN, HEAL_MAX ], ...weapons(7.2, 1, 2) ],
+    table: [[ 'shoes', 4, 1, 2 ], [ 'armor', 3, 1, 2 ], [ 'hammer', 2, 1, 1 ], [ 'heal', 2, HEAL_MIN, HEAL_MAX ], ...weapons(7.2, 1, 2) ],
   },
   safe: {
     count: [ 2, 3 ],
-    table: [[ 'armor', 3, 2, 3 ], [ 'shoes', 3, 2, 3 ], [ 'rocket', 2, 1, 2 ], [ 'heal', 4, HEAL_MIN, HEAL_MAX ], [ 'hammer', 1, 2, 3 ], ...weapons(8.5, 2, 3) ],
+    table: [[ 'armor', 3, 2, 3 ], [ 'shoes', 3, 2, 3 ], [ 'heal', 4, HEAL_MIN, HEAL_MAX ], [ 'hammer', 1, 2, 3 ], ...weapons(8.5, 2, 3) ],
   },
 };
 

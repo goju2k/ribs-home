@@ -1,6 +1,9 @@
 import * as THREE from 'three';
-import { GroundItem, ITEM_KINDS, ItemKind } from 'yeouido-br';
+import { GroundItem, isConsumable, ITEM_KINDS, ITEM_NAMES, ItemKind } from 'yeouido-br';
 
+import { itemIcon } from './item-icons';
+
+import { PIXEL_FONT } from '../../ui/pixel';
 import { pixelSnap, stepAngle } from '../../ui/pixel-snap';
 
 /** 아이템 색 (미니맵 점·HUD 칸도 같은 색) */
@@ -40,7 +43,40 @@ function shapes() {
 }
 
 interface Shown {
-  it: GroundItem; mesh: THREE.Mesh; beam: THREE.Mesh; base: number; phase: number;
+  /** tag: 빛기둥 꼭대기 표식 (아이콘 + 이름), name: 그 안의 이름 글자 */
+  it: GroundItem; mesh: THREE.Mesh; beam: THREE.Mesh; base: number; phase: number; tag: HTMLDivElement; name: HTMLSpanElement; on: boolean; near: boolean;
+}
+
+/** 이보다 가까우면 표식에 이름도 (멀면 아이콘만 — 화면이 글자로 덮이지 않게) */
+const NAME_RANGE = 60;
+
+/** 빛기둥 꼭대기 표식: 아이템 색 테두리 + 도트 아이콘 + 이름 (저해상도 3D 화면에 그리면 뭉개져서 화면 위 HTML로) */
+function itemTag(it:GroundItem) {
+  const kind = ITEM_KINDS[it[1]] ?? 'armor';
+  const color = ITEM_COLORS[kind];
+  const el = document.createElement('div');
+  Object.assign(el.style, {
+    position: 'absolute',
+    left: '0',
+    top: '0',
+    display: 'none',
+    alignItems: 'center',
+    gap: '3px',
+    padding: '1px 4px 1px 1px',
+    background: 'rgba(11,14,34,0.72)',
+    border: `1px solid ${color}`,
+    pointerEvents: 'none',
+    willChange: 'transform',
+    whiteSpace: 'nowrap',
+  });
+  const img = document.createElement('img');
+  img.src = itemIcon(kind, color);
+  Object.assign(img.style, { width: '24px', height: '24px', imageRendering: 'pixelated', display: 'block' });
+  const name = document.createElement('span');
+  name.textContent = isConsumable(kind) ? `${ITEM_NAMES[kind]} ${it[2]}%` : `${ITEM_NAMES[kind]} +${it[2]}`;
+  Object.assign(name.style, { font: `11px ${PIXEL_FONT}`, lineHeight: '14px', color: '#f4f4f8' });
+  el.append(img, name);
+  return { el, name };
 }
 
 /** 멀리서도 보이게 세우는 빛기둥 높이 (m) */
@@ -63,8 +99,13 @@ export class ItemMeshes {
 
   private mats = Object.fromEntries(ITEM_KINDS.map((k) => [ k, new THREE.MeshLambertMaterial({ color: ITEM_COLORS[k], emissive: ITEM_COLORS[k], emissiveIntensity: 0.35 }) ])) as unknown as Record<ItemKind, THREE.Material>;
 
-  constructor(scene:THREE.Scene) {
+  private overlay:HTMLElement;
+
+  private v = new THREE.Vector3();
+
+  constructor(scene:THREE.Scene, overlay:HTMLElement) {
     this.scene = scene;
+    this.overlay = overlay;
   }
 
   get list() {
@@ -82,13 +123,16 @@ export class ItemMeshes {
     beam.position.set(it[3], it[4], it[5]);
     this.scene.add(mesh, beam);
     pixelSnap.add(mesh);
-    this.shown.set(it[0], { it, mesh, beam, base: it[4] + 0.5, phase: Math.random() * 6 });
+    const { el: tag, name } = itemTag(it);
+    this.overlay.appendChild(tag);
+    this.shown.set(it[0], { it, mesh, beam, base: it[4] + 0.5, phase: Math.random() * 6, tag, name, on: false, near: false });
   }
 
   remove(id:number) {
     const s = this.shown.get(id);
     if (!s) return;
     this.scene.remove(s.mesh, s.beam);
+    s.tag.remove();
     this.shown.delete(id);
   }
 
@@ -103,9 +147,24 @@ export class ItemMeshes {
       const on = (b < 0 || (b === me.b && l === me.l)) && Math.abs(x - me.x) < SHOW_RANGE && Math.abs(z - me.z) < SHOW_RANGE;
       s.mesh.visible = on;
       s.beam.visible = on;
+      s.on = on;
+      s.near = Math.hypot(x - me.x, z - me.z) < NAME_RANGE;
       if (!on) return;
       s.mesh.position.y = s.base + Math.sin(t * 2 + s.phase) * 0.12;
       s.mesh.rotation.y = stepAngle(t * 1.5 + s.phase);
+    });
+  }
+
+  /** 카메라를 맞춘 뒤: 표식을 빛기둥 꼭대기 화면 위치로 (w, h = 캔버스 CSS 크기) */
+  placeTags(camera:THREE.Camera, w:number, h:number) {
+    this.shown.forEach((s) => {
+      const p = this.v.set(s.it[3], s.it[4] + BEAM_H + 0.3, s.it[5]).project(camera);
+      const off = !s.on || p.x < -1.1 || p.x > 1.1 || p.y < -1.1 || p.y > 1.1 || p.z > 1 || p.z < -1;
+      s.tag.style.display = off ? 'none' : 'flex';
+      if (off) return;
+      s.name.style.display = s.near ? 'inline' : 'none';
+      s.tag.style.padding = s.near ? '1px 4px 1px 1px' : '1px';
+      s.tag.style.transform = `translate(${Math.round(((p.x + 1) / 2) * w)}px, ${Math.round(((1 - p.y) / 2) * h)}px) translate(-50%, -100%)`;
     });
   }
 
