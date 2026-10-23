@@ -496,12 +496,17 @@ export class BattleRoyale implements GameMode {
     if (st.hitscan) {
       // 되감는 동안 움직였을 거리·보스 몸집만큼 여유
       const targets = this.shotTargets(now, p.lagMs, o, st.range + TARGET_SLACK);
-      // 맞은 곳 종류 (화면의 타격 효과용): 0 벽·땅, 1 몸, 2 머리, 3 허공
+      // 맞은 곳 종류 (화면의 타격 효과용): 0 벽·땅, 1 몸, 2 머리, 3 허공 — 좀비 4·5, 보스 6·7 (몸·머리, 크게 튄다)
       const ht:number[] = [];
+      const hitType = (id:number, head:boolean) => {
+        if (this.fighters.has(id)) return head ? 2 : 1;
+        if (id === this.boss.npc?.id) return head ? 7 : 6;
+        return head ? 5 : 4;
+      };
       const es = dirs.map((dir) => {
         const { end, target, head, dist } = hitscan(this.host.sim, o, dir, st.range, body.b, body.l, targets, p.id);
         if (target) target.hit(Math.max(1, Math.round(st.damage * falloff(st, dist) * (head ? st.headMul : 1))), p, head);
-        ht.push(target ? (head ? 2 : 1) : dist < st.range - 0.05 ? 0 : 3); // eslint-disable-line no-nested-ternary
+        ht.push(target ? hitType(target.id, head) : dist < st.range - 0.05 ? 0 : 3); // eslint-disable-line no-nested-ternary
         return at3(...end);
       });
       this.sendNear(body.x, body.z, { k: 'shot', by: p.id, w: WEAPON_KINDS.indexOf(kind), o: at3(...o), es, ht });

@@ -63,7 +63,7 @@ export type BrServerMsg =
   /** 내가 물건을 침 */
   | { k: 'hitProp'; id: number; dmg: number; }
   /** 총: 쏜 자리 → 알마다 끝(맞은 곳·벽·사거리 끝) 궤적 (근처 사람에게), by = 쏜 사람, w = 무기 번호(WEAPON_KINDS) */
-  /** ht: 알마다 맞은 곳 (0 벽·땅, 1 몸, 2 머리, 3 허공 — 사거리 끝) */
+  /** ht: 알마다 맞은 곳 (0 벽·땅, 1 몸, 2 머리, 3 허공 — 사거리 끝, 4·5 좀비 몸·머리, 6·7 보스 몸·머리) */
   | { k: 'shot'; by: number; w: number; o: [number, number, number]; es: [number, number, number][]; ht: number[]; }
   /** 화살: 쏜 자리·방향(길이 1)·속도·사거리 — 클라이언트가 같이 날린다 */
   | { k: 'arrow'; id: number; by: number; o: [number, number, number]; d: [number, number, number]; v: number; range: number; g: number; }

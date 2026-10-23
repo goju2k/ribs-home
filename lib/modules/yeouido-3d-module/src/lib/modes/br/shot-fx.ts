@@ -14,6 +14,11 @@ export const HIT_SURFACE = 0;
 export const HIT_BODY = 1;
 export const HIT_HEAD = 2;
 export const HIT_AIR = 3;
+/** 좀비 몸·머리, 보스 몸·머리 (사람끼리는 HIT_BODY·HIT_HEAD 그대로) */
+export const HIT_NPC_BODY = 4;
+export const HIT_NPC_HEAD = 5;
+export const HIT_BOSS_BODY = 6;
+export const HIT_BOSS_HEAD = 7;
 
 /** 무기마다 효과 크기 배율·총구 불꽃 반지름 (m) — 셀수록 크게 */
 const WEAPON_FX:Record<string, { impact: number; flash: number; }> = {
@@ -26,17 +31,31 @@ const WEAPON_FX:Record<string, { impact: number; flash: number; }> = {
 };
 const DEFAULT_FX = WEAPON_FX.pistol;
 
-/** 맞은 곳마다: 파편 수·색·튀는 속도(m/s)·크기(m), 먼지(피) 색·반지름, 번쩍임 색 */
-const IMPACT = {
-  [HIT_SURFACE]: { count: 7, color: '#ffd77a', speed: 4, size: 0.06, puff: '#cfc6b0', puffR: 0.45, flash: '#fff4c0' },
-  [HIT_BODY]: { count: 9, color: '#b3121b', speed: 3, size: 0.07, puff: '#8a0f16', puffR: 0.4, flash: '#ff6a5a' },
-  [HIT_HEAD]: { count: 16, color: '#d01822', speed: 4.5, size: 0.08, puff: '#ffffff', puffR: 0.65, flash: '#ffffff' },
-} as const;
+/**
+ * 맞은 곳마다: 파편 수·색·튀는 속도(m/s)·크기(m), 먼지(피) 색·반지름, 번쩍임 색·크기, 흙먼지(오래 남는 회색)·살점(굵은 조각)·충격 고리 반지름 (0 = 없음)
+ * 벽·땅과 좀비·보스는 과장되게 (타격감), 사람끼리(몸·머리)는 그대로
+ */
+interface ImpactFx {
+  count: number; color: string; speed: number; size: number; puff: string; puffR: number; flash: string; flashR: number; dust: number; gibs: number; ring: number;
+}
+const IMPACT:Record<number, ImpactFx> = {
+  [HIT_SURFACE]: { count: 13, color: '#ffd77a', speed: 5.5, size: 0.08, puff: '#cfc6b0', puffR: 0.7, flash: '#fff4c0', flashR: 0.4, dust: 0.9, gibs: 0, ring: 0 },
+  [HIT_BODY]: { count: 9, color: '#b3121b', speed: 3, size: 0.07, puff: '#8a0f16', puffR: 0.4, flash: '#ff6a5a', flashR: 0.22, dust: 0, gibs: 0, ring: 0 },
+  [HIT_HEAD]: { count: 16, color: '#d01822', speed: 4.5, size: 0.08, puff: '#ffffff', puffR: 0.65, flash: '#ffffff', flashR: 0.22, dust: 0, gibs: 0, ring: 0 },
+  [HIT_NPC_BODY]: { count: 22, color: '#b3121b', speed: 6, size: 0.11, puff: '#7a0c12', puffR: 0.95, flash: '#ff4a3a', flashR: 0.5, dust: 0, gibs: 5, ring: 0.9 },
+  [HIT_NPC_HEAD]: { count: 34, color: '#d01822', speed: 7.5, size: 0.13, puff: '#ffffff', puffR: 1.3, flash: '#ffffff', flashR: 0.7, dust: 0, gibs: 9, ring: 1.3 },
+  [HIT_BOSS_BODY]: { count: 30, color: '#b3121b', speed: 8, size: 0.2, puff: '#5a0a10', puffR: 1.8, flash: '#ff4a3a', flashR: 0.9, dust: 0, gibs: 8, ring: 1.8 },
+  [HIT_BOSS_HEAD]: { count: 44, color: '#d01822', speed: 9, size: 0.22, puff: '#ffffff', puffR: 2.4, flash: '#ffffff', flashR: 1.2, dust: 0, gibs: 12, ring: 2.4 },
+};
 
 /** 총구 불꽃·맞은 자리 먼지·번쩍임이 보이는 시간 (ms), 파편이 날아다니는 시간 (ms) */
 const FLASH_MS = 60;
 const PUFF_MS = 260;
 const SPARK_MS = 280;
+/** 흙먼지·충격 고리·살점이 보이는 시간 (ms) */
+const DUST_MS = 650;
+const RING_MS = 180;
+const GIB_MS = 700;
 /** 독 파이어볼 터짐이 보이는 시간 (ms) */
 const BURST_MS = 450;
 /** 박힌 화살이 남아 있는 시간 (ms) */
@@ -81,6 +100,9 @@ export class ShotFx {
 
   private unitBall = new THREE.SphereGeometry(1, 8, 6);
 
+  /** 충격 고리 (쏜 쪽을 보는 얇은 원판 고리) */
+  private unitRing = new THREE.RingGeometry(0.8, 1, 16);
+
   private sparkMats = new Map<string, THREE.MeshBasicMaterial>();
 
   private arrows = new Map<number, Flying>();
@@ -119,8 +141,8 @@ export class ShotFx {
   }
 
   /** 잠깐 보이는 구 (총구 불꽃·먼지·번쩍임): 반지름 from → to, 점점 투명하게 */
-  private puff(at:THREE.Vector3, color:string, from:number, to:number, ms:number, now:number) {
-    const mesh = new THREE.Mesh(this.unitBall, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false }));
+  private puff(at:THREE.Vector3, color:string, from:number, to:number, ms:number, now:number, geo:THREE.BufferGeometry = this.unitBall) {
+    const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide }));
     mesh.position.copy(at);
     mesh.scale.setScalar(from);
     this.scene.add(mesh);
@@ -139,12 +161,30 @@ export class ShotFx {
    */
   impact(at:[number, number, number], from:[number, number, number], kind:string, type:number, now:number) {
     if (type === HIT_AIR) return;
-    const fx = IMPACT[type as 0 | 1 | 2] ?? IMPACT[HIT_SURFACE];
+    const fx = IMPACT[type] ?? IMPACT[HIT_SURFACE];
     const k = (WEAPON_FX[kind] ?? DEFAULT_FX).impact;
     const p = new THREE.Vector3(...at);
     const back = new THREE.Vector3(...from).sub(p).normalize();
-    this.puff(p, fx.flash, 0.06 * k, 0.22 * k, FLASH_MS, now);
+    this.puff(p, fx.flash, 0.06 * k, fx.flashR * k, FLASH_MS * (fx.ring ? 1.5 : 1), now);
     this.puff(p, fx.puff, 0.1 * k, fx.puffR * k, PUFF_MS, now);
+    // 벽·땅: 회색 흙먼지가 조금 더 오래 피어오른다
+    if (fx.dust) this.puff(p.clone().addScaledVector(back, 0.1), '#a89f8c', 0.15 * k, fx.dust * k, DUST_MS, now);
+    // 좀비·보스: 쏜 쪽을 보는 하얀 충격 고리가 확 퍼진다
+    if (fx.ring) {
+      this.puff(p.clone().addScaledVector(back, 0.05), '#fff6e0', 0.1, fx.ring * Math.max(1, k), RING_MS, now, this.unitRing);
+      this.puffs[this.puffs.length - 1].mesh.lookAt(p.clone().add(back));
+    }
+    // 좀비·보스: 굵은 살점이 쏜 반대쪽으로 튀어 떨어진다
+    for (let i = 0; i < fx.gibs; i++) {
+      const v = new THREE.Vector3(Math.random() - 0.5, 0.4 + Math.random() * 0.8, Math.random() - 0.5).normalize().addScaledVector(back, -0.8).normalize()
+        .multiplyScalar(fx.speed * 0.6 * (0.6 + Math.random() * 0.6));
+      const mesh = new THREE.Mesh(this.unitBox, this.sparkMat(i % 2 ? '#5a0a10' : '#8a1018'));
+      const size = fx.size * 1.8 * (0.7 + Math.random() * 0.6);
+      mesh.scale.setScalar(size);
+      mesh.position.copy(p);
+      this.scene.add(mesh);
+      this.sparks.push({ mesh, v, at: now, ms: GIB_MS * (0.7 + Math.random() * 0.5), size });
+    }
     const n = Math.max(3, Math.round(fx.count * Math.min(1.5, k)));
     for (let i = 0; i < n; i++) {
       // 쏜 쪽 반구로 무작위 (조금 위로)

@@ -19,12 +19,13 @@ export interface Person {
   /**
    * animate 뒤에 덮어쓰는 동작 (게임 모드가 정한 모습):
    * swing 0~1 = 오른팔 앞으로 내지르기 진행, down = 누움, glow = 몸을 이 색으로 번쩍 (예: 맞음 빨강, 불탐 주황), null이면 없음
+   * jolt 0~1 = 맞아서 움찔 (뒤로 젖혀지고 머리가 꺾이며 살짝 주저앉는다, 1 = 막 맞음)
    */
   pose: (p:PersonPose) => void;
 }
 
 export interface PersonPose {
-  swing: number; down: boolean; glow: string | null;
+  swing: number; down: boolean; glow: string | null; jolt?: number;
 }
 
 // 실제 비율: 키 1.72m, 어깨 폭 0.42m
@@ -138,11 +139,19 @@ export function createPerson(look:PersonLook, silhouette = false):Person {
       armR.rotation.x = -1.55 * Math.sin(Math.PI * Math.min(1, p.swing));
       body.rotation.y = 0.35 * Math.sin(Math.PI * Math.min(1, p.swing)); // 허리도 살짝 튼다
     } else body.rotation.y = 0;
+    const j = p.jolt ?? 0;
     if (p.down) {
       // 발 쪽을 축으로 뒤로 누움 (얼굴이 위로)
       body.rotation.x = -Math.PI / 2;
       body.position.y = 0.12;
-    }
+    } else if (j > 0) {
+      // 맞음: 뒤로 크게 젖혀졌다가 돌아온다 (빨리 젖히고 천천히 — 이미 1에서 줄어드는 값), 머리는 더 꺾이고 팔은 들린다, 살짝 주저앉음
+      body.rotation.x -= 0.55 * j;
+      head.rotation.x = -0.6 * j;
+      armL.rotation.x -= 0.9 * j;
+      armR.rotation.x -= 0.9 * j;
+      body.position.y -= 0.08 * j;
+    } else head.rotation.x = 0;
     if (p.glow !== glowing) {
       glowing = p.glow;
       mats.forEach((m) => m.emissive.set(p.glow ?? look.glow ?? '#000000'));

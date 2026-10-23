@@ -9,7 +9,7 @@ import { CAR, carPose, castRay, isRideable, STEP } from 'yeouido-sim';
 import { HurtFx } from './hurt-fx';
 import { ITEM_COLORS, ItemMeshes } from './item-meshes';
 import { PropMeshes } from './prop-meshes';
-import { HIT_AIR, HIT_BODY, HIT_HEAD, HIT_SURFACE, ShotFx } from './shot-fx';
+import { HIT_AIR, HIT_BODY, HIT_BOSS_BODY, HIT_BOSS_HEAD, HIT_HEAD, HIT_NPC_BODY, HIT_NPC_HEAD, HIT_SURFACE, ShotFx } from './shot-fx';
 import { ViewGun } from './view-gun';
 
 import { createPerson, Person } from '../../player/person';
@@ -28,6 +28,9 @@ const FEED_MS = 6000;
 const HIT_MS = 700;
 /** 다른 사람 휘두르는 동작 길이 (ms) — 무기마다 조금 다르지만 화면용이라 하나로 */
 const REMOTE_SWING_MS = 320;
+/** 좀비·보스가 맞았을 때 움찔하는 시간·처음 하얗게 번쩍이는 시간 (ms) — 보이는 것만 (판정·자리는 그대로) */
+const JOLT_MS = 260;
+const JOLT_FLASH_MS = 70;
 /** 맞힘 표시(조준선 X)가 보이는 시간 (ms) */
 const HIT_MARK_MS = 180;
 /** 주운 것 알림 시간 (ms) */
@@ -129,6 +132,12 @@ export class BrClient implements ModeClient {
   /** 휘두르기 시작 시각 (사람 키마다: 0 = 나) — 비트가 켜진 순간을 잡아 동작 진행을 맞춘다 */
   private swingAt = new Map<number, number>();
 
+  /** 좀비·보스가 맞은 시각 (움찔) — 내가 쏴 맞힌 것은 바로, 남이 쏜 것은 맞음 상태가 켜질 때 */
+  private joltAt = new Map<number, number>();
+
+  /** 지난 장면에 맞음 상태였던 좀비·보스 */
+  private hurtSeen = new Set<number>();
+
   private localSwingAt = -1e9;
 
   /** 이 화면에서 잰 다음 파밍 가능 시각 */
@@ -177,8 +186,8 @@ export class BrClient implements ModeClient {
   /** 가까이 탈 수 있는 차 (decor 번호, 없으면 -1) */
   private nearCar = -1;
 
-  /** 옮겨진 차의 지금 자리 (내리면 바뀐다) */
-  private carAt = new Map<number, { x: number; z: number; }>();
+  /** 옮겨진 차의 지금 자리·방향 (내리면 바뀐다) */
+  private carAt = new Map<number, { x: number; z: number; dx: number; dz: number; }>();
 
   private me:ModeFrame['me'] | null = null;
 
@@ -291,7 +300,7 @@ export class BrClient implements ModeClient {
       m.moved.forEach(([ idx, x, z, dx, dz ]) => {
         collision.setVehicle(idx, { x, z, dx, dz });
         this.movedCars.add(idx);
-        this.carAt.set(idx, { x, z });
+        this.carAt.set(idx, { x, z, dx, dz });
       });
       m.drivers.forEach(([ pid, idx ]) => {
         this.drivers.set(pid, idx);
@@ -304,7 +313,7 @@ export class BrClient implements ModeClient {
       this.drivers.delete(m.pid);
       const [ x, z, dx, dz ] = m.pose;
       collision.setVehicle(m.idx, { x, z, dx, dz });
-      this.carAt.set(m.idx, { x, z });
+      this.carAt.set(m.idx, { x, z, dx, dz });
       this.carFuel.set(m.idx, m.fuel);
     }
   }
@@ -325,6 +334,14 @@ export class BrClient implements ModeClient {
     if (f.me.car >= 0 && this.drivers.get(myId) !== f.me.car) {
       this.drivers.set(myId, f.me.car);
       this.movedCars.add(f.me.car);
+    }
+    // 반대로 내린 소식이 몸보다 먼저 와 위에서 다시 내 차로 적혔으면, 몸이 내린 걸 보는 순간 지우고 내린 자리로 되돌린다
+    // (안 지우면 그 차를 남이 탄 차로 여겨 타기 안내·버튼이 안 나온다)
+    const stale = this.drivers.get(myId);
+    if (f.me.car < 0 && stale !== undefined) {
+      this.drivers.delete(myId);
+      const at = this.carAt.get(stale);
+      if (at) collision.setVehicle(stale, at);
     }
   }
 
@@ -482,7 +499,7 @@ export class BrClient implements ModeClient {
 
   /** 내 화면에 보이는 사람·NPC 중 광선이 먼저 닿는 것 (세운 원기둥, 서버 판정과 같은 모양) — 맞은 자리·머리인지 */
   private rayOthers(o:[number, number, number], d:[number, number, number], maxT:number, others:ModeFrame['others']) {
-    let best:{ t: number; at: [number, number, number]; head: boolean; } | null = null;
+    let best:{ t: number; at: [number, number, number]; head: boolean; id: number; k: number; } | null = null;
     const hl2 = d[0] * d[0] + d[2] * d[2];
     if (hl2 < 1e-6) return null;
     others.forEach((p) => {
@@ -497,9 +514,9 @@ export class BrClient implements ModeClient {
       if (enter < 0 || enter > maxT || (best && enter >= best.t)) return;
       const y = o[1] + d[1] * enter;
       if (y < p.y || y > p.y + h) return;
-      best = { t: enter, at: [ o[0] + d[0] * enter, y, o[2] + d[2] * enter ], head: y >= p.y + h * 0.82 };
+      best = { t: enter, at: [ o[0] + d[0] * enter, y, o[2] + d[2] * enter ], head: y >= p.y + h * 0.82, id: p.id, k: p.k };
     });
-    return best as { t: number; at: [number, number, number]; head: boolean; } | null;
+    return best as { t: number; at: [number, number, number]; head: boolean; id: number; k: number; } | null;
   }
 
   private myName() {
@@ -573,6 +590,18 @@ export class BrClient implements ModeClient {
 
   frame(f:ModeFrame) {
     this.me = f.me;
+    // 남이 쏴 맞은 좀비·보스: 맞음 상태가 켜지는 순간 움찔 (내가 방금 맞혀 이미 움찔 중이면 그대로)
+    f.others.forEach((o) => {
+      if (o.k === 0) return;
+      const hurt = (o.s & ST_HURT) !== 0;
+      if (hurt && !this.hurtSeen.has(o.id)) {
+        this.hurtSeen.add(o.id);
+        if (f.now - (this.joltAt.get(o.id) ?? -1e9) > JOLT_MS) this.joltAt.set(o.id, f.now);
+      } else if (!hurt) this.hurtSeen.delete(o.id);
+    });
+    this.joltAt.forEach((t, id) => {
+      if (f.now - t > JOLT_MS) this.joltAt.delete(id);
+    });
     this.placeDriven(f);
     this.nearCar = this.deadInfo || this.specInfo ? -1 : this.findNearCar(f.me);
     this.persp = f.persp;
@@ -619,8 +648,14 @@ export class BrClient implements ModeClient {
         dirs.forEach((d, i) => {
           const wall = Math.hypot(es[i][0] - so[0], es[i][1] - so[1], es[i][2] - so[2]);
           const hit = this.rayOthers(so, d, wall, f.others);
-          if (hit) this.shots.impact(hit.at, so, kind, hit.head ? HIT_HEAD : HIT_BODY, f.now);
-          else this.shots.impact(es[i], so, kind, wall < range - 0.05 ? HIT_SURFACE : HIT_AIR, f.now);
+          if (hit) {
+            // 사람끼리는 그대로, 좀비·보스는 크게 + 움찔
+            let type = hit.head ? HIT_HEAD : HIT_BODY;
+            if (hit.k === Z_BOSS) type = hit.head ? HIT_BOSS_HEAD : HIT_BOSS_BODY;
+            else if (hit.k !== 0) type = hit.head ? HIT_NPC_HEAD : HIT_NPC_BODY;
+            this.shots.impact(hit.at, so, kind, type, f.now);
+            if (hit.k !== 0) this.joltAt.set(hit.id, f.now);
+          } else this.shots.impact(es[i], so, kind, wall < range - 0.05 ? HIT_SURFACE : HIT_AIR, f.now);
         });
       } else dirs.forEach((d) => this.shots.ownArrow(o, d, speed, range, f.now, g));
     }
@@ -754,16 +789,20 @@ export class BrClient implements ModeClient {
     const hp = gaugeHp(gv);
     // 차에 탄 사람은 안 그린다 (차가 대신 보인다)
     const inCar = mine ? !!this.me && this.me.car >= 0 : this.drivers.has(key);
+    // 좀비·보스 움찔: 맞은 순간 1에서 줄어든다, 처음 잠깐 하얗게 번쩍
+    const joltAge = mine ? Infinity : now - (this.joltAt.get(key) ?? -1e9);
+    const jolt = joltAge < JOLT_MS ? 1 - joltAge / JOLT_MS : 0;
     return {
       hidden: (st & ST_DEAD) !== 0 || inCar, // 죽으면 시체가 대신 누워 있다
       blink: (st & ST_SHIELD) !== 0,
       bar: mine || hp >= 100 ? null : hp / 100,
       swing,
       down: false,
+      jolt,
       // 불탐(새벽 좀비) 주황, 맞음 빨강
       // 불탐(새벽 좀비) 주황, 땅 울리기 준비(보스) 빨강, 맞음 빨강
       // 보스가 독 파이어볼을 모으면 초록
-      glow: !mine && key === this.bossId && now < this.castUntil ? '#5aff3a' : (st & (ST_BURN | ST_SLAM)) ? (st & ST_BURN ? '#ff7a1a' : '#ff2010') : (st & ST_HURT) ? '#a01010' : null, // eslint-disable-line no-nested-ternary
+      glow: joltAge < JOLT_FLASH_MS ? '#ffffff' : !mine && key === this.bossId && now < this.castUntil ? '#5aff3a' : (st & (ST_BURN | ST_SLAM)) ? (st & ST_BURN ? '#ff7a1a' : '#ff2010') : (st & ST_HURT) ? '#a01010' : null, // eslint-disable-line no-nested-ternary
     };
   }
 
