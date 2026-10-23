@@ -1,8 +1,9 @@
-/* eslint-disable no-continue, no-restricted-syntax -- 도형 생성 반복문 */
+/* eslint-disable no-continue, no-restricted-syntax, no-loop-func -- 도형 생성 반복문 */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { FlatRing, toPoints, WorldData } from 'yeouido-sim';
 
+import { BuildingFacade, facadeOf, FacadeTile, FLOOR } from './facade-kit';
 import { buildLandmarks, landmarkIndices, landmarkModelIndices } from './landmarks';
 import { seeThrough } from './see-through';
 
@@ -172,15 +173,34 @@ const BAY = 3;
 /** 지붕만 있는 구조물: 지붕 가장자리 띠 높이·기둥 굵기 (m) */
 const CANOPY_EDGE = 0.5;
 const CANOPY_POST = 0.3;
-const FLOOR = 3.4;
+
+/** 벽 조각 묶음 — 무늬(텍스처)마다 메시 하나 */
+interface WallBucket {
+  pos: number[]; nor: number[]; uv: number[]; col: number[]; bid: number[];
+  /** 없으면 원래 창문 무늬 (벽색 정점색) */
+  tile?: FacadeTile;
+}
+
+/**
+ * 판상형 끝벽인지: 가장 긴 변과 거의 수직이고 짧은 변 (아파트 측면 — 사진의 줄무늬 끝벽)
+ * longest: 가장 긴 변의 단위 방향·길이
+ */
+function isEndWall(dx:number, dz:number, len:number, longest:{ x: number; z: number; len: number; }) {
+  return len < 20 && len < longest.len * 0.6 && Math.abs(dx * longest.x + dz * longest.z) < 0.5;
+}
 
 function buildBuildings(data:WorldData) {
-  const wallPos:number[] = [];
-  const wallNor:number[] = [];
-  const wallUv:number[] = [];
-  const wallCol:number[] = [];
-  // 건물 번호+1 (0은 건물 아님) — 실내에 들어갔을 때 그 건물만 층 위를 자르고 문을 뚫는 데 쓴다
-  const wallBid:number[] = [];
+  // 무늬마다 벽 묶음. 건물 번호+1 (bid, 0은 건물 아님) — 실내에 들어갔을 때 그 건물만 층 위를 자르고 문을 뚫는 데 쓴다
+  const buckets = new Map<string, WallBucket>();
+  const bucket = (tile?:FacadeTile) => {
+    const key = tile?.key ?? 'default';
+    let b = buckets.get(key);
+    if (!b) {
+      b = { pos: [], nor: [], uv: [], col: [], bid: [], tile };
+      buckets.set(key, b);
+    }
+    return b;
+  };
   const roofGeos:THREE.BufferGeometry[] = [];
   const color = new THREE.Color();
   // 랜드마크는 벽을 따로 그린다 (지붕은 여기서 그대로)
@@ -198,7 +218,15 @@ function buildBuildings(data:WorldData) {
     // (벽을 그리면 보이는 벽을 통과한다)
     const y0 = solid ? 0 : Math.max(0, h - CANOPY_EDGE);
     color.setHex(wallHex);
-    let u = 0;
+    // 외벽 종류 무늬 (지붕만 있는 구조물은 원래대로)
+    const facade:BuildingFacade | null = solid ? facadeOf(bi) : null;
+    const longest = { x: 1, z: 0, len: 0 };
+    ring.forEach((a, i) => {
+      const b = ring[(i + 1) % ring.length];
+      const len = Math.hypot(b.x - a.x, b.z - a.z);
+      if (len > longest.len) Object.assign(longest, { x: (b.x - a.x) / len, z: (b.z - a.z) / len, len });
+    });
+    let u = facade?.shift ?? 0;
     for (let i = 0; i < ring.length && !landmarks.has(bi); i++) {
       const a = ring[i];
       const b = ring[(i + 1) % ring.length];
@@ -213,20 +241,33 @@ function buildBuildings(data:WorldData) {
         nx = -nx;
         nz = -nz;
       }
-      const u0 = u / BAY;
-      const u1 = (u + len) / BAY;
-      const v1 = solid ? h / FLOOR : 0;
       // 법선 방향에 맞게 감기: (b-a)×up = (-dz, dx) 와 같은 쪽이면 a,b 순서 그대로
       const sameSide = nx * -(b.z - a.z) + nz * (b.x - a.x) > 0;
-      const quad = sameSide
-        ? [[ a, y0, u0, 0 ], [ b, y0, u1, 0 ], [ b, h, u1, v1 ], [ a, y0, u0, 0 ], [ b, h, u1, v1 ], [ a, h, u0, v1 ]]
-        : [[ a, y0, u0, 0 ], [ b, h, u1, v1 ], [ b, y0, u1, 0 ], [ a, y0, u0, 0 ], [ a, h, u0, v1 ], [ b, h, u1, v1 ]];
-      for (const [ p, y, uu, vv ] of quad as [P, number, number, number][]) {
-        wallPos.push(p.x, y, p.z);
-        wallNor.push(nx, 0, nz);
-        wallUv.push(uu, vv);
-        wallCol.push(color.r, color.g, color.b);
-        wallBid.push(bi + 1);
+      /** 벽 조각 하나 (높이 ya~yb), 무늬 칸 폭 tw(m)·높이 th(m) */
+      const quad = (bk:WallBucket, ya:number, yb:number, tw:number, th:number, cr:number, cg:number, cb:number) => {
+        const u0 = u / tw;
+        const u1 = (u + len) / tw;
+        const va = ya / th;
+        const vb = yb / th;
+        const vs = sameSide
+          ? [[ a, ya, u0, va ], [ b, ya, u1, va ], [ b, yb, u1, vb ], [ a, ya, u0, va ], [ b, yb, u1, vb ], [ a, yb, u0, vb ]]
+          : [[ a, ya, u0, va ], [ b, yb, u1, vb ], [ b, ya, u1, va ], [ a, ya, u0, va ], [ a, yb, u0, vb ], [ b, yb, u1, vb ]];
+        for (const [ p, y, uu, vv ] of vs as [P, number, number, number][]) {
+          bk.pos.push(p.x, y, p.z);
+          bk.nor.push(nx, 0, nz);
+          bk.uv.push(uu, vv);
+          bk.col.push(cr, cg, cb);
+          bk.bid.push(bi + 1);
+        }
+      };
+      if (facade) {
+        // 1층(상가 유리·로비·기단) + 위층 (판상형 끝벽은 끝벽 무늬)
+        const t = facade.end && isEndWall((b.x - a.x) / len, (b.z - a.z) / len, len, longest) ? facade.end : facade.front;
+        const k = facade.tint;
+        quad(bucket(facade.ground), 0, Math.min(h, FLOOR), facade.ground.w, FLOOR, k, k, k);
+        if (h > FLOOR) quad(bucket(t), FLOOR, h, t.w, FLOOR * t.floors, k, k, k);
+      } else {
+        quad(bucket(), y0, h, BAY, solid ? FLOOR : Infinity, color.r, color.g, color.b);
       }
       u += len;
     }
@@ -253,6 +294,8 @@ function buildBuildings(data:WorldData) {
         const roof = polygonGeometry([ row.slice(4) ], h);
         const n = roof.attributes.position.count;
         const rc = new THREE.Color().setHex(roofHex);
+        // 외벽 종류가 있는 건물은 회색 톤 옥상 (랜드마크는 지정한 색 그대로)
+        if (facade && !landmarks.has(bi)) rc.setRGB(facade.roof, facade.roof, facade.roof * 0.97, THREE.SRGBColorSpace);
         const cols = new Float32Array(n * 3);
         for (let i = 0; i < n; i++) cols.set([ rc.r, rc.g, rc.b ], i * 3);
         roof.setAttribute('color', new THREE.BufferAttribute(cols, 3));
@@ -265,22 +308,26 @@ function buildBuildings(data:WorldData) {
     }
   }
 
-  const walls = new THREE.BufferGeometry();
-  walls.setAttribute('position', new THREE.Float32BufferAttribute(wallPos, 3));
-  walls.setAttribute('normal', new THREE.Float32BufferAttribute(wallNor, 3));
-  walls.setAttribute('uv', new THREE.Float32BufferAttribute(wallUv, 2));
-  walls.setAttribute('color', new THREE.Float32BufferAttribute(wallCol, 3));
-  walls.setAttribute('bid', new THREE.Float32BufferAttribute(wallBid, 1));
-  const wallMesh = new THREE.Mesh(walls, seeThrough(new THREE.MeshLambertMaterial({ vertexColors: true, map: windowTexture() })));
-  wallMesh.castShadow = true;
-  wallMesh.receiveShadow = true;
-  wallMesh.name = 'walls';
+  const wallMeshes = [ ...buckets.entries() ].map(([ key, bk ]) => {
+    const walls = new THREE.BufferGeometry();
+    walls.setAttribute('position', new THREE.Float32BufferAttribute(bk.pos, 3));
+    walls.setAttribute('normal', new THREE.Float32BufferAttribute(bk.nor, 3));
+    walls.setAttribute('uv', new THREE.Float32BufferAttribute(bk.uv, 2));
+    walls.setAttribute('color', new THREE.Float32BufferAttribute(bk.col, 3));
+    walls.setAttribute('bid', new THREE.Float32BufferAttribute(bk.bid, 1));
+    const map = bk.tile?.texture ?? windowTexture();
+    const mesh = new THREE.Mesh(walls, seeThrough(new THREE.MeshLambertMaterial({ vertexColors: true, map })));
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.name = key === 'default' ? 'walls' : `walls-${key}`;
+    return mesh;
+  });
 
   const roofMesh = new THREE.Mesh(mergeGeometries(roofGeos), seeThrough(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide })));
   roofMesh.castShadow = true;
   roofMesh.receiveShadow = true;
   roofMesh.name = 'roofs';
-  return [ wallMesh, roofMesh ];
+  return [ ...wallMeshes, roofMesh ];
 }
 
 /**
