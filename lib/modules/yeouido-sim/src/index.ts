@@ -7,4 +7,4 @@ export * from './landmark-boxes';
 export * from './indoor/spec';
 export * from './indoor/plan';
 export * from './indoor/indoor-grid';
-export * from './body'; export * from './ray';
+export * from './body'; export * from './ray'; export * from './car';

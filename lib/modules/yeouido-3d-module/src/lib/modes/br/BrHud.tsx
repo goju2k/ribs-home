@@ -76,6 +76,19 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+  // F: 차 타기·내리기
+  const driveRef = useRef(state.toggleDrive);
+  driveRef.current = state.toggleDrive;
+  useEffect(() => {
+    const onKey = (e:KeyboardEvent) => {
+      if (e.code !== 'KeyF' || e.repeat) return;
+      e.preventDefault();
+      driveRef.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  const { drive } = state;
   return (
     <>
       {/* 스코프는 HUD 맨 아래층 (스코프 중에도 체력·탄창이 보이게) */}
@@ -129,6 +142,14 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
       </Left>
 
       {state.prompt && <Prompt>{state.prompt}</Prompt>}
+
+      {drive.driving && (
+        <CarPanel>
+          <span>{drive.kmh} km/h</span>
+          <FuelBar $low={drive.fuel <= 15}><i style={{ width: `${drive.fuel}%` }} /></FuelBar>
+          <span>연료 {drive.fuel}%</span>
+        </CarPanel>
+      )}
 
       {state.feed.length > 0 && (
         <Feed>
@@ -209,7 +230,10 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
         </Dead>
       )}
 
-      {touch ? (
+      {touch && (drive.driving || drive.near) && (
+        <DriveButton type='button' onClick={() => state.toggleDrive()} aria-label={drive.driving ? '내리기' : '타기'}>{drive.driving ? '내리기' : '타기'}</DriveButton>
+      )}
+      {touch ? !drive.driving && (
         <>
           <AttackButton {...holdProps(ACT_FARM, 'left')} aria-label='파밍'>{state.weapon?.scoped ? '스코프 끄기' : '파밍'}</AttackButton>
           {state.weapon && <ShootButton {...holdProps(ACT_FIRE, 'right')} aria-label='사격'>{state.weapon.scope && !state.weapon.scoped ? '스코프' : '사격'}</ShootButton>}
@@ -217,7 +241,7 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
         </>
       ) : (
         <Hint>
-          아이템은 닿으면 줍기 · 좌클릭: 파밍(시체 털기·부수기) · 우클릭: 사격 · R: 재장전
+          {drive.driving ? 'W·S: 가속·브레이크/후진 · A·D: 핸들 · F: 내리기 (차 안에서는 무기를 못 쓰고, 전장 밖 피해만 받는다)' : '아이템은 닿으면 줍기 · F: 차 타기 · 좌클릭: 파밍(시체 털기·부수기) · 우클릭: 사격 · R: 재장전'}
           {state.weapon?.scope ? ' · 저격: 우클릭 스코프 → 우클릭 발사, 좌클릭 스코프 끄기' : ''}
         </Hint>
       )}
@@ -424,6 +448,40 @@ const ShootButton = styled(AttackButton)({
   background: '#4a6fe2',
   '&:active': { transform: 'translateY(1px)', background: '#3a58b8' },
 });
+
+/** 차 타기·내리기: 사격 버튼 위 */
+const DriveButton = styled(AttackButton)({
+  bottom: 216,
+  width: 68,
+  height: 68,
+  fontSize: 13,
+  background: '#3fae6f',
+  '&:active': { transform: 'translateY(1px)', background: '#2f8a57' },
+});
+
+/** 운전 중: 속도·연료 (아래 가운데) */
+const CarPanel = styled.div({
+  position: 'absolute',
+  left: '50%',
+  bottom: 96,
+  transform: 'translateX(-50%)',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  padding: '6px 12px',
+  fontFamily: PIXEL_FONT,
+  fontSize: 13,
+  color: '#fff',
+  background: 'rgba(20, 24, 48, 0.85)',
+  ...pixelBorder(),
+});
+
+const FuelBar = styled.div<{ $low: boolean; }>(({ $low }) => ({
+  width: 120,
+  height: 10,
+  background: '#2a2f4a',
+  '& > i': { display: 'block', height: '100%', background: $low ? '#e2574c' : '#ffd84a' },
+}));
 
 /** 재장전: 파밍 버튼 왼쪽 */
 const ReloadButton = styled(AttackButton)({

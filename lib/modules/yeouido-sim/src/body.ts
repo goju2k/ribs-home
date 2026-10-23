@@ -1,3 +1,4 @@
+import { carStep } from './car';
 import { Collision } from './collision';
 import { createIndoorGrids, IndoorGrid } from './indoor/indoor-grid';
 import { WorldData } from './world-data';
@@ -60,6 +61,10 @@ export interface Body {
   /** 속도 배율: 땅(걷기·달리기)과 비행 — 게임 모드가 정한다 (예: 신발·로켓슈트). 기본 1 */
   sm: number;
   fm: number;
+  /** 타고 있는 차 (decor 번호, 안 탔으면 -1) — 타면 몸이 곧 차: x·z·f가 차 자리·방향, spd가 차 속도(뒤로 가면 음수) */
+  car: number;
+  /** 타고 있는 차의 남은 연료 (m) */
+  fuel: number;
 }
 
 export interface SimWorld {
@@ -75,7 +80,7 @@ export function createSimWorld(data:WorldData):SimWorld {
   return { data, collision: new Collision(data), indoors, byBid: new Map(indoors.map((g) => [ g.bid, g ])) };
 }
 
-export const newBody = (x:number, y:number, z:number):Body => ({ x, y, z, f: 0, spd: 0, a: 0, b: -1, l: 1, lw: 0, fly: 0, vy: 0, sm: 1, fm: 1 });
+export const newBody = (x:number, y:number, z:number):Body => ({ x, y, z, f: 0, spd: 0, a: 0, b: -1, l: 1, lw: 0, fly: 0, vy: 0, sm: 1, fm: 1, car: -1, fuel: 0 });
 
 export const copyBody = (b:Body):Body => ({ ...b });
 
@@ -89,6 +94,10 @@ export function describe(w:SimWorld, b:Body) {
 
 /** 한 걸음 (STEP초). b를 바꾼다 */
 export function step(w:SimWorld, b:Body, input:Input) {
+  if (b.car >= 0) {
+    carStep(w, b, input);
+    return;
+  }
   const dt = STEP;
   const { collision } = w;
   let room = b.b >= 0 ? w.byBid.get(b.b) : undefined;

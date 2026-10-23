@@ -38,6 +38,15 @@ export type BrServerMsg =
   | { k: 'items'; list: GroundItem[]; }
   | { k: 'itemAdd'; list: GroundItem[]; }
   | { k: 'itemGone'; ids: number[]; }
+  /**
+   * 차 전부: fuel은 탈 수 있는 차(decor 순서대로 승용차·SUV·택시) 연료 %, moved는 원래 자리에서 옮겨진 차 [decor 번호, x, z, dx, dz],
+   * drivers는 운전 중 [사람 번호, decor 번호] (들어올 때·새 판)
+   */
+  | { k: 'cars'; fuel: number[]; moved: [number, number, number, number, number][]; drivers: [number, number][]; }
+  /** 누가 차에 탔다 */
+  | { k: 'carIn'; pid: number; idx: number; }
+  /** 누가 차에서 내렸다: 차가 선 자리 [x, z, dx, dz]·남은 연료 % */
+  | { k: 'carOut'; pid: number; idx: number; pose: [number, number, number, number]; fuel: number; }
   /** 시체가 털림 (아이템 없음) */
   /** 시체를 털었음: left = 남은 것 (턴 사람이 이미 최대라 못 가져간 것, 없으면 빈 시체) */
   | { k: 'looted'; id: number; left?: CorpseItem[]; }
@@ -90,6 +99,8 @@ export type BrClientMsg =
   /** 관전 대상 바꾸기 (다음 +1, 이전 -1) */
   | { k: 'watch'; dir: 1 | -1; }
   /** 시작 대기에서 준비(게임 시작 버튼) 켜기·끄기 */
-  | { k: 'ready'; on: boolean; };
+  | { k: 'ready'; on: boolean; }
+  /** 차 타기·내리기 (F·화면 버튼) — 타고 있으면 내리고, 아니면 가까운 차에 탄다 */
+  | { k: 'drive'; };
 
 export const isBrMsg = (d:unknown):d is BrServerMsg => typeof d === 'object' && d !== null && typeof (d as { k?: unknown; }).k === 'string';

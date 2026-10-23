@@ -43,6 +43,8 @@ export const isCover = (k:DecorKind):k is CoverKind => k in COVERS;
 /** 충돌 상자 하나 (차의 몸통 또는 지붕): 가운데·방향(길이 쪽 단위 벡터)·반 길이·반 폭·높이 */
 export interface DecorBox {
   cx: number; cz: number; dx: number; dz: number; hl: number; hw: number; h: number;
+  /** 차 상자면 그 차(decor 번호) — 운전하는 사람은 자기 차 상자에 걸리지 않는다 */
+  car?: number;
 }
 
 /** 차 → 충돌 상자 (몸통 전체 + 지붕 부분) */
@@ -187,7 +189,8 @@ export function placeDecor(data:WorldData, free:(x:number, z:number) => boolean)
       sides.forEach((side) => {
         const off = r.w / 2 - 1.2;
         walk(r, () => 5.5 + rand() * 4, 14, (x, z, dx, dz) => {
-          if (rand() > (main ? 0.12 : 0.42)) return;
+          // 엄폐물 무리가 생겨 차는 줄였다 (예전 큰길 12%·작은 길 42% → 5%·16%, 약 4.5천 대 → 1.7천 대)
+          if (rand() > (main ? 0.05 : 0.16)) return;
           // 오른쪽(side 1) = 진행 방향 오른손: (dx, dz)를 시계 방향으로 90도 = (-dz, dx)
           const px = x - dz * off * side;
           const pz = z + dx * off * side;

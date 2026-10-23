@@ -2,6 +2,11 @@ import { coverBox, Decor, DecorBox, inBox, isCover, isVehicle, placeDecor, vehic
 import { landmarkBoxes } from './landmark-boxes';
 import { BLOCK, decodeCollision, WorldData } from './world-data';
 
+/** 차가 놓인 자리·방향 (앞 = (dx, dz)) */
+export interface VehiclePose {
+  x: number; z: number; dx: number; dz: number;
+}
+
 const BUCKET = 50; // 건물 높이 찾기용 공간 격자(m)
 const TREE_BUCKET = 8;
 
@@ -64,6 +69,12 @@ export class Collision {
   /** 차·랜드마크 옥상 설비 충돌 상자 (BUCKET 격자) — 이동·총알을 막는다 */
   private boxBuckets = new Map<number, DecorBox[]>();
 
+  /** 차(decor 번호)마다 지금 판정 상자 — 타면 빼고, 내리면 새 자리에 */
+  private vehicleBoxesOf = new Map<number, DecorBox[]>();
+
+  /** 차가 옮겨지거나(pose) 누가 타서 빠질 때(null) — 화면이 따라 그린다 */
+  readonly vehicleListeners:((idx:number, pose:VehiclePose | null, driven:boolean) => void)[] = [];
+
   constructor(data:WorldData) {
     this.grid = decodeCollision(data.collision);
     this.w = data.collision.w;
@@ -121,22 +132,53 @@ export class Collision {
         }
       }
     };
-    this.decor.forEach((d) => {
-      if (isVehicle(d.k)) vehicleBoxes(d).forEach(addBox);
-      else if (isCover(d.k)) addBox(coverBox(d));
+    this.addBox = addBox;
+    this.decor.forEach((d, i) => {
+      if (isVehicle(d.k)) {
+        const boxes = vehicleBoxes(d).map((b) => ({ ...b, car: i }));
+        boxes.forEach(addBox);
+        this.vehicleBoxesOf.set(i, boxes);
+      } else if (isCover(d.k)) addBox(coverBox(d));
     });
     // 블렌더 랜드마크 외형의 옥상 설비·난간 (몸체는 지도 바닥 다각형 그대로)
     landmarkBoxes(data).forEach(addBox);
   }
 
+  private addBox:(b:DecorBox) => void = () => undefined;
+
+  private removeBox(b:DecorBox) {
+    const r = Math.hypot(b.hl, b.hw);
+    for (let bx = Math.floor((b.cx - r) / BUCKET); bx <= Math.floor((b.cx + r) / BUCKET); bx++) {
+      for (let bz = Math.floor((b.cz - r) / BUCKET); bz <= Math.floor((b.cz + r) / BUCKET); bz++) {
+        const list = this.boxBuckets.get(bx * 100000 + bz);
+        const at = list ? list.indexOf(b) : -1;
+        if (at >= 0) list!.splice(at, 1);
+      }
+    }
+  }
+
+  /**
+   * 차(decor 번호) 하나를 옮긴다 (pose, null이면 판정에서 뺀다). driven: 누가 운전 중 (화면은 운전하는 사람 자리에 따로 그린다).
+   * 운전 중인 차도 걸음마다 옮겨 두어 걷는 사람·총알을 막는다 (운전하는 사람은 자기 차 상자를 건너뛴다)
+   */
+  setVehicle(idx:number, pose:VehiclePose | null, driven = false) {
+    const d = this.decor[idx];
+    if (!d || !isVehicle(d.k)) return;
+    (this.vehicleBoxesOf.get(idx) ?? []).forEach((b) => this.removeBox(b));
+    const boxes = pose ? vehicleBoxes({ ...d, ...pose }).map((b) => ({ ...b, car: idx })) : [];
+    boxes.forEach(this.addBox);
+    this.vehicleBoxesOf.set(idx, boxes);
+    this.vehicleListeners.forEach((fn) => fn(idx, pose, driven));
+  }
+
   /** (x, z)의 차 충돌 상자 중 가장 높은 것 (없으면 0) — 그보다 낮으면 막히고, 위에 서면 바닥 */
-  private boxTop(x:number, z:number, below = Infinity) {
+  private boxTop(x:number, z:number, below = Infinity, ignoreCar = -1) {
     const list = this.boxBuckets.get(Math.floor(x / BUCKET) * 100000 + Math.floor(z / BUCKET));
     if (!list) return 0;
     let top = 0;
     for (let i = 0; i < list.length; i++) {
       const b = list[i];
-      if (b.h > top && b.h <= below && inBox(b, x, z)) top = b.h;
+      if (b.h > top && b.h <= below && b.car !== ignoreCar && inBox(b, x, z)) top = b.h;
     }
     return top;
   }
@@ -192,7 +234,7 @@ export class Collision {
   }
 
   /** 높이 y에서 한 점이 막혔는지 (총알 광선이 0.4m마다 부르므로 배열을 만들지 않고 바로 훑는다) */
-  private blockedPoint(x:number, z:number, y:number) {
+  private blockedPoint(x:number, z:number, y:number, ignoreCar = -1) {
     if (y < 0.3) {
       if (this.at(x, z) !== BLOCK.NONE) return true;
     } else {
@@ -205,7 +247,7 @@ export class Collision {
       }
     }
     // 차: 건물처럼 그 높이보다 낮으면 막힌다 (0.3m 턱은 넘는다)
-    return this.boxTop(x, z) > y + 0.3;
+    return this.boxTop(x, z, Infinity, ignoreCar) > y + 0.3;
   }
 
   /** 총알·시선용: 한 점이 막혔는지 — 걸을 때의 0.3m 턱 여유 없이 차는 그 높이까지 막는다 (엄폐물) */
@@ -214,9 +256,10 @@ export class Collision {
   }
 
   /** 반지름 r 원이 막힌 곳에 걸리는지 (중심 + 네 방향) */
-  blocked(x:number, z:number, r:number, y = 0) {
+  /** ignoreCar: 이 차(decor 번호)의 상자는 건너뛴다 (운전하는 사람이 자기 차에 걸리지 않게) */
+  blocked(x:number, z:number, r:number, y = 0, ignoreCar = -1) {
     // 점(r = 0)이면 다섯 곳이 모두 같은 자리
-    if (r === 0) return this.blockedPoint(x, z, y);
+    if (r === 0) return this.blockedPoint(x, z, y, ignoreCar);
     return this.blockedPoint(x, z, y)
       || this.blockedPoint(x + r, z, y)
       || this.blockedPoint(x - r, z, y)

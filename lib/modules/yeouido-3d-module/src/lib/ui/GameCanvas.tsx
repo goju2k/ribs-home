@@ -84,6 +84,9 @@ const AIM_RANGE = 80;
 const MUZZLE_Y = 1.4;
 /** 3인칭 카메라가 바라보는 점: 캐릭터 앞 이 거리 (m) */
 const CHASE_AIM = 10;
+/** 차를 타면: 차 뒤 이만큼·이 각도로 내려다보며 따라간다 */
+const CAR_CAM_DIST = 10;
+const CAR_CAM_PITCH = 0.32;
 const TAP_MOVE = 8;
 
 /** 머리 위 ▼ 표식 — 9×9 도트 그림 */
@@ -152,7 +155,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     const views = createIndoorViews(sim.indoors);
     views.forEach((v) => scene.add(v.group));
     // 도심 꾸미기 (차·가로등·정류장·소품): 배치는 공용 시뮬레이션이 서버와 같게 정한다 (차는 막힘)
-    const decor = new DecorMeshes(scene, collision.decor);
+    const decor = new DecorMeshes(scene, collision.decor, collision);
     // 블렌더 랜드마크 외형(반사 유리)이 비칠 하늘 — Standard 재질(그 모델)에만 쓰인다
     const env = landmarkEnvironment(renderer);
     scene.environment = env;
@@ -271,6 +274,9 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     let view = 34; // 화면 세로에 담기는 미터
     let yaw = 0;
     let yawTarget = 0;
+    // 차를 타면 3인칭으로 바꾸고, 내리면 원래 시점으로
+    let wasDriving = false;
+    let modeBeforeCar:CamMode = 'chase';
     let pix = 2;
     let pinch:{ d: number; } | null = null;
     const pointers = new Map<number, { x: number; y: number; }>();
@@ -458,6 +464,11 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       const dt = Math.min(0.05, raw);
       last = now;
       const input = inputRef.current;
+      const driving = body.car >= 0;
+      if (driving && !wasDriving) modeBeforeCar = input.mode;
+      if (!driving && wasDriving) input.mode = modeBeforeCar;
+      if (driving) input.mode = 'chase';
+      wasDriving = driving;
 
       // 회전·확대 요청 반영
       // 시점 바뀜: 내려다보기로 돌아가면 방향을 90° 단위로 맞춘다
@@ -490,6 +501,11 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         }
         input.look.dx = 0;
         input.look.dy = 0;
+      }
+      // 운전 중: 카메라가 차 뒤로 천천히 돌아간다 (앞 = 몸 앞 → yaw = f + π)
+      if (driving) {
+        const want = body.f + Math.PI;
+        yawTarget += Math.atan2(Math.sin(want - yawTarget), Math.cos(want - yawTarget)) * (1 - Math.exp(-dt * 4));
       }
       yaw += (yawTarget - yaw) * (1 - Math.exp(-dt * (persp3 ? 30 : 10)));
       if (input.zoom !== 1) {
@@ -524,7 +540,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       // (걸음 전 자리에서 잰 방향을 걸음 뒤 자리에서 쏘면 한 걸음만큼 옆으로 비껴 나간다)
       let aimPoint:{ x: number; y: number; z: number; pitch: boolean; } | null = null;
       // 3인칭: 캐릭터가 보는 쪽(카메라 방향)으로 수평으로 쏜다 — 카메라가 캐릭터 앞 CHASE_AIM m 총구 높이를 보니 조준선이 그 선 위에 있다
-      if (mode === 'chase' && (usedMouse || held || input.actTap)) face = Math.atan2(Math.sin(yaw + Math.PI), Math.cos(yaw + Math.PI));
+      if (mode === 'chase' && (usedMouse || held || input.actTap) && !driving) face = Math.atan2(Math.sin(yaw + Math.PI), Math.cos(yaw + Math.PI));
       // 1인칭: 조준선(화면 가운데) 광선이 닿는 곳으로 — 위아래까지 그대로
       if (mode === 'fp') {
         // 이번 장면에서 보는 방향 그대로 (지난 장면 카메라를 쓰면 마우스를 돌리는 중엔 한 장면만큼 옆을 겨눈다)
@@ -547,7 +563,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
           const yawAim = Math.atan2(tx, tz);
           aimPitch = Math.max(-1.5, Math.min(1.5, Math.atan2(-ty, flat)));
           if (mode === 'fp') aimPoint = { x: body.x + tx, y: body.y + MUZZLE_Y + ty, z: body.z + tz, pitch: true };
-          if (mode === 'fp' || (mode === 'chase' && (usedMouse || held || input.actTap))) face = yawAim;
+          if (mode === 'fp' || (mode === 'chase' && (usedMouse || held || input.actTap) && !driving)) face = yawAim;
         } else if (mode === 'fp' || (mode === 'chase' && (usedMouse || held || input.actTap))) face = Math.atan2(Math.sin(yaw + Math.PI), Math.cos(yaw + Math.PI));
       }
       const aimAt = mode === 'top' ? (aimTap ?? (held ? aimPt ?? cursor : null)) : null;
@@ -735,7 +751,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       }
       lamp.intensity = (1 - day) * 3;
       lamp.position.set(pos.x, pos.y + 3, pos.z);
-      modeClient?.frame({ now, dt, persp: persp3, yaw, me: { x: pos.x, y: pos.y, z: pos.z, f: facing, b: body.b, l: body.l, st: net.meStatus.s, gv: net.meStatus.v }, others: remotes });
+      modeClient?.frame({ now, dt, persp: persp3, yaw, me: { x: pos.x, y: pos.y, z: pos.z, f: facing, b: body.b, l: body.l, st: net.meStatus.s, gv: net.meStatus.v, car: body.car, fuel: body.fuel, spd: body.spd }, others: remotes });
       // 미니맵은 두 프레임에 한 번 (모드가 위에 그린다: 전장 원 등)
       const mc = modeClient;
       if (miniFrame++ % 2 === 0) mini.draw(pos.x, pos.z, yaw, facing, remotes.filter((r) => seen(r) && !looks.get(r.id)?.hidden), mc ? (g, k, dpr) => mc.minimap(g, k, dpr) : undefined);
@@ -815,8 +831,10 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
         if (mode === 'chase') {
           // 3인칭: 머리 뒤 위에서 따라간다. 땅·지붕·실내 바닥 밑으로는 안 내려간다
           const head = new THREE.Vector3(pos.x, pos.y + 1.5, pos.z);
-          const cp = Math.cos(chasePitch);
-          persp.position.set(head.x + Math.sin(yaw) * cp * camDist, head.y + Math.sin(chasePitch) * camDist, head.z + Math.cos(yaw) * cp * camDist);
+          const pitchNow = body.car >= 0 ? CAR_CAM_PITCH : chasePitch;
+          const distNow = body.car >= 0 ? CAR_CAM_DIST : camDist;
+          const cp = Math.cos(pitchNow);
+          persp.position.set(head.x + Math.sin(yaw) * cp * distNow, head.y + Math.sin(pitchNow) * distNow, head.z + Math.cos(yaw) * cp * distNow);
           const under = room ? room.baseY(level) : collision.floorAt(persp.position.x, persp.position.z, persp.position.y);
           persp.position.y = Math.max(persp.position.y, under + 0.4);
           // 실내에선 천장 아래에서만 (천장 위로 가면 천장에 가려 안 보인다)

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { COVERS, Decor, DecorKind, DECOR_KINDS, VEHICLES } from 'yeouido-sim';
+import { Collision, COVERS, Decor, DecorKind, DECOR_KINDS, isVehicle, VEHICLES, VehiclePose } from 'yeouido-sim';
 
 import { seeThrough } from './see-through';
 
@@ -9,6 +9,9 @@ import { seeThrough } from './see-through';
  * 종류마다 같은 모양을 한 번에 그리고(InstancedMesh), 400m 칸으로 나눠 가까운 칸만 그린다.
  * 모양은 앞 = +x, 왼쪽 = -z, 발 = y 0. 차는 충돌 상자(VEHICLES)를 넘지 않게 (보이는 것 = 막는 것).
  */
+
+/** 장식 하나 + decor 번호 */
+type Placed = Decor & { idx: number; };
 
 /** 부품: [가로(x), 세로(y), 깊이(z), x, y, z, 색 — null이면 칠(종류·변형마다 다른 색)] */
 type Part = [number, number, number, number, number, number, string | null];
@@ -236,17 +239,42 @@ export class DecorMeshes {
 
   private disposables:{ dispose: () => void; }[] = [];
 
-  constructor(scene:THREE.Scene, decor:Decor[]) {
+  /** 차(decor 번호) → 원래 자리 인스턴스들 (옮겨지거나 누가 타면 숨긴다) */
+  private carInstances = new Map<number, { mesh: THREE.InstancedMesh; i: number; }[]>();
+
+  /** 원래 자리를 떠난 차 (옮겨 세운 것·운전 중인 것) — 한 대씩 그린다 */
+  private loose = new Map<number, THREE.Group>();
+
+  private decor:Decor[];
+
+  private shapes:Map<DecorKind, ReturnType<typeof geometries>>;
+
+  private paintMats = new Map<string, THREE.Material>();
+
+  private fixedMat:THREE.Material;
+
+  private collision:Collision;
+
+  private onVehicle:(idx:number, pose:VehiclePose | null) => void;
+
+  constructor(scene:THREE.Scene, decor:Decor[], collision:Collision) {
+    this.onVehicle = (idx, pose) => this.moveCar(idx, pose);
     this.scene = scene;
+    this.decor = decor;
+    this.collision = collision;
+    collision.vehicleListeners.push(this.onVehicle);
     const paintMat = seeThrough(new THREE.MeshLambertMaterial({ vertexColors: true }));
     const fixedMat = seeThrough(new THREE.MeshLambertMaterial({ vertexColors: true }));
     this.disposables.push(paintMat, fixedMat);
     const shapes = new Map(DECOR_KINDS.map((k) => [ k, geometries(PARTS[k]) ]));
+    this.shapes = shapes;
+    this.fixedMat = fixedMat;
     shapes.forEach(({ paint, fixed }) => [ paint, fixed ].forEach((g) => g && this.disposables.push(g)));
 
     // 칸마다·종류마다 묶는다
-    const byChunk = new Map<string, Map<DecorKind, Decor[]>>();
-    decor.forEach((d) => {
+    const byChunk = new Map<string, Map<DecorKind, Placed[]>>();
+    decor.forEach((one, idx) => {
+      const d = { ...one, idx };
       const key = `${Math.floor(d.x / CHUNK)},${Math.floor(d.z / CHUNK)}`;
       let kinds = byChunk.get(key);
       if (!kinds) {
@@ -279,6 +307,11 @@ export class DecorMeshes {
             m.compose(p.set(d.x, 0, d.z), q, one);
             mesh.setMatrixAt(i, m);
             if (gi === 0) mesh.setColorAt(i, c.set(colors[d.v % colors.length]));
+            if (isVehicle(d.k)) {
+              const refs = this.carInstances.get(d.idx) ?? [];
+              refs.push({ mesh, i });
+              this.carInstances.set(d.idx, refs);
+            }
           });
           mesh.castShadow = !!SHADOW[k];
           mesh.receiveShadow = true;
@@ -292,6 +325,49 @@ export class DecorMeshes {
     });
   }
 
+  /** 차가 옮겨지거나(pose) 판정에서 빠질 때(null): 원래 자리 인스턴스는 숨기고, 한 대짜리로 새 자리에 */
+  private moveCar(idx:number, pose:VehiclePose | null) {
+    const refs = this.carInstances.get(idx);
+    if (refs) {
+      const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+      refs.forEach(({ mesh, i }) => {
+        mesh.setMatrixAt(i, zero);
+        mesh.instanceMatrix.needsUpdate = true;
+      });
+      this.carInstances.delete(idx);
+    }
+    let g = this.loose.get(idx);
+    if (!pose) {
+      if (g) g.visible = false;
+      return;
+    }
+    if (!g) {
+      const d = this.decor[idx];
+      const { paint, fixed } = this.shapes.get(d.k)!;
+      const colors = PAINT[d.k] ?? [ '#ffffff' ];
+      const color = colors[d.v % colors.length];
+      let pm = this.paintMats.get(color);
+      if (!pm) {
+        pm = seeThrough(new THREE.MeshLambertMaterial({ vertexColors: true, color }));
+        this.paintMats.set(color, pm);
+        this.disposables.push(pm);
+      }
+      g = new THREE.Group();
+      g.name = `car ${idx}`;
+      [ paint && new THREE.Mesh(paint, pm), fixed && new THREE.Mesh(fixed, this.fixedMat) ].forEach((mesh) => {
+        if (!mesh) return;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        g!.add(mesh);
+      });
+      this.scene.add(g);
+      this.loose.set(idx, g);
+    }
+    g.visible = true;
+    g.position.set(pose.x, 0, pose.z);
+    g.rotation.y = Math.atan2(-pose.dz, pose.dx);
+  }
+
   /** 매 장면: (x, z)에서 range m 안에 걸치는 칸만 그린다 */
   update(x:number, z:number, range:number) {
     const r = range + CHUNK / 2;
@@ -301,6 +377,9 @@ export class DecorMeshes {
   }
 
   dispose() {
+    const at = this.collision.vehicleListeners.indexOf(this.onVehicle);
+    if (at >= 0) this.collision.vehicleListeners.splice(at, 1);
+    this.loose.forEach((g) => this.scene.remove(g));
     this.chunks.forEach((ch) => this.scene.remove(ch.group));
     this.disposables.forEach((d) => d.dispose());
   }

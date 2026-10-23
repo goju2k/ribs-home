@@ -9,6 +9,7 @@ import { Body, newBody, STEP } from 'yeouido-sim';
 
 import { Announcer } from './br-announce';
 import { Boss } from './br-boss';
+import { CarPark, CarVictim } from './br-cars';
 import { ItemField } from './br-items';
 import { Prop, PropField, propRow } from './br-props';
 import { newStats, PlayerStats, Records } from './br-records';
@@ -160,6 +161,9 @@ export class BattleRoyale implements GameMode {
 
   private records = new Records();
 
+  /** 자동차 (타기·내리기·연료) */
+  private cars:CarPark;
+
   /** 이번 판이 실제로 시작된 시각 (기록용, 개발용 시계 당김과 무관) */
   private startedAt = 0;
 
@@ -179,11 +183,13 @@ export class BattleRoyale implements GameMode {
 
   constructor(host:ModeHost) {
     this.host = host;
+    this.cars = new CarPark(host, (msg) => this.broadcast(msg));
     this.announce = new Announcer((text, kind, to) => this.host.say(text, kind, to));
     this.horde = new Horde(host, {
+      // 차에 탄 사람은 노리지 않는다
       alive: (p) => {
         const f = this.fighters.get(p.id);
-        return !!f && !f.respawnAt;
+        return !!f && !f.respawnAt && !this.cars.driving(p.id);
       },
       // 좀비를 쓰러뜨리면 가끔 아이템을 떨군다 (걷는 좀비 10%, 뛰는 좀비 25%)
       killed: (at, k) => {
@@ -260,6 +266,10 @@ export class BattleRoyale implements GameMode {
     this.boss.clear();
     this.corpses = [];
     this.horde.clear();
+    // 차: 모두 내리고 원래 자리, 연료를 다시 뽑는다
+    this.cars.exitAll();
+    this.cars.reset();
+    this.broadcast(this.cars.listMsg());
     this.items.clear();
     this.items.scatter(this.host.sim, this.match.circles[0], ITEM_START);
     this.props.clear();
@@ -646,6 +656,7 @@ export class BattleRoyale implements GameMode {
     this.send(p, { k: 'corpses', list: this.corpses });
     this.send(p, { k: 'items', list: this.items.list() });
     this.send(p, { k: 'props', list: this.props.list() });
+    this.send(p, this.cars.listMsg());
     if (this.phase === 'lobby') this.send(p, this.lobbyMsg(now));
   }
 
@@ -653,6 +664,7 @@ export class BattleRoyale implements GameMode {
   leave(p:ModePlayer) {
     const f = this.fighters.get(p.id);
     const now = Date.now();
+    this.cars.exit(p);
     if (f && !f.respawnAt && this.match && this.phase !== 'end' && this.phase !== 'lobby') {
       this.dropCorpse(p, f);
     }
@@ -743,6 +755,10 @@ export class BattleRoyale implements GameMode {
       this.lobbyDirty = true;
       return;
     }
+    if (m?.k === 'drive') {
+      this.drive(p);
+      return;
+    }
     const f = this.fighters.get(p.id);
     if (!f?.spectator || m?.k !== 'watch' || (m.dir !== 1 && m.dir !== -1)) return;
     const list = this.watchable();
@@ -754,8 +770,8 @@ export class BattleRoyale implements GameMode {
 
   act(p:ModePlayer, act:number, now:number, aim:Aim) {
     const me = this.fighters.get(p.id);
-    // 시작 대기 중엔 걷기만 (쏘기·파밍 없음)
-    if (!me || me.respawnAt || this.phase === 'lobby') return;
+    // 시작 대기 중엔 걷기만 (쏘기·파밍 없음), 차 안에서는 무기·파밍·줍기 없음
+    if (!me || me.respawnAt || this.phase === 'lobby' || this.cars.driving(p.id)) return;
     /* eslint-disable no-bitwise -- 행동 비트 */
     if (act & ACT_RELOAD && me.fire) {
       const w = heldWeapon(me.gear);
@@ -769,6 +785,48 @@ export class BattleRoyale implements GameMode {
     me.farmPrev = farmBit;
     if (farmBit && now >= me.nextFarmAt) this.farm(p, me, now);
     /* eslint-enable no-bitwise */
+  }
+
+  /** 차 타기·내리기 (F·화면 버튼): 타고 있으면 내리고, 아니면 가까운 차에. 시작 대기·보스전 뒤로는 못 탄다 */
+  private drive(p:ModePlayer) {
+    const f = this.fighters.get(p.id);
+    if (!f || f.respawnAt || f.spectator) return;
+    if (this.cars.driving(p.id)) {
+      this.cars.exit(p);
+      return;
+    }
+    if (this.phase !== 'play') {
+      this.host.say(this.phase === 'lobby' ? '게임이 시작되면 차를 탈 수 있습니다' : '보스전에는 차를 탈 수 없습니다', 'warn', p);
+      return;
+    }
+    const why = this.cars.enter(p);
+    if (why === null) this.host.say('가까이 탈 수 있는 차가 없습니다', 'warn', p);
+    else if (why) this.host.say(why, 'warn', p);
+  }
+
+  /** 차가 칠 수 있는 것: 살아 있고 차에 안 탄 사람(무적 시간이면 피해 없이 차만 선다)·좀비 */
+  private carVictims(now:number):CarVictim[] {
+    const out:CarVictim[] = [];
+    this.all.forEach((o) => {
+      const f = this.fighters.get(o.id);
+      if (!f || f.respawnAt || f.spectator || this.cars.driving(o.id)) return;
+      out.push({
+        id: o.id,
+        x: o.body.x,
+        z: o.body.z,
+        b: o.body.b,
+        hit: (dmg, by) => {
+          if (now < f.shieldUntil) return;
+          this.damage(o, Math.max(1, Math.round(dmg * (1 - armorCut(f.gear.armor)))), by, now, null, false, by.body);
+        },
+      });
+    });
+    this.horde.shotTargets(now, (by, id, dmg, killed) => {
+      this.send(by, { k: 'hit', target: id, dmg, head: false });
+      const st = this.stats.get(by.id);
+      if (killed && st) st.zombieKills++;
+    }).forEach((t) => out.push({ id: t.id, x: t.x, z: t.z, b: t.b, hit: (dmg, by) => t.hit(dmg, by) }));
+    return out;
   }
 
   /** 물건 치기: 망치가 있으면 세게. 부서지면 드롭 표대로 아이템을 떨어뜨린다 */
@@ -799,6 +857,8 @@ export class BattleRoyale implements GameMode {
   private damage(t:ModePlayer, dmg:number, by:ModePlayer | null, now:number, byName:string | null = null, head = false, src:{ x: number; z: number; } | null = null) {
     const f = this.fighters.get(t.id);
     if (!f || f.respawnAt || !Number.isFinite(dmg)) return;
+    // 차 안에서는 전장 밖 피해(때린 쪽이 없는 것)만 받는다
+    if (this.cars.driving(t.id) && (by || byName)) return;
     f.hp = Math.max(0, f.hp - dmg);
     f.hurtUntil = now + HURT_MS;
     const at = src ?? by?.body;
@@ -817,6 +877,8 @@ export class BattleRoyale implements GameMode {
   }
 
   private die(p:ModePlayer, f:Fighter, by:string | null, now:number) {
+    // 차 안에서 죽으면(전장 밖) 내린 자리에 쓰러진다
+    this.cars.exit(p);
     this.announce.died(p);
     // 보스전이 시작되면 다시 시작 못 함 → 잠깐 누워 있다가 관전
     const noRespawn = this.phase !== 'play';
@@ -859,6 +921,8 @@ export class BattleRoyale implements GameMode {
     // 20분: 최종 원 가운데에 보스
     if (this.phase === 'play' && this.elapsed >= MATCH_MS) {
       this.phase = 'boss';
+      // 보스전: 모두 차에서 내린다 (이제 못 탄다)
+      this.cars.exitAll();
       const alive = all.filter((p) => !this.fighters.get(p.id)?.respawnAt).length;
       this.boss.spawn(this.match.circles[this.match.circles.length - 1], alive, DIFF, now);
       // 땅의 좀비는 모두 불타 사라지고, 이제부터는 보스가 부르는 좀비만
@@ -950,6 +1014,7 @@ export class BattleRoyale implements GameMode {
     // 밤이면 좀비 (해 뜨면 불탄다)
     // 보스전·탈출전에는 낮에도 좀비가 생긴다 (끝나면 해가 떠 있으면 불탄다)
     // 보스전·탈출전: 보스가 부른 좀비는 낮이어도 남고, 저절로 생기는 좀비는 없다
+    this.cars.tick(() => this.carVictims(now));
     this.horde.tick(now, dayNight(this.elapsed + DAY_OFFSET).night || this.phase === 'boss' || this.phase === 'escape', all, this.phase === 'play');
     const tA = performance.now();
     this.flyArrows(now);

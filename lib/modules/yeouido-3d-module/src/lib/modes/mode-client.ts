@@ -33,9 +33,10 @@ export interface ModeFrame {
   now: number;
   dt: number;
   /** 내 화면 위치·상태 */
-  me: { x: number; y: number; z: number; f: number; b: number; l: number; st: number; gv: number; };
-  /** 지금 보이는 다른 사람·NPC (보간된 자리, 상태 비트, 모습 종류) */
-  others: { id: number; x: number; y: number; z: number; s: number; k: number; }[];
+  /** car: 타고 있는 차(decor 번호, 안 탔으면 -1)·fuel 남은 연료(m)·spd 속도(m/s) */
+  me: { x: number; y: number; z: number; f: number; b: number; l: number; st: number; gv: number; car: number; fuel: number; spd: number; };
+  /** 지금 보이는 다른 사람·NPC (보간된 자리·방향, 상태 비트, 모습 종류) */
+  others: { id: number; x: number; y: number; z: number; f: number; s: number; k: number; }[];
   /** 지금 시점이 원근(3인칭·1인칭)인지 */
   persp: boolean;
   /** 카메라가 보는 수평 방향 (앞 = (-sin yaw, -cos yaw), 화면 위쪽) */

@@ -4,7 +4,7 @@ import {
   ACT_FARM, ACT_FIRE, ACT_RELOAD, BOSS, isMaxed, MAX_LEVEL, BrClientMsg, BrServerMsg, dayNight, FARM, ST_BURN, ST_SLAM, Z_BOSS, Z_RUNNER, Z_WALKER, Corpse, emptyGear, gaugeHp, Gear, isBrMsg, ITEM_KINDS, ITEM_NAMES, MatchPlan, meleeReaches, ST_DEAD, ST_HURT, ST_SHIELD, ST_SWING,
   canFire, fire, isConsumable, PICK_RANGE, WEAPON_KINDS, FireState, fullMag, heldWeapon, MOVING_SPEED, PROP_KINDS, PROP_NAMES, PROP_RADIUS, reload, shotDirs, WeaponKind, weaponStats, zoneAt, ZoneNow,
 } from 'yeouido-br';
-import { castRay, STEP } from 'yeouido-sim';
+import { CAR, carPose, castRay, isRideable, STEP } from 'yeouido-sim';
 
 import { HurtFx } from './hurt-fx';
 import { ITEM_COLORS, ItemMeshes } from './item-meshes';
@@ -56,8 +56,12 @@ export interface BrHudState {
   /** 든 무기: 이름·단계, 탄창, 재장전 진행 0~1(재장전 중이 아니면 null), 스코프 중인지·스코프가 있는지 */
   /** reloadFrom·reloadTo: 재장전 시작·끝 시각 (performance.now 기준 — 막대를 화면이 직접 애니메이션) */
   weapon: { kind: WeaponKind; name: string; lv: number; ammo: number; mag: number; reload: number | null; reloadFrom: number; reloadTo: number; scoped: boolean; scope: boolean; } | null;
-  /** 좌클릭으로 할 수 있는 것 (앞쪽 가까이) */
+  /** 좌클릭으로 할 수 있는 것 (앞쪽 가까이) — 차 가까이면 타기 안내가 먼저 */
   prompt: string | null;
+  /** 차: 운전 중이면 연료 %·시속, 아니면 가까이 탈 차가 있는지 (화면 버튼) */
+  drive: { driving: boolean; fuel: number; kmh: number; near: boolean; };
+  /** 차 타기·내리기 (F·화면 버튼) */
+  toggleDrive: () => void;
   /** 누름을 모드에 먼저 (터치 버튼: 스코프 켜기·끄기) */
   press: (button:'left' | 'right') => boolean;
   /** 보스: 체력 비율 0~1·체력·남은 초 (안 나왔으면 null) */
@@ -158,6 +162,24 @@ export class BrClient implements ModeClient {
 
   private prompt:string | null = null;
 
+  /** 탈 수 있는 차 (decor 번호, 서버와 같은 순서) */
+  private rideIds:number[];
+
+  /** 차 연료 % (decor 번호 → %) */
+  private carFuel = new Map<number, number>();
+
+  /** 운전 중: 사람 번호 → decor 번호 */
+  private drivers = new Map<number, number>();
+
+  /** 원래 자리를 떠난 차 (새 판에 되돌린다) */
+  private movedCars = new Set<number>();
+
+  /** 가까이 탈 수 있는 차 (decor 번호, 없으면 -1) */
+  private nearCar = -1;
+
+  /** 옮겨진 차의 지금 자리 (내리면 바뀐다) */
+  private carAt = new Map<number, { x: number; z: number; }>();
+
   private me:ModeFrame['me'] | null = null;
 
   private zoneNow:ZoneNow | null = null;
@@ -208,6 +230,7 @@ export class BrClient implements ModeClient {
   private lootMat = new THREE.MeshBasicMaterial({ color: '#ffd84a' });
 
   constructor(host:ModeHostClient) {
+    this.rideIds = host.sim.collision.decor.map((_, i) => i).filter((i) => isRideable(host.sim, i));
     this.host = host;
     this.hurtFx = new HurtFx(host.overlay);
     // 전장 경계: 반경 1짜리 열린 원통을 원 크기로 늘린다 (안팎 모두 보이게, 안개 없이)
@@ -246,11 +269,96 @@ export class BrClient implements ModeClient {
   /** 관전 대상 바꾸기 요청 */
   private watch = (dir:1 | -1) => this.host.send({ k: 'watch', dir } satisfies BrClientMsg);
 
+  private toggleDrive = () => this.host.send({ k: 'drive' } satisfies BrClientMsg);
+
+  /** 차 소식 반영: 판정(내 예측)·그림이 같이 따라간다 */
+  private carMsg(m:Extract<BrServerMsg, { k: 'cars' | 'carIn' | 'carOut'; }>) {
+    const { collision } = this.host.sim;
+    if (m.k === 'cars') {
+      // 새 판·들어옴: 옮겨졌던 차를 원래 자리로 되돌린 뒤 지금 상태를 입힌다
+      this.movedCars.forEach((idx) => {
+        const d = collision.decor[idx];
+        collision.setVehicle(idx, { x: d.x, z: d.z, dx: d.dx, dz: d.dz });
+      });
+      this.movedCars.clear();
+      this.carAt.clear();
+      this.drivers.forEach((idx) => {
+        const d = collision.decor[idx];
+        collision.setVehicle(idx, { x: d.x, z: d.z, dx: d.dx, dz: d.dz });
+      });
+      this.drivers.clear();
+      this.rideIds.forEach((idx, i) => this.carFuel.set(idx, m.fuel[i] ?? 0));
+      m.moved.forEach(([ idx, x, z, dx, dz ]) => {
+        collision.setVehicle(idx, { x, z, dx, dz });
+        this.movedCars.add(idx);
+        this.carAt.set(idx, { x, z });
+      });
+      m.drivers.forEach(([ pid, idx ]) => {
+        this.drivers.set(pid, idx);
+        this.movedCars.add(idx);
+      });
+    } else if (m.k === 'carIn') {
+      this.drivers.set(m.pid, m.idx);
+      this.movedCars.add(m.idx);
+    } else {
+      this.drivers.delete(m.pid);
+      const [ x, z, dx, dz ] = m.pose;
+      collision.setVehicle(m.idx, { x, z, dx, dz });
+      this.carAt.set(m.idx, { x, z });
+      this.carFuel.set(m.idx, m.fuel);
+    }
+  }
+
+  /** 운전 중인 차를 운전하는 사람 자리로 (내 차는 예측한 몸, 남의 차는 보간된 자리, 안 보이면 숨김) */
+  private placeDriven(f:ModeFrame) {
+    const { collision } = this.host.sim;
+    const myId = this.host.myId();
+    this.drivers.forEach((idx, pid) => {
+      if (pid === myId) {
+        if (f.me.car === idx) collision.setVehicle(idx, carPose(f.me.x, f.me.z, f.me.f), true);
+        return;
+      }
+      const o = f.others.find((r) => r.id === pid);
+      collision.setVehicle(idx, o ? carPose(o.x, o.z, o.f) : null, true);
+    });
+    // 내 몸은 서버가 태웠는데 소식이 아직이면 (순서가 바뀌어 올 때) 내 차로 둔다
+    if (f.me.car >= 0 && this.drivers.get(myId) !== f.me.car) {
+      this.drivers.set(myId, f.me.car);
+      this.movedCars.add(f.me.car);
+    }
+  }
+
+  /** 가까이 탈 수 있는 차 (운전 중이 아닐 때) */
+  private findNearCar(me:ModeFrame['me']) {
+    if (me.car >= 0 || me.b >= 0) return -1;
+    const busy = new Set(this.drivers.values());
+    let best = -1;
+    let bestD:number = CAR.enter;
+    const { collision } = this.host.sim;
+    this.rideIds.forEach((idx) => {
+      if (busy.has(idx)) return;
+      const d = collision.decor[idx];
+      // 옮겨진 차는 판정 상자 자리(=그림 자리)를 쓴다 — 원래 자리는 decor에 남아 있어 따로 기록
+      const at = this.carAt.get(idx) ?? d;
+      if (Math.abs(at.x - me.x) > 5 || Math.abs(at.z - me.z) > 5) return;
+      const dist = Math.hypot(at.x - me.x, at.z - me.z);
+      if (dist < bestD) {
+        bestD = dist;
+        best = idx;
+      }
+    });
+    return best;
+  }
+
   private setReady = (on:boolean) => this.host.send({ k: 'ready', on } satisfies BrClientMsg);
 
   receive(d:unknown, now:number) {
     if (!isBrMsg(d)) return;
     const m = d as BrServerMsg;
+    if (m.k === 'cars' || m.k === 'carIn' || m.k === 'carOut') {
+      this.carMsg(m);
+      return;
+    }
     if (m.k === 'match') {
       // 시작 대기면 시계를 멈춰 둔다 (같은 판이어도 대기 → 시작은 바로 반영)
       this.lobbyElapsed = m.lobby ? m.elapsed : null;
@@ -465,13 +573,15 @@ export class BrClient implements ModeClient {
 
   frame(f:ModeFrame) {
     this.me = f.me;
+    this.placeDriven(f);
+    this.nearCar = this.deadInfo || this.specInfo ? -1 : this.findNearCar(f.me);
     this.persp = f.persp;
     this.yaw = f.yaw;
     this.hurtFx.update(f.now, f.me, f.yaw, gaugeHp(f.me.gv), !this.deadInfo && !this.specInfo);
     if (!f.persp || this.deadInfo || this.specInfo) this.scoped = false;
     // 시작 대기: 판 시계를 멈춘 채로 (전장·낮밤이 흐르지 않게)
     if (this.match && this.lobbyElapsed !== null) this.match.startAt = f.now - this.lobbyElapsed;
-    this.prompt = this.deadInfo || this.specInfo || this.lobbyElapsed !== null ? null : this.farmPrompt(f.me);
+    this.prompt = this.deadInfo || this.specInfo || this.lobbyElapsed !== null ? null : this.carPrompt(f.me) ?? this.farmPrompt(f.me);
     const zone = this.match ? zoneAt(this.match.plan, f.now - this.match.startAt) : null;
     this.zoneNow = zone;
     this.wall.visible = !!zone;
@@ -544,9 +654,17 @@ export class BrClient implements ModeClient {
     }
   }
 
+  /** 차 안내: 운전 중이면 내리기, 가까이 차가 있으면 타기 (연료 %, 없으면 못 탐) */
+  private carPrompt(me:ModeFrame['me']) {
+    if (me.car >= 0) return 'F: 차에서 내리기';
+    if (this.nearCar < 0) return null;
+    const fuel = this.carFuel.get(this.nearCar) ?? 0;
+    return fuel > 0 ? `F: 차 타기 (연료 ${fuel}%)` : '연료가 없는 차 (탈 수 없음)';
+  }
+
   acted(act:number, now:number, aim:ActAim) {
-    // 시작 대기 중엔 걷기만 (서버도 쏘기·파밍을 받지 않는다)
-    if (this.lobbyElapsed !== null) return 0;
+    // 시작 대기 중엔 걷기만 (서버도 쏘기·파밍을 받지 않는다), 차 안에서는 무기·파밍 없음
+    if (this.lobbyElapsed !== null || (this.me && this.me.car >= 0)) return 0;
     const dead = !!this.deadInfo || !!this.specInfo;
     let out = act;
     // 파밍: 누른 순간 손을 쓴다 (치기·줍기 결과는 서버가 알려 준다)
@@ -634,8 +752,10 @@ export class BrClient implements ModeClient {
       swing = Math.min(1, (now - this.swingAt.get(key)!) / REMOTE_SWING_MS);
     } else this.swingAt.delete(key);
     const hp = gaugeHp(gv);
+    // 차에 탄 사람은 안 그린다 (차가 대신 보인다)
+    const inCar = mine ? !!this.me && this.me.car >= 0 : this.drivers.has(key);
     return {
-      hidden: (st & ST_DEAD) !== 0, // 죽으면 시체가 대신 누워 있다
+      hidden: (st & ST_DEAD) !== 0 || inCar, // 죽으면 시체가 대신 누워 있다
       blink: (st & ST_SHIELD) !== 0,
       bar: mine || hp >= 100 ? null : hp / 100,
       swing,
@@ -743,6 +863,8 @@ export class BrClient implements ModeClient {
       end: this.endInfo ? { result: this.endInfo.result, why: this.endInfo.why, killer: this.endInfo.killer, chicken: this.endInfo.chicken, mine: !!this.endInfo.chicken && this.endInfo.chicken === this.myName(), top: this.endInfo.top, zk: this.endInfo.zk, next: Math.max(0, Math.ceil((this.endInfo.until - now) / 1000)) } : null,
       weapon: this.weaponHud(now),
       prompt: this.prompt,
+      drive: { driving: !!me && me.car >= 0, fuel: me && me.car >= 0 ? Math.ceil((me.fuel / CAR.fuelFull) * 100) : 0, kmh: me ? Math.round(Math.abs(me.spd) * 3.6) : 0, near: this.nearCar >= 0 },
+      toggleDrive: this.toggleDrive,
       press: (b) => this.press(b),
     };
   }
