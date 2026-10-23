@@ -662,7 +662,8 @@ export class BrClient implements ModeClient {
     this.shots.update(f.now);
     // 손에 든 총: 1인칭에서 무기가 있고 스코프·죽음·관전이 아닐 때
     const wn = this.weaponNow();
-    this.viewGun.update(f.now, wn?.w ?? null, f.persp && !this.scoped && !this.deadInfo && !this.specInfo, f.now < this.reloadTo);
+    // 차 안에서는 총을 들지 않는다 (무기도 못 쓴다)
+    this.viewGun.update(f.now, wn?.w ?? null, f.persp && !this.scoped && !this.deadInfo && !this.specInfo && f.me.car < 0, f.now < this.reloadTo);
     // 보스가 땅을 울리려 하면 바닥에 붉은 경고 원 (깜빡임)
     const boss = f.others.find((o) => o.k === Z_BOSS && (o.s & ST_SLAM));
     this.slamRing.visible = !!boss && Math.floor(f.now / 120) % 2 === 0;

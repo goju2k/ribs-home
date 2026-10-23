@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 import { pixelSnap } from '../../ui/pixel-snap';
 
@@ -62,7 +63,8 @@ const BURST_MS = 450;
 const STUCK_MS = 2500;
 
 interface Puff {
-  mesh: THREE.Mesh; at: number; ms: number; from: number; to: number;
+  /** aspect: 크기 배율을 축마다 (먼지를 길쭉·납작하게) */
+  mesh: THREE.Mesh; at: number; ms: number; from: number; to: number; aspect?: THREE.Vector3;
 }
 
 interface Spark {
@@ -71,6 +73,29 @@ interface Spark {
 
 interface Flying {
   mesh: THREE.Object3D; o: THREE.Vector3; d: THREE.Vector3; v: number; range: number; g: number; at: number; stuckAt: number;
+}
+
+/**
+ * 먼지·피 덩어리 모양 세 가지 (반지름 약 1): 둥근 공 하나가 커지면 너무 매끈해서, 크기가 다른 덩어리 몇 개를 뭉친다
+ * 0 뭉게 (덩어리 5개가 한데) · 1 흩뿌림 (작은 덩어리 8개가 넓고 납작하게) · 2 꼬리 (길쭉한 덩어리 3개가 한쪽으로)
+ * 꼭짓점도 조금씩 흔들어 각진 돌덩이처럼. 정해진 씨앗이라 늘 같은 모양
+ */
+function dustShapes() {
+  let s = 7;
+  const rnd = () => {
+    s = (s * 16807) % 2147483647;
+    return s / 2147483647;
+  };
+  const lump = (r:number, x:number, y:number, z:number, sx = 1, sy = 1, sz = 1) => {
+    const g = new THREE.IcosahedronGeometry(r, 0);
+    const pos = g.attributes.position;
+    for (let i = 0; i < pos.count; i++) pos.setXYZ(i, pos.getX(i) * (0.8 + rnd() * 0.4), pos.getY(i) * (0.8 + rnd() * 0.4), pos.getZ(i) * (0.8 + rnd() * 0.4));
+    return g.scale(sx, sy, sz).translate(x, y, z);
+  };
+  const clump = Array.from({ length: 5 }, () => lump(0.45 + rnd() * 0.25, (rnd() - 0.5) * 0.9, (rnd() - 0.3) * 0.7, (rnd() - 0.5) * 0.9));
+  const spray = Array.from({ length: 8 }, () => lump(0.2 + rnd() * 0.2, (rnd() - 0.5) * 1.8, (rnd() - 0.4) * 0.5, (rnd() - 0.5) * 1.8, 1, 0.6, 1));
+  const tail = Array.from({ length: 3 }, (_, i) => lump(0.35 + rnd() * 0.15, -0.6 + i * 0.6, (rnd() - 0.5) * 0.3, (rnd() - 0.5) * 0.3, 1.8, 0.8, 0.9));
+  return [ clump, spray, tail ].map((parts) => mergeGeometries(parts));
 }
 
 /** 석궁 화살 모양 (기본 도형): +z가 앞 — 나무 몸통, 쇠 촉(원뿔), 붉은 깃 3장 */
@@ -102,6 +127,9 @@ export class ShotFx {
 
   /** 충격 고리 (쏜 쪽을 보는 얇은 원판 고리) */
   private unitRing = new THREE.RingGeometry(0.8, 1, 16);
+
+  /** 불규칙한 먼지·피 덩어리 세 가지 */
+  private dustGeos = dustShapes();
 
   private sparkMats = new Map<string, THREE.MeshBasicMaterial>();
 
@@ -141,6 +169,14 @@ export class ShotFx {
   }
 
   /** 잠깐 보이는 구 (총구 불꽃·먼지·번쩍임): 반지름 from → to, 점점 투명하게 */
+  /** 먼지·피: 세 모양 중 하나를 아무렇게나 돌리고 축마다 조금씩 늘여서 (같은 모양이 되풀이돼 보이지 않게) */
+  private dust(at:THREE.Vector3, color:string, from:number, to:number, ms:number, now:number) {
+    this.puff(at, color, from, to, ms, now, this.dustGeos[Math.floor(Math.random() * this.dustGeos.length)]);
+    const p = this.puffs[this.puffs.length - 1];
+    p.mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI * 2, Math.random() * Math.PI);
+    p.aspect = new THREE.Vector3(0.7 + Math.random() * 0.6, 0.6 + Math.random() * 0.5, 0.7 + Math.random() * 0.6);
+  }
+
   private puff(at:THREE.Vector3, color:string, from:number, to:number, ms:number, now:number, geo:THREE.BufferGeometry = this.unitBall) {
     const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide }));
     mesh.position.copy(at);
@@ -166,9 +202,9 @@ export class ShotFx {
     const p = new THREE.Vector3(...at);
     const back = new THREE.Vector3(...from).sub(p).normalize();
     this.puff(p, fx.flash, 0.06 * k, fx.flashR * k, FLASH_MS * (fx.ring ? 1.5 : 1), now);
-    this.puff(p, fx.puff, 0.1 * k, fx.puffR * k, PUFF_MS, now);
+    this.dust(p, fx.puff, 0.1 * k, fx.puffR * k, PUFF_MS, now);
     // 벽·땅: 회색 흙먼지가 조금 더 오래 피어오른다
-    if (fx.dust) this.puff(p.clone().addScaledVector(back, 0.1), '#a89f8c', 0.15 * k, fx.dust * k, DUST_MS, now);
+    if (fx.dust) this.dust(p.clone().addScaledVector(back, 0.1), '#a89f8c', 0.15 * k, fx.dust * k, DUST_MS, now);
     // 좀비·보스: 쏜 쪽을 보는 하얀 충격 고리가 확 퍼진다
     if (fx.ring) {
       this.puff(p.clone().addScaledVector(back, 0.05), '#fff6e0', 0.1, fx.ring * Math.max(1, k), RING_MS, now, this.unitRing);
@@ -270,7 +306,9 @@ export class ShotFx {
         (p.mesh.material as THREE.Material).dispose();
         return false;
       }
-      p.mesh.scale.setScalar(p.from + (p.to - p.from) * Math.sqrt(k));
+      const r = p.from + (p.to - p.from) * Math.sqrt(k);
+      if (p.aspect) p.mesh.scale.set(r * p.aspect.x, r * p.aspect.y, r * p.aspect.z);
+      else p.mesh.scale.setScalar(r);
       (p.mesh.material as THREE.MeshBasicMaterial).opacity = 0.9 * (1 - k);
       return true;
     });
@@ -340,6 +378,8 @@ export class ShotFx {
     this.bursts = [];
     this.unitBox.dispose();
     this.unitBall.dispose();
+    this.unitRing.dispose();
+    this.dustGeos.forEach((g) => g.dispose());
     this.sparkMats.forEach((m) => m.dispose());
     this.ballGeo.dispose();
     this.ballMat.dispose();

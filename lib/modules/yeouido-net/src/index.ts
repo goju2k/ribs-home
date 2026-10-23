@@ -9,7 +9,7 @@
  * - 자기 메시지는 { t: 'mode' } 통로로만 주고받는다 (형식은 모드 모듈이 정한다).
  */
 
-export const PROTOCOL_VERSION = 19;
+export const PROTOCOL_VERSION = 20;
 
 /** 클라이언트가 알려 주는 화면 지연(다른 사람을 얼마나 늦게 보는지)의 상한 (ms) — 지연 보정이 이보다 더 되감지 않는다 */
 export const MAX_LAG_MS = 300;
