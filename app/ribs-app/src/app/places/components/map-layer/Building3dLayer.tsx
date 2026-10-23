@@ -1,12 +1,31 @@
-import { GeoJSONSource } from 'maplibre-gl';
 import { ChangeEvent, useEffect, useRef, useState } from 'react';
 
+import { Site, SunShadowLayer } from './sun-shadow-layer';
+
 import { testdata } from '../../../components/library/map-libre/data';
-import { ShadowUtil } from '../../../components/library/map-libre/util/ShadowUtil';
 import { SunPositionUtil } from '../../../components/library/map-libre/util/SunPositionUtil';
 import { NaverMap3d } from '../../../components/library/naver-map/components/map/naver-map-types';
 import { NaverMarker } from '../../../components/library/naver-map/components/marker/NaverMarker';
 import { useKBLandNaverMap } from '../../../components/library/naver-map/KBLandNaverMap';
+
+/** 3D 건물을 올린 장소들: 시험 건물(바닥 다각형 세우기) · 63빌딩(블렌더 모델) */
+const SITES:(Site & { name: string; zoom: number; })[] = [
+  {
+    id: 'dasan',
+    name: '다산 시험 건물',
+    origin: testdata.properties.center as [number, number],
+    zoom: 16,
+    buildings: [{ ring: testdata.geometry.coordinates[0], height: testdata.properties.height }],
+  },
+  {
+    id: 'yeouido-63',
+    name: '여의도 63빌딩',
+    // 모델 원점 = 지도 바닥 다각형 점들의 평균 (scripts/blender/build63.py)
+    origin: [ 126.9402258, 37.5198342 ],
+    zoom: 15.6,
+    buildings: [{ model: '/models/places/63-building.glb' }],
+  },
+];
 
 export function Building3dLayer() {
 
@@ -18,6 +37,7 @@ export function Building3dLayer() {
   const [ currTime, setCurrTime ] = useState(new Date());
   const [ hour, setHour ] = useState(new Date().getHours());
   const [ minute, setMinute ] = useState(new Date().getMinutes());
+  const [ siteId, setSiteId ] = useState(SITES[0].id);
   const minHour = 5;
   const maxHour = 20;
   const totalHours = maxHour - minHour;
@@ -35,82 +55,38 @@ export function Building3dLayer() {
 
   const mapInstance = useKBLandNaverMap<NaverMap3d>();
   const map = useRef<maplibregl.Map>();
+  const layer = useRef<SunShadowLayer>();
+  const timeRef = useRef(currTime);
+  const siteRef = useRef(SITES[0]);
+
+  /** 지금 장소·시각의 해를 3D 레이어에 넣는다 */
+  const applySun = () => {
+    const site = siteRef.current;
+    const { sunAltitude, sunAzimuth } = SunPositionUtil.getSunPositionInfo({ lat: site.origin[1], lng: site.origin[0], date: timeRef.current });
+    layer.current?.setSun(sunAzimuth, sunAltitude);
+    setSunAzimuth(sunAzimuth);
+    setSunAltitude(sunAltitude);
+  };
+
   useEffect(() => {
     
     map.current = mapInstance;
-    console.log('map', map);
     
     if (mapInstance) {
 
       mapInstance.on('load', () => {
       
-        // sun position
-        const { sunAltitude, sunAzimuth } = SunPositionUtil.getSunPositionInfo({ lat: testdata.properties.center[1], lng: testdata.properties.center[0] });
-      
-        // Add shadows to the map
-        mapInstance.addSource('shadows', {
-          type: 'geojson',
-          data: {
-            type: 'FeatureCollection',
-            features: [ testdata ].map((building) => ({
-              type: 'Feature',
-              geometry: {
-                type: 'MultiPolygon',
-                coordinates: sunAltitude > 0 ? ShadowUtil.calculateShadowPolygon(building) : [[[]]],
-                // coordinates: ShadowUtil.getSample(),
-              },
-              properties: building.properties,
-            })),
-          }, 
-        });
-          
-        mapInstance.addLayer({
-          id: 'building-shadows',
-          source: 'shadows',
-          type: 'fill',
-          paint: {
-            'fill-color': 'rgba(0, 0, 0, 0.5)',
-            'fill-opacity': 0.5,
-          },
-        });
-      
-        // Add GeoJSON source
-        mapInstance.addSource('buildings', {
-          type: 'geojson',
-          data: {
-            type: 'FeatureCollection',
-            features: [ testdata ].map((building) => ({
-              type: 'Feature',
-              geometry: {
-                type: 'Polygon',
-                coordinates: building.geometry.coordinates,
-              },
-              properties: building.properties,
-            })),
-          },
-        });
-      
-        // Add 3D building layer
-        mapInstance.addLayer({
-          id: '3d-buildings',
-          source: 'buildings',
-          type: 'fill-extrusion',
-          paint: {
-            'fill-extrusion-color': 'lightgray',
-            'fill-extrusion-height': [ 'get', 'height' ],
-            'fill-extrusion-base': [ 'get', 'min_height' ],
-            'fill-extrusion-opacity': 1,
-            'fill-extrusion-translate-anchor': 'map',
-            'fill-extrusion-vertical-gradient': true,
-          },
-        });
-      
-        // set light
-        mapInstance.setLight({
-          position: [ 1.15, sunAzimuth, sunAltitude ], // Adjust sun altitude and azimuth
-          intensity: 0.2,
-          anchor: 'map',
-        });
+        // 3D 건물 + 해 그림자 (three.js)
+        layer.current = new SunShadowLayer(SITES);
+        mapInstance.addLayer(layer.current);
+        // ?site=yeouido-63 처럼 장소를 골라 바로 연다
+        const start = SITES.find((s) => s.id === new URLSearchParams(window.location.search).get('site'));
+        if (start) {
+          siteRef.current = start;
+          setSiteId(start.id);
+          mapInstance.jumpTo({ center: start.origin, zoom: start.zoom });
+        }
+        applySun();
       
         window.mypath = [];
         mapInstance.on('click', (e) => {
@@ -122,7 +98,7 @@ export function Building3dLayer() {
         // 스크롤 속도 2배
         mapInstance.scrollZoom.setWheelZoomRate(0.0015);
   
-        mapInstance.on('idle', (e) => {
+        mapInstance.on('idle', () => {
           updateStat();
         });
 
@@ -146,6 +122,14 @@ export function Building3dLayer() {
     }
 
   }, [ mapInstance ]);
+
+  const moveToSite = (id:string) => {
+    const site = SITES.find((s) => s.id === id) ?? SITES[0];
+    siteRef.current = site;
+    setSiteId(site.id);
+    applySun();
+    map.current?.flyTo({ center: site.origin, zoom: site.zoom, pitch: 55, duration: 2500 });
+  };
   
   const setTimeWithDayMinutes = (dayMinute:number) => {
     const [ h, m ] = getDateFromDayMinutes(dayMinute);
@@ -162,34 +146,8 @@ export function Building3dLayer() {
     newTime.setHours(hour);
     newTime.setMinutes(minute);
     setCurrTime(newTime);
-  
-    // sun position
-    const { sunAltitude, sunAzimuth } = SunPositionUtil.getSunPositionInfo({ 
-      lat: testdata.properties.center[1],
-      lng: testdata.properties.center[0],
-      date: newTime,
-    });
-  
-    // Add shadows to the map
-    map.current?.getSource<GeoJSONSource>('shadows')?.setData({
-      type: 'FeatureCollection',
-      features: [ testdata ].map((building) => ({
-        type: 'Feature',
-        geometry: {
-          type: 'MultiPolygon',
-          coordinates: sunAltitude > 0 ? ShadowUtil.calculateShadowPolygon(building, newTime) : [[[]]],
-          // coordinates: ShadowUtil.getSample(),
-        },
-        properties: building.properties,
-      })),
-    });
-  
-    // set light
-    map.current?.setLight({
-      position: [ 1.15, sunAzimuth, sunAltitude ], // Adjust sun altitude and azimuth
-      intensity: 0.2,
-      anchor: 'map',
-    });
+    timeRef.current = newTime;
+    applySun();
   
     updateStat();
   
@@ -201,9 +159,6 @@ export function Building3dLayer() {
       setBear((current.getBearing() + 360) % 360);
       setZoom(current.getZoom());
       setMapCenter(current.getCenter());
-      const [ , azi, alti ] = current.getLight().position as number[];
-      setSunAzimuth(azi);
-      setSunAltitude(alti);
     }
   };
   
@@ -335,6 +290,27 @@ export function Building3dLayer() {
               setTimeWithHours(hour, minute);
             }}
           />
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '8px' }}>
+            {SITES.map((s) => (
+              <button
+                key={s.id}
+                type='button'
+                onClick={() => moveToSite(s.id)}
+                style={{
+                  padding: '6px 8px',
+                  border: '1px solid lightgray',
+                  borderRadius: '4px',
+                  background: s.id === siteId ? '#3d6fd8' : 'white',
+                  color: s.id === siteId ? 'white' : 'black',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                }}
+              >
+                {s.name}
+              </button>
+            ))}
+          </div>
 
         </div>
       </div>
