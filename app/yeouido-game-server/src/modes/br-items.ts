@@ -31,21 +31,6 @@ export class ItemField {
 
   private nextId = 1;
 
-  /** 방금 떨어뜨린 사람은 한 번 멀어질 때까지 못 줍는다 (원거리 무기 바꿀 때 바로 다시 줍지 않게): 아이템 번호 → 사람 번호 */
-  private heldBy = new Map<number, { pid: number; until: number; }>();
-
-  hold(id:number, pid:number) {
-    this.heldBy.set(id, { pid, until: Date.now() + 8000 });
-  }
-
-  /** 이 사람이 지금 주울 수 있는지 (떨어뜨린 것에서 1.8m 넘게 멀어졌거나 8초 지나면 풀어 준다) */
-  canPick(it:GroundItem, pid:number, x:number, z:number) {
-    const h = this.heldBy.get(it[0]);
-    if (!h || h.pid !== pid) return true;
-    if (Math.hypot(it[3] - x, it[5] - z) > 1.8 || Date.now() > h.until) this.heldBy.delete(it[0]);
-    return false;
-  }
-
   get size() {
     return this.items.size;
   }
@@ -56,7 +41,6 @@ export class ItemField {
 
   clear() {
     this.items.clear();
-    this.heldBy.clear();
     this.grid.clear();
   }
 
@@ -71,11 +55,14 @@ export class ItemField {
     return it;
   }
 
+  get(id:number) {
+    return this.items.get(id);
+  }
+
   remove(id:number) {
     const it = this.items.get(id);
     if (!it) return;
     this.items.delete(id);
-    this.heldBy.delete(id);
     this.grid.get(key(Math.floor(it[3] / CELL), Math.floor(it[5] / CELL)))?.delete(id);
   }
 

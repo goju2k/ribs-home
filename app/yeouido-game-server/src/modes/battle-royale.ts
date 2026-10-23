@@ -1,7 +1,7 @@
 import {
   ACT_FARM, ACT_FIRE, isMaxed, MAX_LEVEL, ACT_RELOAD, BALL, BOSS_LIMIT_MS, ESCAPE, BrClientMsg, Difficulty, DIFFICULTY, FARM, RESULT_MS, afterPickup, armorCut, BR_MODE, dayNight, breakPower, PROP_KINDS, PROP_RADIUS, rollDrops, rollZombieDrop, BrServerMsg, Corpse, CorpseItem, emptyGear, Gear, HP_MAX, HURT_MS, hpGauge, insideZone,
   ITEM_KINDS, insideZone as inZoneCircle, makeMatchPlan, pickRoofOf, LOBBY_COUNTDOWN_MS, MATCH_MS, MatchPlan, meleeReaches, pickSpawn, respawnDelay, rocketMul, shoeMul,
-  canFire, falloff, fire, healAmount, isConsumable, FireState, fullMag, heldWeapon, isWeapon, MOVING_SPEED, reload, shotDirs, WEAPON_KINDS, weaponStats,
+  canFire, falloff, fire, healAmount, isConsumable, PICK_GAP_MS, PICK_RANGE, PICK_RELEASE, FireState, fullMag, heldWeapon, isWeapon, MOVING_SPEED, reload, shotDirs, WEAPON_KINDS, weaponStats,
   SPAWN_SHIELD_MS, ST_DEAD, ST_FROZEN, ST_HIDDEN, ST_HURT, ST_SHIELD, ST_SWING, zoneAt, zoneDps,
 } from 'yeouido-br';
 import { SIM_HZ } from 'yeouido-net';
@@ -69,6 +69,10 @@ interface Fighter {
   /** 지난 걸음에 파밍 비트가 있었나, 새로 누른 뒤 아직 줍지 않았나 (줍기·털기는 새로 누를 때만 — 누른 채 부수다 떨어진 무기를 바꿔 들지 않게) */
   farmPrev: boolean;
   farmFresh: boolean;
+  /** 닿아도 건너뛸 땅 아이템 (바꿔 떨어뜨린 무기·못 줍는 것) — PICK_RELEASE m 넘게 멀어지면 푼다 */
+  skip: Set<number>;
+  /** 다음 닿아 줍기 가능 시각 */
+  nextPickAt: number;
   swingUntil: number;
   hurtUntil: number;
   /** 전장 밖이면 다음 피해 시각 */
@@ -348,7 +352,7 @@ export class BattleRoyale implements GameMode {
   private revive(p:ModePlayer, body:Body, now:number) {
     p.body = body;
     p.queue.length = 0;
-    const f:Fighter = { hp: HP_MAX, respawnAt: 0, shieldUntil: now + SPAWN_SHIELD_MS, nextFarmAt: 0, farmPrev: false, farmFresh: false, fire: null, swingUntil: 0, hurtUntil: 0, zoneAt: 0, poisonUntil: 0, poisonAt: 0, gear: emptyGear(), spectator: null, specFrom: 0, watch: 0, watchSent: false };
+    const f:Fighter = { hp: HP_MAX, respawnAt: 0, shieldUntil: now + SPAWN_SHIELD_MS, nextFarmAt: 0, farmPrev: false, farmFresh: false, skip: new Set(), nextPickAt: 0, fire: null, swingUntil: 0, hurtUntil: 0, zoneAt: 0, poisonUntil: 0, poisonAt: 0, gear: emptyGear(), spectator: null, specFrom: 0, watch: 0, watchSent: false };
     this.fighters.set(p.id, f);
     if (p.debug) {
       DEBUG_GEAR.forEach(([ k, v ]) => {
@@ -381,12 +385,12 @@ export class BattleRoyale implements GameMode {
       this.send(p, { k: 'got', kind, lv, from });
       return;
     }
-    // 무기는 한 종류만: 다른 종류를 주우면 들고 있던 것을 그 자리에 떨어뜨린다 (떨어뜨린 사람은 멀어질 때까지 못 줍는다)
+    // 무기는 한 종류만: 다른 종류를 주우면 들고 있던 것을 그 자리에 떨어뜨린다 (떨어뜨린 사람은 멀어질 때까지 건너뛴다)
     if (isWeapon(k)) {
       WEAPON_KINDS.filter((o) => o !== k && f.gear[o] > 0).forEach((o) => {
         const { x, y, z, b, l } = p.body;
         const it = this.items.add(ITEM_KINDS.indexOf(o), f.gear[o], x, y, z, b, l);
-        this.items.hold(it[0], p.id);
+        f.skip.add(it[0]);
         this.broadcast({ k: 'itemAdd', list: [ it ] });
         f.gear[o] = 0;
       });
@@ -547,8 +551,46 @@ export class BattleRoyale implements GameMode {
   }
 
   /**
-   * 파밍(좌클릭): 앞쪽 가까이 있는 것 하나 — 땅 아이템 줍기, 시체 털기, 물건 치기(망치가 있으면 세게).
-   * 셋 중 가장 가까운 것. 줍기·털기는 새로 누른 때만(누른 채 부수기만 이어진다), 줍기·털기는 짧게, 치기는 조금 길게 쉰다
+   * 닿으면 줍기 (걸음마다): 발 가까이(PICK_RANGE) 같은 공간의 땅 아이템 하나 — 가장 가까운 것.
+   * 못 줍는 것(최대 단계·체력 가득)과 바꿔 떨어뜨린 무기는 건너뛸 목록에 넣고, PICK_RELEASE m 넘게 멀어지면 푼다 (시간으로는 안 푼다 —
+   * 제자리에 서 있는 동안 무기가 계속 바뀌거나 같은 것을 계속 시도하지 않게). 무기를 바꾼 순간 발밑의 다른 무기도 건너뛴다 (둘을 밟고 연달아 바꾸지 않게)
+   */
+  private touchPick(p:ModePlayer, me:Fighter, now:number) {
+    const { body } = p;
+    me.skip.forEach((id) => {
+      const it = this.items.get(id);
+      if (!it || it[6] !== body.b || Math.hypot(it[3] - body.x, it[5] - body.z) > PICK_RELEASE) me.skip.delete(id);
+    });
+    if (now < me.nextPickAt) return;
+    const touching = this.items.near(body.x, body.z, PICK_RANGE).filter((it) => sameSpace(body, it[4], it[6], it[7]) && !me.skip.has(it[0]));
+    touching.sort((a, b) => Math.hypot(a[3] - body.x, a[5] - body.z) - Math.hypot(b[3] - body.x, b[5] - body.z));
+    const it = touching.find((t) => {
+      const k = ITEM_KINDS[t[1]];
+      // 체력이 가득하면 회복약은, 이미 최대 단계면 같은 아이템은 못 줍는다 — 멀어질 때까지 다시 보지 않는다
+      if ((isConsumable(k) && me.hp >= HP_MAX) || isMaxed(me.gear, k)) {
+        me.skip.add(t[0]);
+        return false;
+      }
+      return true;
+    });
+    if (!it) return;
+    const k = ITEM_KINDS[it[1]];
+    const swaps = isWeapon(k) && WEAPON_KINDS.some((o) => o !== k && me.gear[o] > 0);
+    this.items.remove(it[0]);
+    this.broadcast({ k: 'itemGone', ids: [ it[0] ] });
+    this.equip(p, me, it[1], it[2], 'ground');
+    this.applyGear(p, me);
+    if (swaps) {
+      touching.forEach((t) => {
+        if (t !== it && isWeapon(ITEM_KINDS[t[1]])) me.skip.add(t[0]); 
+      });
+    }
+    me.nextPickAt = now + PICK_GAP_MS;
+  }
+
+  /**
+   * 파밍(좌클릭): 앞쪽 가까이 있는 것 하나 — 시체 털기, 물건 치기(망치가 있으면 세게). 땅 아이템은 닿으면 줍는다(touchPick).
+   * 둘 중 가장 가까운 것. 털기는 새로 누른 때만(누른 채 부수기만 이어진다), 털기는 짧게, 치기는 조금 길게 쉰다
    */
   private farm(p:ModePlayer, me:Fighter, now:number) {
     const { body } = p;
@@ -558,26 +600,11 @@ export class BattleRoyale implements GameMode {
       const d = Math.hypot(x - body.x, z - body.z);
       if (!best || d < best.d) best = { d, run };
     };
-    // 줍기·털기는 새로 누른 때만 (한 번 주우면 다시 누를 때까지 안 줍는다)
+    // 털기는 새로 누른 때만 (한 번 털면 다시 누를 때까지 안 턴다)
     const pick = (run:() => number) => () => {
       me.farmFresh = false;
       return run();
     };
-    if (me.farmFresh) {
-      this.items.near(body.x, body.z, FARM.range + 1).forEach((it) => {
-        if (!this.items.canPick(it, p.id, body.x, body.z) || !reach(it[3], it[4], it[5], it[6], it[7])) return;
-        // 체력이 가득하면 회복약은, 이미 최대 단계면 같은 아이템은 안 줍는다
-        if (isConsumable(ITEM_KINDS[it[1]]) && me.hp >= HP_MAX) return;
-        if (isMaxed(me.gear, ITEM_KINDS[it[1]])) return;
-        offer(it[3], it[5], pick(() => {
-          this.items.remove(it[0]);
-          this.broadcast({ k: 'itemGone', ids: [ it[0] ] });
-          this.equip(p, me, it[1], it[2], 'ground');
-          this.applyGear(p, me);
-          return FARM.pickMs;
-        }));
-      });
-    }
     this.corpses.forEach((c) => {
       // 이미 최대인 칸의 아이템은 시체에 남긴다 (다른 사람이 털 수 있게)
       const takes = c.items.filter(([ kind ]) => !isMaxed(me.gear, ITEM_KINDS[kind]));
@@ -594,7 +621,7 @@ export class BattleRoyale implements GameMode {
       if (!reach(o.x, o.y, o.z, o.b, o.l, PROP_RADIUS[PROP_KINDS[o.kind]])) return;
       offer(o.x, o.z, () => {
         this.hitProp(p, me, o);
-        // 친 뒤에는 이번 누름으로 줍지 않는다 (부서져 떨어진 무기를 누른 채 바꿔 들지 않게)
+        // 친 뒤에는 이번 누름으로 털지 않는다
         me.farmFresh = false;
         me.swingUntil = now + FARM.swingMs;
         return FARM.hitMs;
@@ -735,6 +762,7 @@ export class BattleRoyale implements GameMode {
       if (w) reload(me.fire, weaponStats(w, me.gear[w]), aim.seq, STEP);
     }
     if (act & ACT_FIRE) this.shoot(p, me, now, aim);
+    this.touchPick(p, me, now);
     const farmBit = (act & ACT_FARM) !== 0;
     if (!farmBit) me.farmFresh = false;
     else if (!me.farmPrev) me.farmFresh = true;

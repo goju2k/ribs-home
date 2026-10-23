@@ -217,7 +217,7 @@ export function BrHud({ state, inputRef, touch }:{ state: BrHudState; inputRef: 
         </>
       ) : (
         <Hint>
-          좌클릭: 파밍(줍기·시체 털기·부수기) · 우클릭: 사격 · R: 재장전
+          아이템은 닿으면 줍기 · 좌클릭: 파밍(시체 털기·부수기) · 우클릭: 사격 · R: 재장전
           {state.weapon?.scope ? ' · 저격: 우클릭 스코프 → 우클릭 발사, 좌클릭 스코프 끄기' : ''}
         </Hint>
       )}

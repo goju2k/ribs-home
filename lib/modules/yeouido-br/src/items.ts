@@ -3,7 +3,7 @@ import { WEAPON_KINDS } from './weapons';
 /**
  * 배틀로얄 아이템 (게임성 측정용 PoC — 종류·수치는 가정).
  * 완성품이 떨어져 있고, 같은 칸 아이템을 주우면 강화(+1, 최대 +10 — 최대면 같은 아이템은 더 못 줍는다). 죽으면 시체에 남아 다른 사람이 털 수 있다.
- * 무기는 한 종류만 든다(weapons.ts) — 다른 무기를 주우면 들고 있던 것은 그 자리에 떨어진다. 줍기·털기·부수기는 좌클릭(파밍).
+ * 무기는 한 종류만 든다(weapons.ts) — 다른 무기를 주우면 들고 있던 것은 그 자리에 떨어진다. 땅 아이템은 닿으면 줍고, 시체 털기·부수기는 좌클릭(파밍).
  */
 
 /** 순서가 곧 번호 (메시지에 번호로 오간다 — 슈터 개편에서 다시 매김, 프로토콜 v12) */
@@ -77,5 +77,10 @@ export type GroundItem = [number, number, number, number, number, number, number
 /** 시체에 남은 아이템: [종류 번호, 단계] */
 export type CorpseItem = [number, number];
 
-/** 줍는 거리 (m) */
-export const PICK_RANGE = 1.3;
+/**
+ * 닿으면 줍기: 발에서 이 거리 안의 땅 아이템 (m). 바꿔 떨어뜨린 무기·못 줍는 아이템(최대 단계·체력 가득)은
+ * 그 사람이 PICK_RELEASE m 넘게 멀어질 때까지 건너뛴다 (제자리에서 무한히 바꿔 들거나 다시 시도하지 않게). 줍기 사이 PICK_GAP_MS
+ */
+export const PICK_RANGE = 1.0;
+export const PICK_RELEASE = 2.0;
+export const PICK_GAP_MS = 250;

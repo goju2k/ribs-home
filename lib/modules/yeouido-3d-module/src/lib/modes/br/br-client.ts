@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import {
   ACT_FARM, ACT_FIRE, ACT_RELOAD, BOSS, isMaxed, MAX_LEVEL, BrClientMsg, BrServerMsg, dayNight, FARM, ST_BURN, ST_SLAM, Z_BOSS, Z_RUNNER, Z_WALKER, Corpse, emptyGear, gaugeHp, Gear, isBrMsg, ITEM_KINDS, ITEM_NAMES, MatchPlan, meleeReaches, ST_DEAD, ST_HURT, ST_SHIELD, ST_SWING,
-  canFire, fire, isConsumable, WEAPON_KINDS, FireState, fullMag, heldWeapon, isWeapon, MOVING_SPEED, PROP_KINDS, PROP_NAMES, PROP_RADIUS, reload, shotDirs, WeaponKind, weaponStats, zoneAt, ZoneNow,
+  canFire, fire, isConsumable, PICK_RANGE, WEAPON_KINDS, FireState, fullMag, heldWeapon, MOVING_SPEED, PROP_KINDS, PROP_NAMES, PROP_RADIUS, reload, shotDirs, WeaponKind, weaponStats, zoneAt, ZoneNow,
 } from 'yeouido-br';
 import { castRay, STEP } from 'yeouido-sim';
 
@@ -403,7 +403,7 @@ export class BrClient implements ModeClient {
     return w ? { w, st: weaponStats(w, this.gear[w]) } : null;
   }
 
-  /** 좌클릭으로 할 수 있는 것: 앞쪽 가까이 있는 땅 아이템·털 시체·부술 물건 중 가장 가까운 것 (서버 파밍과 같은 규칙) */
+  /** 좌클릭으로 할 수 있는 것: 앞쪽 가까이 있는 털 시체·부술 물건 중 가장 가까운 것 (서버 파밍과 같은 규칙). 땅 아이템은 닿으면 줍는다 */
   private farmPrompt(me:ModeFrame['me']) {
     const space = (y:number, b:number, l:number) => b === me.b && (b >= 0 ? l === me.l : Math.abs(y - me.y) <= 1.6);
     const reach = (x:number, y:number, z:number, b:number, l:number, extra = 0) => space(y, b, l) && meleeReaches(me, { x, y, z, f: 0, b, l }, FARM.range + extra, FARM.cosArc);
@@ -412,20 +412,12 @@ export class BrClient implements ModeClient {
       const d = Math.hypot(x - me.x, z - me.z);
       if (!best || d < best.d) best = { d, text };
     };
-    const held = heldWeapon(this.gear);
+    // 땅 아이템: 닿으면 줍는다 — 못 줍는 것만 알려 준다 (지나가도 안 주워지는 이유)
     this.items.list.forEach(({ it }) => {
-      if (Math.abs(it[3] - me.x) > 4 || Math.abs(it[5] - me.z) > 4 || !reach(it[3], it[4], it[5], it[6], it[7])) return;
+      if (Math.abs(it[3] - me.x) > 2 || Math.abs(it[5] - me.z) > 2 || !space(it[4], it[6], it[7]) || Math.hypot(it[3] - me.x, it[5] - me.z) > PICK_RANGE + 0.5) return;
       const k = ITEM_KINDS[it[1]];
-      if (isConsumable(k)) {
-        offer(it[3], it[5], gaugeHp(me.gv) >= 100 ? `${ITEM_NAMES[k]} ${it[2]}% (체력 가득)` : `좌클릭: ${ITEM_NAMES[k]} ${it[2]}% 먹기`);
-        return;
-      }
-      if (isMaxed(this.gear, k)) {
-        offer(it[3], it[5], `${ITEM_NAMES[k]} +${it[2]} (이미 최대 +${MAX_LEVEL})`);
-        return;
-      }
-      const swap = held && isWeapon(k) && k !== held ? ` (${ITEM_NAMES[held]} 버림)` : '';
-      offer(it[3], it[5], `좌클릭: ${ITEM_NAMES[k]} +${it[2]} 줍기${swap}`);
+      if (isConsumable(k) && gaugeHp(me.gv) >= 100) offer(it[3], it[5], `${ITEM_NAMES[k]} ${it[2]}% (체력 가득)`);
+      else if (isMaxed(this.gear, k)) offer(it[3], it[5], `${ITEM_NAMES[k]} +${it[2]} (이미 최대 +${MAX_LEVEL})`);
     });
     this.corpses.forEach(({ c }) => {
       if (!c.items.length || !reach(c.x, c.y, c.z, c.b, c.l)) return;
