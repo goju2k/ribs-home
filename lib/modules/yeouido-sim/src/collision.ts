@@ -1,4 +1,5 @@
 import { Decor, DecorBox, inBox, isVehicle, placeDecor, vehicleBoxes } from './decor';
+import { landmarkBoxes } from './landmark-boxes';
 import { BLOCK, decodeCollision, WorldData } from './world-data';
 
 const BUCKET = 50; // 건물 높이 찾기용 공간 격자(m)
@@ -60,7 +61,7 @@ export class Collision {
   /** 도심 꾸미기 (그리기용으로도 내준다) */
   readonly decor:Decor[];
 
-  /** 차 충돌 상자 (BUCKET 격자) — 이동·총알을 막는다 */
+  /** 차·랜드마크 옥상 설비 충돌 상자 (BUCKET 격자) — 이동·총알을 막는다 */
   private boxBuckets = new Map<number, DecorBox[]>();
 
   constructor(data:WorldData) {
@@ -110,19 +111,21 @@ export class Collision {
     this.maxH = data.maxBuildingHeight;
 
     this.decor = placeDecor(data, (x, z) => this.at(x, z) === BLOCK.NONE);
-    this.decor.forEach((d) => {
-      if (!isVehicle(d.k)) return;
-      vehicleBoxes(d).forEach((b) => {
-        const r = Math.hypot(b.hl, b.hw);
-        for (let bx = Math.floor((b.cx - r) / BUCKET); bx <= Math.floor((b.cx + r) / BUCKET); bx++) {
-          for (let bz = Math.floor((b.cz - r) / BUCKET); bz <= Math.floor((b.cz + r) / BUCKET); bz++) {
-            const list = this.boxBuckets.get(bx * 100000 + bz);
-            if (list) list.push(b);
-            else this.boxBuckets.set(bx * 100000 + bz, [ b ]);
-          }
+    const addBox = (b:DecorBox) => {
+      const r = Math.hypot(b.hl, b.hw);
+      for (let bx = Math.floor((b.cx - r) / BUCKET); bx <= Math.floor((b.cx + r) / BUCKET); bx++) {
+        for (let bz = Math.floor((b.cz - r) / BUCKET); bz <= Math.floor((b.cz + r) / BUCKET); bz++) {
+          const list = this.boxBuckets.get(bx * 100000 + bz);
+          if (list) list.push(b);
+          else this.boxBuckets.set(bx * 100000 + bz, [ b ]);
         }
-      });
+      }
+    };
+    this.decor.forEach((d) => {
+      if (isVehicle(d.k)) vehicleBoxes(d).forEach(addBox);
     });
+    // 블렌더 랜드마크 외형의 옥상 설비·난간 (몸체는 지도 바닥 다각형 그대로)
+    landmarkBoxes(data).forEach(addBox);
   }
 
   /** (x, z)의 차 충돌 상자 중 가장 높은 것 (없으면 0) — 그보다 낮으면 막히고, 위에 서면 바닥 */

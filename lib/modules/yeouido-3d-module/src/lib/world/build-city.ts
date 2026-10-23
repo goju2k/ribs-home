@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { FlatRing, toPoints, WorldData } from 'yeouido-sim';
 
-import { buildLandmarks, landmarkIndices } from './landmarks';
+import { buildLandmarks, landmarkIndices, landmarkModelIndices } from './landmarks';
 import { seeThrough } from './see-through';
 
 interface P {
@@ -185,6 +185,8 @@ function buildBuildings(data:WorldData) {
   const color = new THREE.Color();
   // 랜드마크는 벽을 따로 그린다 (지붕은 여기서 그대로)
   const landmarks = landmarkIndices(data);
+  // 블렌더 외형이 있으면 지도 지붕도 그리지 않는다 (모델의 지붕과 겹친다)
+  const modelled = landmarkModelIndices(data);
 
   let bi = -1;
   for (const row of data.buildings) {
@@ -245,18 +247,21 @@ function buildBuildings(data:WorldData) {
         roofGeos.push(post);
       }
     }
-    try {
-      const roof = polygonGeometry([ row.slice(4) ], h);
-      const n = roof.attributes.position.count;
-      const rc = new THREE.Color().setHex(roofHex);
-      const cols = new Float32Array(n * 3);
-      for (let i = 0; i < n; i++) cols.set([ rc.r, rc.g, rc.b ], i * 3);
-      roof.setAttribute('color', new THREE.BufferAttribute(cols, 3));
-      roof.deleteAttribute('uv');
-      roof.setAttribute('bid', new THREE.BufferAttribute(new Float32Array(n).fill(bi + 1), 1));
-      roofGeos.push(roof);
-    } catch {
+    // 블렌더 외형이 있으면 지붕은 모델 것
+    if (!modelled.has(bi)) {
+      try {
+        const roof = polygonGeometry([ row.slice(4) ], h);
+        const n = roof.attributes.position.count;
+        const rc = new THREE.Color().setHex(roofHex);
+        const cols = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) cols.set([ rc.r, rc.g, rc.b ], i * 3);
+        roof.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+        roof.deleteAttribute('uv');
+        roof.setAttribute('bid', new THREE.BufferAttribute(new Float32Array(n).fill(bi + 1), 1));
+        roofGeos.push(roof);
+      } catch {
       // 자기 교차 등으로 지붕 삼각분할이 실패하면 지붕만 생략
+      }
     }
   }
 

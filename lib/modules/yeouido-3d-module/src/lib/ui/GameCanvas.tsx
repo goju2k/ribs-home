@@ -15,7 +15,7 @@ import { createPerson } from '../player/person';
 import { RemotePlayers } from '../player/remote-players';
 import { buildCity } from '../world/build-city';
 import { DecorMeshes } from '../world/build-decor';
-import { setLandmarkNight } from '../world/landmarks';
+import { landmarkEnvironment, setLandmarkNight } from '../world/landmarks';
 import { SEE } from '../world/see-through';
 
 const PITCH = THREE.MathUtils.degToRad(48);
@@ -153,6 +153,9 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
     views.forEach((v) => scene.add(v.group));
     // 도심 꾸미기 (차·가로등·정류장·소품): 배치는 공용 시뮬레이션이 서버와 같게 정한다 (차는 막힘)
     const decor = new DecorMeshes(scene, collision.decor);
+    // 블렌더 랜드마크 외형(반사 유리)이 비칠 하늘 — Standard 재질(그 모델)에만 쓰인다
+    const env = landmarkEnvironment(renderer);
+    scene.environment = env;
     const buildMs = Math.round(performance.now() - t0);
 
     const hemi = new THREE.HemisphereLight('#e6f4ff', '#8a8573', 1.6);
@@ -930,6 +933,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       miniRef.current?.removeEventListener('pointerdown', onMini);
       others.dispose();
       decor.dispose();
+      env.dispose();
       observer.disconnect();
       window.removeEventListener('resize', onDpr);
       canvas.removeEventListener('wheel', onWheel);

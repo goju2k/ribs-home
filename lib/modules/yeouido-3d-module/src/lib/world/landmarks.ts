@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { toPoints, WorldData } from 'yeouido-sim';
 
 import { seeThrough } from './see-through';
@@ -157,11 +158,17 @@ interface Landmark {
   groove: string;
   /** 지붕 위·모서리 덧붙임 (안 막는 작은 것만 — 안테나·항공등 등) */
   extras?: (ring:{ x: number; z: number; }[], cx:number, cz:number, h:number) => THREE.Object3D[];
+  /**
+   * 블렌더 외형 (.glb, scripts/blender): 있으면 불러오는 대로 위 도트 외벽·덧붙임을 치우고 갈아 끼운다 (실내·판정은 원래대로).
+   * 모델은 바닥 다각형 점들의 평균이 원점, 방향은 지도와 같다. 옥상 설비·난간 판정은 yeouido-sim landmark-boxes
+   */
+  model?: string;
 }
 
 const LANDMARKS:Landmark[] = [
   {
     name: '63빌딩',
+    model: '/models/lab/63-building.glb',
     facades: (bays) => [ paint63('front', bays), paint63('side', bays), paint63('strip', bays) ],
     // 넓은 앞뒤 면(30m 이상)은 매끈한 유리, 끝면의 짧은 꺾임(2.5m 미만)은 짙은 홈, 홈 사이 5~7m는 은청색 띠, 나머지 옆면은 기계층 띠가 있는 금색
     pick: (len, i, lens) => {
@@ -204,13 +211,70 @@ const LANDMARKS:Landmark[] = [
   },
 ];
 
-/** 밤 빛을 켤 재질들 */
-const nightMats:THREE.MeshLambertMaterial[] = [];
+/** 밤 빛을 켤 재질들 (도트 외벽 Lambert, 블렌더 외형 Standard) */
+const nightMats:(THREE.MeshLambertMaterial | THREE.MeshStandardMaterial)[] = [];
+let nightNow = 0;
 
 /** 밤 정도(0 낮 ~ 1 밤)만큼 창 불빛을 켠다 (낮밤이 바뀔 때) */
 export function setLandmarkNight(k:number) {
+  nightNow = k;
   nightMats.forEach((m) => {
     m.emissiveIntensity = k;
+  });
+}
+
+/** 반사 유리가 비칠 하늘 (위 파랑 → 지평선 밝게, 아래 밝은 땅) — 모델 재질에만 쓴다 */
+export function landmarkEnvironment(renderer:THREE.WebGLRenderer) {
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const sky = new THREE.Scene();
+  const geo = new THREE.SphereGeometry(100, 32, 16);
+  const pos = geo.attributes.position;
+  const cols:number[] = [];
+  const c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i) / 100;
+    if (y > 0) c.set('#ffffff').lerp(new THREE.Color('#5b8fd6'), Math.min(1, y * 1.6));
+    else c.set('#d8dccf').lerp(new THREE.Color('#9a9d8f'), Math.min(1, -y * 3));
+    cols.push(c.r * 1.6, c.g * 1.6, c.b * 1.6);
+  }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+  sky.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+  const env = pmrem.fromScene(sky, 0.02).texture;
+  geo.dispose();
+  pmrem.dispose();
+  return env;
+}
+
+/** 블렌더 외형이 있는 건물 번호 (지도 지붕을 그리지 않는다 — 모델에 지붕이 있어 겹치면 깨진다) */
+export function landmarkModelIndices(data:WorldData) {
+  const names = new Set(LANDMARKS.filter((l) => l.model).map((l) => l.name));
+  return new Set(Object.entries(data.buildingNames).filter(([ , n ]) => names.has(n)).map(([ i ]) => Number(i)));
+}
+
+/** 블렌더 외형 하나 손질: 건물 번호(실내 자르기·문 구멍)·같은 셰이더·그림자·도트 텍스처·밤 불빛 */
+function prepareModel(root:THREE.Object3D, bid:number) {
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    m.castShadow = true;
+    m.receiveShadow = true;
+    const n = m.geometry.attributes.position.count;
+    m.geometry.setAttribute('bid', new THREE.Float32BufferAttribute(new Float32Array(n).fill(bid), 1));
+    const mat = m.material as THREE.MeshStandardMaterial;
+    [ mat.map, mat.emissiveMap ].forEach((t) => {
+      if (!t) return;
+      t.magFilter = THREE.NearestFilter;
+      t.minFilter = THREE.LinearMipmapLinearFilter;
+      t.anisotropy = 8;
+      t.needsUpdate = true;
+    });
+    // 밤 불빛: glTF에는 텍스처만 실려 있다 (블렌더에선 꺼 둠) — 밤 정도만큼 켠다. 왕관 아래 빛 줄(색만 있는 것)도 밤에만
+    if (mat.emissiveMap || mat.emissive.getHex() !== 0) {
+      if (mat.emissiveMap) mat.emissive.set('#ffffff');
+      mat.emissiveIntensity = nightNow;
+      nightMats.push(mat);
+    }
+    seeThrough(mat);
   });
 }
 
@@ -239,6 +303,8 @@ export function buildLandmarks(data:WorldData):THREE.Object3D[] {
     const perimeter = lens.reduce((t, l) => t + l, 0);
     const bays = Math.ceil(perimeter / BAY);
     const facades = lm.facades(bays);
+    // 이 랜드마크의 도트 외벽·덧붙임 (블렌더 외형을 불러오면 치운다)
+    const mine:THREE.Object3D[] = [];
     // 무늬마다 한 덩어리 (+ 홈)
     const parts = [ ...facades.map(() => ({ pos: [] as number[], nor: [] as number[], uv: [] as number[] })), { pos: [] as number[], nor: [] as number[], uv: [] as number[] }];
     // 바깥쪽 판별: 구간 가운데에서 살짝 나간 점이 건물 안이면 반대쪽 (일반 벽과 같은 방법)
@@ -297,12 +363,22 @@ export function buildLandmarks(data:WorldData):THREE.Object3D[] {
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       mesh.name = `landmark ${lm.name}`;
-      out.push(mesh);
+      mine.push(mesh);
     });
-    if (lm.extras) {
-      const cx = ring.reduce((t, q) => t + q.x, 0) / ring.length;
-      const cz = ring.reduce((t, q) => t + q.z, 0) / ring.length;
-      out.push(...lm.extras(ring, cx, cz, h));
+    const cx = ring.reduce((t, q) => t + q.x, 0) / ring.length;
+    const cz = ring.reduce((t, q) => t + q.z, 0) / ring.length;
+    if (lm.extras) mine.push(...lm.extras(ring, cx, cz, h));
+    out.push(...mine);
+    if (lm.model) {
+      new GLTFLoader().load(lm.model, (gltf) => {
+        const parent = mine[0]?.parent;
+        if (!parent) return;
+        mine.forEach((o) => parent.remove(o));
+        gltf.scene.position.set(cx, 0, cz);
+        gltf.scene.name = `landmark model ${lm.name}`;
+        prepareModel(gltf.scene, bi + 1);
+        parent.add(gltf.scene);
+      });
     }
   });
   return out;

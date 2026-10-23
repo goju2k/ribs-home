@@ -3,6 +3,7 @@
 export * from './world-data';
 export * from './collision';
 export * from './decor';
+export * from './landmark-boxes';
 export * from './indoor/spec';
 export * from './indoor/plan';
 export * from './indoor/indoor-grid';
