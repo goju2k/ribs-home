@@ -9,14 +9,19 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
  * 모델 실험실 (게임에는 아직 안 씀): 블렌더로 만든 랜드마크 모델(.glb)을 휴대폰에서 돌려 보고, 블렌더 렌더 이미지와 비교한다.
  * 파일: public/models/lab/ (블렌더 스크립트가 내보낸 것)
  */
-const MODELS = [{ id: '63-building', name: '63빌딩', renders: [ 'render_45', 'render_front' ] }];
+/** cam: 처음 카메라 자리, look: 바라보는 높이 */
+const MODELS = [
+  { id: '63-building', name: '63빌딩', renders: [ 'render_45', 'render_front' ], cam: [ -380, 160, 380 ], look: 120 },
+  { id: 'kbs-main', name: 'KBS 본관', renders: [ 'render_45', 'render_front' ], cam: [ -170, 70, 170 ], look: 15 },
+];
 const BASE = '/models/lab';
 
 export default function Page() {
   const mount = useRef<HTMLDivElement>(null);
   const [ tab, setTab ] = useState<'3d' | 'render'>('3d');
   const [ status, setStatus ] = useState('불러오는 중…');
-  const model = MODELS[0];
+  const [ mi, setMi ] = useState(0);
+  const model = MODELS[mi];
 
   useEffect(() => {
     if (tab !== '3d' || !mount.current) return undefined;
@@ -59,9 +64,9 @@ export default function Page() {
     ground.receiveShadow = true;
     scene.add(ground);
     const camera = new THREE.PerspectiveCamera(45, 1, 1, 5000);
-    camera.position.set(-380, 160, 380);
+    camera.position.set(model.cam[0], model.cam[1], model.cam[2]);
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.target.set(0, 120, 0);
+    controls.target.set(0, model.look, 0);
     controls.enableDamping = true;
     controls.maxPolarAngle = Math.PI * 0.49;
     controls.minDistance = 40;
@@ -117,7 +122,10 @@ export default function Page() {
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', background: '#0b0e22', color: '#f4f4f8', fontFamily: 'sans-serif' }}>
       <div style={{ display: 'flex', gap: 8, padding: '10px 12px', alignItems: 'center' }}>
-        <b style={{ marginRight: 'auto' }}>모델 실험실 · {model.name}</b>
+        <b style={{ marginRight: 'auto' }}>모델 실험실</b>
+        <select value={mi} onChange={(e) => setMi(Number(e.target.value))} style={{ padding: '6px 8px', borderRadius: 6, background: '#3a4272', color: '#fff', border: 0 }}>
+          {MODELS.map((m, i) => <option key={m.id} value={i}>{m.name}</option>)}
+        </select>
         {([[ '3d', '3D 보기' ], [ 'render', '블렌더 렌더' ]] as const).map(([ k, label ]) => (
           <button key={k} type='button' onClick={() => setTab(k)} style={{ padding: '6px 12px', border: 0, borderRadius: 6, background: tab === k ? '#3d6fd8' : '#3a4272', color: '#fff' }}>{label}</button>
         ))}

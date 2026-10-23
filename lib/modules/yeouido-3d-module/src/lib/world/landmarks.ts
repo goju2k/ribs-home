@@ -147,6 +147,21 @@ function paint63(kind:Kind63, bays:number):Facade {
   return { day: pixelTexture(d.c), night: pixelTexture(n.c) };
 }
 
+/** 블렌더 외형을 받기 전 잠깐 보이는 단순한 도트 외벽: 벽색에 창 줄 (rows줄, 맨 아래·위는 벽) */
+function paintPlain(bays:number, wall:string, win:string, rows:number):Facade {
+  const W = bays * PX_BAY;
+  const H = (rows + 2) * 2;
+  const d = canvas(W, H);
+  const n = canvas(W, H);
+  n.g.fillStyle = '#000000';
+  n.g.fillRect(0, 0, W, H);
+  d.g.fillStyle = wall;
+  d.g.fillRect(0, 0, W, H);
+  d.g.fillStyle = win;
+  for (let r = 0; r < rows; r++) for (let x = 1; x < W; x += 4) d.g.fillRect(x, 2 + r * 2, 2, 1);
+  return { day: pixelTexture(d.c), night: pixelTexture(n.c) };
+}
+
 /** 벽 구간 무늬: 무늬 번호 (-1 = 짙은 홈, 무늬 없음) */
 interface Landmark {
   name: string;
@@ -209,6 +224,14 @@ const LANDMARKS:Landmark[] = [
       return [ group ];
     },
   },
+  {
+    // 사진(정면·측면·45도): 흰 큰 기둥 줄 + 짙은 유리, 측면 창 4줄, 두꺼운 처마, 옥상 송신탑 — scripts/blender/build_kbs.py
+    name: 'KBS 본관',
+    model: '/models/lab/kbs-main.glb',
+    facades: (bays) => [ paintPlain(bays, '#e6e4de', '#3e4a56', 4) ],
+    pick: () => 0,
+    groove: '#45484c',
+  },
 ];
 
 /** 밤 빛을 켤 재질들 (도트 외벽 Lambert, 블렌더 외형 Standard) */
@@ -260,7 +283,16 @@ function prepareModel(root:THREE.Object3D, bid:number) {
     m.receiveShadow = true;
     const n = m.geometry.attributes.position.count;
     m.geometry.setAttribute('bid', new THREE.Float32BufferAttribute(new Float32Array(n).fill(bid), 1));
-    const mat = m.material as THREE.MeshStandardMaterial;
+    let mat = m.material as THREE.MeshStandardMaterial | THREE.MeshLambertMaterial;
+    // 금속이 아닌 재질(석재·유리면 무늬 등)은 도시 건물과 같은 Lambert로 — 게임 빛 세기는 Lambert에 맞춰져 있어
+    // 물리 기반 재질 그대로면 흰 석재가 둘레 건물보다 하얗게 날아간다. 반사 유리(금속)는 하늘을 비춰야 해서 그대로
+    if ((mat as THREE.MeshStandardMaterial).metalness < 0.5) {
+      const std = mat as THREE.MeshStandardMaterial;
+      const lam = new THREE.MeshLambertMaterial({ color: std.color, map: std.map, emissive: std.emissive, emissiveMap: std.emissiveMap });
+      std.dispose();
+      m.material = lam;
+      mat = lam;
+    }
     [ mat.map, mat.emissiveMap ].forEach((t) => {
       if (!t) return;
       t.magFilter = THREE.NearestFilter;
