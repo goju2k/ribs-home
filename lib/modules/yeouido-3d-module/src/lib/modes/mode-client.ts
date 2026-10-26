@@ -68,6 +68,8 @@ export interface ActAim {
 }
 
 export interface ModeClient {
+  /** 다른 사람(k = 0)의 이름표·체력 막대와 미니맵 점을 숨긴다 (예: 배틀로얄 — 위치가 다 보이면 불리한 사람이 역전할 수 없다). NPC는 그대로 */
+  readonly hideRivals?: boolean;
   /** 서버 모드 메시지 */
   receive(d:unknown, now:number): void;
   /** 매 프레임: 장면 물체(경계 벽, 시체 등) 갱신 */

@@ -244,7 +244,7 @@ export class BattleRoyale implements GameMode {
   }
 
   private zone() {
-    return zoneAt(this.match!, this.elapsed);
+    return zoneAt(this.match!, this.elapsed, DAY_OFFSET);
   }
 
   private send(p:ModePlayer, m:BrServerMsg) {

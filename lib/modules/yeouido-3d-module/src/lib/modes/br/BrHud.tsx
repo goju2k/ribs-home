@@ -37,7 +37,9 @@ const clock = (s:number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, 
 
 const zoneLabel = (z:NonNullable<BrHudState['zone']>) => {
   if (z.stage > STAGES) return '최종 원 · 최종 보스';
-  return `전장 ${z.stage}/${STAGES} · ${z.shrinking ? '줄어드는 중' : '다음 축소'} ${clock(z.untilChange)} · 남은 시간 ${clock(z.remain)}`;
+  if (z.final) return `최종 원 · 보스까지 ${clock(z.remain)}`;
+  // 낮에는 계속 줄고 밤에는 멈춘다
+  return `전장 ${z.stage}/${STAGES} · ${z.shrinking ? '줄어드는 중' : '밤: 멈춤, 해 뜨기까지'} ${clock(z.untilChange)} · 남은 시간 ${clock(z.remain)}`;
 };
 
 /**

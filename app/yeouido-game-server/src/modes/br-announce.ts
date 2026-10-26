@@ -106,12 +106,13 @@ export class Announcer {
 
   /** 파밍 단계 (틱마다): 전장 축소·밤낮·보스 예고 */
   play(elapsed:number, dayOffset:number, zone:ZoneNow) {
-    if (zone.shrinking && zone.stage <= STAGES) this.once(`shrink${zone.stage}`, `전장이 줄어듭니다! (${zone.stage}/${STAGES}) 노란 원 안으로 이동하세요.`, 'warn');
     const t = elapsed + dayOffset;
     const cycle = Math.floor(t / CYCLE_MS);
     const d = dayNight(t);
+    // 전장은 낮 동안 계속 줄고 밤에는 멈춘다 (해가 뜰 때마다 알린다)
+    if (zone.shrinking && zone.stage <= STAGES) this.once(`shrink${cycle}`, '전장이 줄어들기 시작합니다! 낮 동안 계속 줄어듭니다. 노란 원 안으로 이동하세요.', 'warn');
     if (!d.night && d.remain <= 15_000) this.once(`dusk${cycle}`, '15초 후 밤이 찾아옵니다. 총소리는 좀비를 불러들입니다.', 'warn');
-    if (d.night && d.remain > NIGHT_MS - 3000) this.once(`night${cycle}`, '밤이 되었습니다. 좀비가 출몰합니다!', 'info');
+    if (d.night && d.remain > NIGHT_MS - 3000) this.once(`night${cycle}`, zone.r === zone.next.r ? '밤이 되었습니다. 좀비가 출몰합니다!' : '밤이 되었습니다. 좀비가 출몰합니다! 밤에는 전장이 멈춥니다.', 'info');
     const toBoss = MATCH_MS - elapsed;
     if (toBoss <= 60_000) this.once('boss60', '1분 후 최종 보스가 등장합니다. 이후로는 부활할 수 없습니다.', 'warn');
     if (toBoss <= 10_000) this.once('boss10', '10초 후 최종 보스가 등장합니다!', 'warn');

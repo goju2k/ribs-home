@@ -734,6 +734,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       const looks = new Map(remotes.map((r) => [ r.id, modeClient?.look(r.s, r.v, now, false, r.id) ?? PLAIN_LOOK ]));
       lastRemotes = remotes;
       lastLooks = looks;
+      others.hideNames = !!modeClient?.hideRivals;
       others.update(remotes, dt, seen, big, (r) => r.b < 0 && r.y - collision.floorAt(r.x, r.z, r.y) > 0.5, (r) => {
         const lk = looks.get(r.id) ?? PLAIN_LOOK;
         return lk.blink && blinkOff ? { ...lk, hidden: true } : lk;
@@ -755,7 +756,7 @@ export function GameCanvas({ inputRef, statusRef, onReady }:{
       modeClient?.frame({ now, dt, persp: persp3, yaw, me: { x: pos.x, y: pos.y, z: pos.z, f: facing, b: body.b, l: body.l, st: net.meStatus.s, gv: net.meStatus.v, car: body.car, fuel: body.fuel, spd: body.spd }, others: remotes });
       // 미니맵은 두 프레임에 한 번 (모드가 위에 그린다: 전장 원 등)
       const mc = modeClient;
-      if (miniFrame++ % 2 === 0) mini.draw(pos.x, pos.z, yaw, facing, remotes.filter((r) => seen(r) && !looks.get(r.id)?.hidden), mc ? (g, k, dpr) => mc.minimap(g, k, dpr) : undefined);
+      if (miniFrame++ % 2 === 0) mini.draw(pos.x, pos.z, yaw, facing, remotes.filter((r) => seen(r) && !looks.get(r.id)?.hidden && !(r.k === 0 && mc?.hideRivals)), mc ? (g, k, dpr) => mc.minimap(g, k, dpr) : undefined);
       const tall = 1.72 * big;
       const onScreen = tall * Math.cos(PITCH); // 내려다보니 화면에선 키가 줄어 보인다
       const mk = onScreen * 1.2; // 화면에서 사람보다 살짝 크게

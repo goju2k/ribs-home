@@ -71,6 +71,9 @@ interface Shown {
 /** 서버에서 받은 다른 사람들을 장면에 그린다 */
 export class RemotePlayers {
 
+  /** 사람(k = 0)의 이름표를 숨긴다 (모드가 정한다 — ModeClient.hideRivals) */
+  hideNames = false;
+
   private shown = new Map<number, Shown>();
 
   private scene:THREE.Scene;
@@ -157,7 +160,7 @@ export class RemotePlayers {
     this.shown.forEach((s) => {
       const p = this.v.copy(s.head).project(camera);
       // 화면 밖이거나 원근 카메라 뒤쪽(z > 1)이면 숨김
-      const off = !s.on || p.x < -1.1 || p.x > 1.1 || p.y < -1.1 || p.y > 1.1 || p.z > 1 || p.z < -1;
+      const off = !s.on || (this.hideNames && !s.k) || p.x < -1.1 || p.x > 1.1 || p.y < -1.1 || p.y > 1.1 || p.z > 1 || p.z < -1;
       s.tag.style.display = off ? 'none' : 'block';
       if (off) return;
       const x = ((p.x + 1) / 2) * w;

@@ -1,18 +1,20 @@
 /* eslint-disable no-continue -- 무작위 자리 찾기 반복문 */
 import { BLOCK, SimWorld } from 'yeouido-sim';
 
+import { CYCLE_MS, DAY_MS } from './zombies';
+
 /**
  * 한 판의 일정과 무작위 시작 위치 (서버가 원을 정하고, 클라이언트는 같은 함수로 지금 원을 계산한다).
- * 20분, 10단계: 단계마다 앞 절반은 멈춰 있고 뒤 절반에 다음 원으로 줄어든다.
+ * 20분, 10단계: 원은 낮 동안 쉬지 않고 줄고 밤에는 멈춘다 (2026-10-27 — 좀비 없는 낮이 지루했다). 판의 낮 시간을 10등분해 단계마다 다음 원으로 줄어든다.
+ * 낮 3분 20초 × 4번 = 13분 20초, 마지막 원에는 마지막 해 질 녘(18분 20초)에 닿고, 마지막 밤은 최종 원에서 보스를 기다린다.
  */
 
 export const MATCH_MS = 20 * 60 * 1000;
 /** 모두 준비하면 이만큼 센 뒤 시작 (ms) */
 export const LOBBY_COUNTDOWN_MS = 5000;
 export const STAGES = 10;
-export const STAGE_MS = MATCH_MS / STAGES;
-/** 최종 원 반경 (m) — 2026-10-22 300에서 30% 줄임 */
-export const FINAL_R = 210;
+/** 최종 원 반경 (m) — 2026-10-22 300 → 210, 2026-10-27 다시 30% 줄여 147 */
+export const FINAL_R = 147;
 
 export interface Circle {
   cx: number; cz: number; r: number;
@@ -80,23 +82,41 @@ export function makeMatchPlan(sim:SimWorld, id:number, seed:number):MatchPlan {
 
 const lerp = (a:number, b:number, t:number) => a + (b - a) * t;
 
-/** 판이 시작된 지 elapsed ms일 때의 원 */
-export function zoneAt(plan:MatchPlan, elapsed:number):ZoneNow {
+/** 낮밤 시계 t(ms)까지 지나간 낮 시간 (ms) */
+const dayTime = (t:number) => Math.floor(t / CYCLE_MS) * DAY_MS + Math.min(((t % CYCLE_MS) + CYCLE_MS) % CYCLE_MS, DAY_MS);
+
+/** 지나간 낮 시간 d가 되는 낮밤 시계 (그 낮의 끝이면 다음 밤 전으로) */
+const dayTimeAt = (d:number) => {
+  const n = Math.max(0, Math.ceil(d / DAY_MS) - 1);
+  return n * CYCLE_MS + (d - n * DAY_MS);
+};
+
+/** 판이 시작된 지 elapsed ms일 때의 원 (dayOffset: 낮밤 시계를 당긴 만큼 — 서버 개발용 BR_DAY_OFFSET_MS) */
+export function zoneAt(plan:MatchPlan, elapsed:number, dayOffset = 0):ZoneNow {
   const { circles } = plan;
   if (elapsed >= MATCH_MS) {
     const last = circles[STAGES];
     return { ...last, stage: STAGES + 1, shrinking: false, next: last, untilChange: 0, remain: 0 };
   }
   const t = Math.max(0, elapsed);
-  const k = Math.floor(t / STAGE_MS); // 0부터
-  const inStage = t - k * STAGE_MS;
+  const remain = MATCH_MS - t;
+  // 판 안의 낮 시간을 단계로 나눈다
+  const d0 = dayTime(dayOffset);
+  const total = dayTime(MATCH_MS + dayOffset) - d0;
+  const span = total / STAGES;
+  const d = dayTime(t + dayOffset) - d0;
+  if (d >= total) {
+    const last = circles[STAGES];
+    return { ...last, stage: STAGES, shrinking: false, next: last, untilChange: remain, remain };
+  }
+  const k = Math.min(STAGES - 1, Math.floor(d / span));
   const from = circles[k];
   const to = circles[k + 1];
-  const hold = STAGE_MS / 2;
-  const remain = MATCH_MS - t;
-  if (inStage < hold) return { ...from, stage: k + 1, shrinking: false, next: to, untilChange: hold - inStage, remain };
-  const p = (inStage - hold) / (STAGE_MS - hold);
-  return { cx: lerp(from.cx, to.cx, p), cz: lerp(from.cz, to.cz, p), r: lerp(from.r, to.r, p), stage: k + 1, shrinking: true, next: to, untilChange: STAGE_MS - inStage, remain };
+  const p = (d - k * span) / span;
+  const shrinking = ((t + dayOffset) % CYCLE_MS + CYCLE_MS) % CYCLE_MS < DAY_MS;
+  // 줄고 있으면 이 단계 원까지 (중간에 밤이 끼면 그만큼 늦게), 밤이면 해 뜰 때까지
+  const untilChange = shrinking ? dayTimeAt(d0 + (k + 1) * span) - dayOffset - t : CYCLE_MS - (((t + dayOffset) % CYCLE_MS + CYCLE_MS) % CYCLE_MS);
+  return { cx: lerp(from.cx, to.cx, p), cz: lerp(from.cz, to.cz, p), r: lerp(from.r, to.r, p), stage: k + 1, shrinking, next: to, untilChange, remain };
 }
 
 export const insideZone = (z:Circle, x:number, zz:number) => Math.hypot(x - z.cx, zz - z.cz) <= z.r;

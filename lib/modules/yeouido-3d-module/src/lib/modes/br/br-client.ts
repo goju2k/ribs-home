@@ -38,7 +38,7 @@ const GOT_MS = 2500;
 
 /** HUD가 읽는 상태 (BrHud만 뜻을 안다) */
 export interface BrHudState {
-  zone: { stage: number; shrinking: boolean; untilChange: number; remain: number; outside: number; } | null;
+  zone: { stage: number; shrinking: boolean; final: boolean; untilChange: number; remain: number; outside: number; } | null;
   /** 낮밤: 밤인지, 지금 낮/밤이 끝날 때까지 초 */
   day: { night: boolean; remain: number; } | null;
   hp: number;
@@ -93,6 +93,9 @@ interface ShownCorpse {
  * 배틀로얄 모드 화면 (게임성 측정용 PoC): 전장 원(3D 벽·미니맵), 시체, 체력·사망·알림 HUD 상태.
  */
 export class BrClient implements ModeClient {
+
+  /** 다른 생존자의 이름표·미니맵 점은 보이지 않는다 (2026-10-27 — 다 보이면 불리한 사람이 역전할 방법이 없다) */
+  readonly hideRivals = true;
 
   private host:ModeHostClient;
 
@@ -612,7 +615,7 @@ export class BrClient implements ModeClient {
     // 시작 대기: 판 시계를 멈춘 채로 (전장·낮밤이 흐르지 않게)
     if (this.match && this.lobbyElapsed !== null) this.match.startAt = f.now - this.lobbyElapsed;
     this.prompt = this.deadInfo || this.specInfo || this.lobbyElapsed !== null ? null : this.carPrompt(f.me) ?? this.farmPrompt(f.me);
-    const zone = this.match ? zoneAt(this.match.plan, f.now - this.match.startAt) : null;
+    const zone = this.match ? zoneAt(this.match.plan, f.now - this.match.startAt, this.match.dayOffset) : null;
     this.zoneNow = zone;
     this.wall.visible = !!zone;
     if (zone) {
@@ -884,7 +887,7 @@ export class BrClient implements ModeClient {
         const d = dayNight(now - this.match!.startAt + this.match!.dayOffset);
         return { night: d.night, remain: Math.ceil(d.remain / 1000) };
       })() : null,
-      zone: z ? { stage: z.stage, shrinking: z.shrinking, untilChange: Math.ceil(z.untilChange / 1000), remain: Math.ceil(z.remain / 1000), outside } : null,
+      zone: z ? { stage: z.stage, shrinking: z.shrinking, final: !z.shrinking && z.r === z.next.r, untilChange: Math.ceil(z.untilChange / 1000), remain: Math.ceil(z.remain / 1000), outside } : null,
       hp: me ? gaugeHp(me.gv) : 100,
       shield: !!me && (me.st & ST_SHIELD) !== 0,
       dead: this.deadInfo ? { by: this.deadInfo.by, wait: this.deadInfo.until < 0 ? -1 : Math.max(0, Math.ceil((this.deadInfo.until - now) / 1000)) } : null,
