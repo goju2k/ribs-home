@@ -29,6 +29,8 @@ const SWING_MS = 400;
 interface Zed {
   npc: ModeNpc;
   hp: number;
+  /** 생길 때 체력 (밤마다 세진다 — 막대 비율) */
+  max: number;
   /** 쫓는 사람 */
   target: ModePlayer | null;
   /** 쫓던 사람이 시야 밖으로 나간 시각 (보이면 0) */
@@ -69,6 +71,9 @@ export interface HordeHooks {
  * 몸은 엔진 NPC (사람과 같은 이동·충돌), 생각은 여기서.
  */
 export class Horde {
+
+  /** 지금 생기는 좀비의 체력 배율 (모드가 밤마다 올린다 — zombieHpMul) */
+  hpMul = 1;
 
   private host:ModeHost;
 
@@ -192,7 +197,7 @@ export class Horde {
       if (z.burnAt) {
         if (now - z.burnAt > BURN_MS) z.deadAt = now;
         npc.st = ST_BURN | ST_FROZEN;
-        npc.gv = hpGauge((z.hp / st.hp) * 100 * (1 - (now - z.burnAt) / BURN_MS));
+        npc.gv = hpGauge((z.hp / z.max) * 100 * (1 - (now - z.burnAt) / BURN_MS));
         return;
       }
       if (now >= z.thinkAt) {
@@ -268,7 +273,7 @@ export class Horde {
         npc.input.mz = Number.isNaN(z.wander) ? 0 : Math.cos(z.wander);
       }
       npc.st = (now < z.swingUntil ? ST_SWING : 0) | (now < z.hurtUntil ? ST_HURT : 0);
-      npc.gv = hpGauge((z.hp / st.hp) * 100);
+      npc.gv = hpGauge((z.hp / z.max) * 100);
     });
     gone.forEach((id) => {
       this.zeds.delete(id);
@@ -330,7 +335,8 @@ export class Horde {
     const k = Math.random() < RUNNER_RATE ? Z_RUNNER : Z_WALKER;
     body.f = Math.random() * Math.PI * 2;
     const npc = this.host.addNpc(k, body);
-    const z:Zed = { npc, hp: ZOMBIES[k].hp, target: null, lostAt: 0, smell: NaN, thinkAt: now, attackAt: now + 1000, wander: 0, wanderAt: 0, burnAt: 0, deadAt: 0, swingUntil: 0, hurtUntil: 0 };
+    const max = Math.round(ZOMBIES[k].hp * this.hpMul);
+    const z:Zed = { npc, hp: max, max, target: null, lostAt: 0, smell: NaN, thinkAt: now, attackAt: now + 1000, wander: 0, wanderAt: 0, burnAt: 0, deadAt: 0, swingUntil: 0, hurtUntil: 0 };
     this.zeds.set(npc.id, z);
     return z;
   }

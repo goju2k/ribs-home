@@ -2,8 +2,11 @@ import { Circle, pickSpawn, PROP_HP, PROP_KINDS, PROP_WEIGHTS, PropRow } from 'y
 import { SimWorld } from 'yeouido-sim';
 
 /** 물건 찾기 격자 한 칸 (m) */
-/** 흩뿌리기: 옥상은 실내가 있는 건물 옥상뿐이라(지금 5채) 3%만 — 좁은 옥상에 쏟아지지 않게 */
-const SCATTER = { roof: 0.03, indoor: 0.1 };
+/** 흩뿌리기: 옥상은 실내가 있는 건물 옥상뿐이라(지금 5채) 3%만 — 좁은 옥상에 쏟아지지 않게. 실내는 따로 층마다 (scatterIndoor) */
+const SCATTER = { roof: 0.03, indoor: 0 };
+/** 실내: 층마다 이만큼, 택배·금고만 (나무 상자는 커서 사무실에 안 어울린다) — 택배 3 : 금고 1 */
+const INDOOR_PER_FLOOR = 4;
+const INDOOR_KINDS:[number, number][] = [[ PROP_KINDS.indexOf('parcel'), 3 ], [ PROP_KINDS.indexOf('safe'), 1 ]];
 
 const CELL = 8;
 const key = (cx:number, cz:number) => (cx + 4096) * 8192 + (cz + 4096);
@@ -85,10 +88,11 @@ export class PropField {
     return out;
   }
 
+  /** 원 안 바깥(실외·옥상) 물건 수 — 실내는 판 시작 때만 층마다 놓아 채우는 셈에서 뺀다 */
   countIn(c:Circle) {
     let n = 0;
     this.props.forEach((p) => {
-      if (Math.hypot(p.x - c.cx, p.z - c.cz) <= c.r) n++;
+      if (p.b < 0 && Math.hypot(p.x - c.cx, p.z - c.cz) <= c.r) n++;
     });
     return n;
   }
@@ -102,7 +106,31 @@ export class PropField {
     return out;
   }
 
-  /** 원 안 무작위 자리(지상·옥상·실내)에 n개 */
+  /** 원 안에 있는 실내 건물의 층마다 INDOOR_PER_FLOOR개 (택배·금고, 빈 바닥 칸) */
+  scatterIndoor(sim:SimWorld, c:Circle) {
+    const added:Prop[] = [];
+    const total = INDOOR_KINDS.reduce((s, [ , w ]) => s + w, 0);
+    sim.indoors.filter((g) => Math.hypot(g.plan.frame.ox - c.cx, g.plan.frame.oz - c.cz) <= c.r).forEach((g) => {
+      const { frame } = g.plan;
+      for (let level = 1; level <= g.levels; level++) {
+        let left = INDOOR_PER_FLOOR;
+        for (let i = 0; i < 200 && left > 0; i++) {
+          const u = (Math.random() - 0.5) * frame.L;
+          const v = (Math.random() - 0.5) * frame.W;
+          const x = frame.ox + frame.ux * u - frame.uz * v;
+          const z = frame.oz + frame.uz * u + frame.ux * v;
+          if (!g.contains(x, z) || g.cell(level, x, z) !== 0 || g.isOutside(level, x, z)) continue; // eslint-disable-line no-continue
+          let r = Math.random() * total;
+          const kind = INDOOR_KINDS.find(([ , w ]) => (r -= w) < 0)?.[0] ?? INDOOR_KINDS[0][0];
+          added.push(this.add(kind, x, g.baseY(level), z, g.bid, level, Math.random() * Math.PI * 2));
+          left--;
+        }
+      }
+    });
+    return added.map(propRow);
+  }
+
+  /** 원 안 무작위 자리(지상·옥상)에 n개 */
   scatter(sim:SimWorld, c:Circle, n:number) {
     const added:Prop[] = [];
     for (let i = 0; i < n; i++) {

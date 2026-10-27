@@ -77,7 +77,12 @@ export interface SimWorld {
 
 export function createSimWorld(data:WorldData):SimWorld {
   const indoors = createIndoorGrids(data);
-  return { data, collision: new Collision(data), indoors, byBid: new Map(indoors.map((g) => [ g.bid, g ])) };
+  const collision = new Collision(data);
+  // 실내가 있는 건물 옥상의 엘리베이터 탑
+  indoors.forEach((g) => {
+    if (g.house.box) collision.addStatic(g.house.box);
+  });
+  return { data, collision, indoors, byBid: new Map(indoors.map((g) => [ g.bid, g ])) };
 }
 
 export const newBody = (x:number, y:number, z:number):Body => ({ x, y, z, f: 0, spd: 0, a: 0, b: -1, l: 1, lw: 0, fly: 0, vy: 0, sm: 1, fm: 1, car: -1, fuel: 0 });
@@ -102,21 +107,29 @@ export function step(w:SimWorld, b:Body, input:Input) {
   const { collision } = w;
   let room = b.b >= 0 ? w.byBid.get(b.b) : undefined;
   const len = Math.min(1, Math.hypot(input.mx, input.mz));
-  const lift = Math.sign(input.lift);
+  let lift = Math.sign(input.lift);
   const faceLock = input.face !== undefined && Number.isFinite(input.face);
   if (faceLock) b.f = input.face!;
 
-  // 높이: 실내는 엘리베이터 칸에서만 층 이동.
+  // 높이: 실내는 엘리베이터 칸에서만 층 이동 (꼭대기 층에서 위로 → 옥상 엘리베이터 탑 문 앞).
   // 실외는 날 수 있으면 누르는 동안 오르내리고 놓으면 그 높이에 떠 있고, 날 수 없으면 바닥까지 떨어진다
   let floor = 0;
   if (room) {
     const cab = room.cabAt(b.x, b.z);
     b.lw = Math.max(0, b.lw - dt);
     if (!lift) b.lw = 0;
-    else if (cab >= 0 && b.lw <= 0) {
+    else if (cab >= 0 && b.lw <= 0 && lift > 0 && b.l >= room.levels) {
+      const out = room.roofExit();
+      Object.assign(b, { b: -1, l: 1, x: out.x, z: out.z, f: out.f, y: collision.floorAt(out.x, out.z, room.height + 0.5), vy: 0, lw: 0 });
+      room = undefined;
+      // 이번 걸음의 위 누름은 옥상에 나오는 데 썼다 (점프로 쓰지 않는다)
+      lift = 0;
+    } else if (cab >= 0 && b.lw <= 0) {
       b.l = Math.max(1, Math.min(room.levels, b.l + lift));
       b.lw = LIFT_WAIT;
     }
+  }
+  if (room) {
     floor = room.baseY(b.l);
     b.y = floor;
   } else {
@@ -169,11 +182,22 @@ export function step(w:SimWorld, b:Body, input:Input) {
     // 바깥 충돌 격자는 1m 칸이라 외벽보다 조금 앞에서 멈춘다 → 문은 1.2m 앞을 보고 판정
     const ahead = { x: b.x + dx * 1.2, z: b.z + dz * 1.2 };
     const door = grounded ? w.indoors.find((g) => g.entersAt(ahead.x, ahead.z)) : undefined;
+    // 옥상에 서서 엘리베이터 탑 문으로 걸어 들어가면 꼭대기 층 엘리베이터 칸
+    const onRoof = !door && floor > 2 && b.vy === 0 && b.y - floor < 0.05;
+    const top = onRoof ? w.indoors.find((g) => Math.abs(b.y - g.height) < 0.5 && g.atRoofDoor(ahead.x, ahead.z)) : undefined;
     if (door) {
       b.b = door.bid;
       b.l = 1;
       b.y = 0;
       next = ahead;
+    } else if (top) {
+      const at = top.roofArrive();
+      b.b = top.bid;
+      b.l = top.levels;
+      b.y = top.baseY(top.levels);
+      b.lw = LIFT_WAIT;
+      next = at;
+      if (!faceLock) b.f = at.f;
     } else next = collision.move(b.x, b.z, mx, mz, RADIUS, grounded ? 0 : b.y);
   }
   b.a = flying ? 0 : Math.min(b.spd, Math.hypot(next.x - b.x, next.z - b.z) / dt);

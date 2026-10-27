@@ -1,7 +1,7 @@
 /* eslint-disable no-restricted-syntax -- 격자·메시 생성 반복문 */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { AutoDoor, FloorPlan, IndoorGrid, IndoorPlan, inRing, Rect, Stair, toLocal, UV, WALL_T } from 'yeouido-sim';
+import { AutoDoor, FloorPlan, IndoorGrid, IndoorPlan, inRing, LIFT_HOUSE, Rect, Stair, toLocal, UV, WALL_T } from 'yeouido-sim';
 
 import { propGeometry } from './props';
 
@@ -99,10 +99,30 @@ export class IndoorView {
     this.group.position.set(frame.ox, 0, frame.oz);
     this.group.rotation.y = Math.atan2(-frame.uz, frame.ux);
     this.group.add(this.doorFrames());
+    if (grid.house.box) this.group.add(this.roofHouse());
   }
 
   get bid() {
     return this.grid.bid;
+  }
+
+  /** 옥상 엘리베이터 탑 (판정 상자 grid.house.box 그대로): 콘크리트 상자 + 문 쪽 면 가운데 엘리베이터 문 2짝·위 표시등 */
+  private roofHouse() {
+    const { hu, hv, h, door } = LIFT_HOUSE;
+    const y0 = this.grid.height;
+    const s = this.grid.house.side;
+    const parts:THREE.BufferGeometry[] = [];
+    parts.push(rectBox({ u0: -hu, u1: hu, v0: -hv, v1: hv }, h, '#8d9096', y0));
+    // 지붕 테두리 (조금 밝게)
+    parts.push(rectBox({ u0: -hu - 0.1, u1: hu + 0.1, v0: -hv - 0.1, v1: hv + 0.1 }, 0.25, '#a4a7ad', y0 + h - 0.25));
+    // 문: 면에서 살짝 나오게 (깊이 싸움 없게)
+    const face = s * (hv + 0.03);
+    const leaf = (u0:number, u1:number) => rectBox({ u0, u1, v0: Math.min(face, face + s * 0.04), v1: Math.max(face, face + s * 0.04) }, 2.3, '#b8c2cc', y0);
+    parts.push(rectBox({ u0: -door - 0.15, u1: door + 0.15, v0: Math.min(face, face + s * 0.03), v1: Math.max(face, face + s * 0.03) }, 2.5, '#3a4048', y0));
+    parts.push(leaf(-door + 0.05, -0.03), leaf(0.03, door - 0.05));
+    // 문 위 층 표시등
+    parts.push(rectBox({ u0: -0.4, u1: 0.4, v0: Math.min(face, face + s * 0.06), v1: Math.max(face, face + s * 0.06) }, 0.18, '#ffb23a', y0 + 2.6));
+    return new THREE.Mesh(mergeGeometries(parts), mat());
   }
 
   /** 출입문 테두리: 양쪽 기둥과 위 인방 (밖에서 문 자리가 보이게, 늘 표시) */

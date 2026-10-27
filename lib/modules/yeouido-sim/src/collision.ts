@@ -165,6 +165,11 @@ export class Collision {
     }
   }
 
+  /** 움직이지 않는 막는 상자를 더한다 (예: 실내가 있는 건물 옥상의 엘리베이터 탑 — createSimWorld) */
+  addStatic(b:DecorBox) {
+    this.addBox(b);
+  }
+
   /**
    * 차(decor 번호) 하나를 옮긴다 (pose, null이면 판정에서 뺀다). driven: 누가 운전 중 (화면은 운전하는 사람 자리에 따로 그린다).
    * 운전 중인 차도 걸음마다 옮겨 두어 걷는 사람·총알을 막는다 (운전하는 사람은 자기 차 상자를 건너뛴다)

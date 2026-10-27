@@ -55,6 +55,14 @@ export const ZOMBIES:Record<number, ZombieStats> = {
   [Z_RUNNER]: { name: '뛰는 좀비', hp: 30, chaseRun: true, chaseMul: 1.15, wanderMul: 0.6, damage: 5, cooldownMs: 1200, reach: 1.1 },
 };
 
+/**
+ * 밤마다 좀비 체력 배율 (판의 밤 4번: 1·2.5·5·8배 — 보스전에 불려 오는 좀비는 마지막 밤과 같다).
+ * 마지막 밤에는 평균 +5 무기로 싸우니 일반 좀비 320 (소총 +5 약 1.9초, 산탄총 +5 근접 한 방 288)
+ */
+export const ZOMBIE_HP_MUL = [ 1, 2.5, 5, 8 ] as const;
+/** 판이 시작된 지 t(ms, 낮밤 시계 기준)일 때 생기는 좀비의 체력 배율 */
+export const zombieHpMul = (t:number) => ZOMBIE_HP_MUL[Math.max(0, Math.min(ZOMBIE_HP_MUL.length - 1, Math.floor(t / CYCLE_MS)))];
+
 /** 뛰는 좀비 비율 */
 export const RUNNER_RATE = 0.15;
 /** 시야: 이 반경(원) 안 같은 공간의 사람을 보면 쫓는다 (m). 화면에는 안 보인다 */

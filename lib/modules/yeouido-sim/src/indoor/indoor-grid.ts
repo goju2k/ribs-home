@@ -1,7 +1,9 @@
 /* eslint-disable no-restricted-syntax -- 격자 생성 반복문 */
-import { FloorPlan, IndoorPlan, inRing, makePlan, ringDist, segDist, toLocal } from './plan';
+import { FloorPlan, IndoorPlan, inRing, makePlan, ringDist, segDist, toLocal, toWorld } from './plan';
 import { INDOOR_SPECS, IndoorSpec } from './spec';
 
+import type { DecorBox } from '../decor';
+import { LANDMARK_ROOFS } from '../landmark-boxes';
 import { WorldData } from '../world-data';
 
 const CELL = 0.2;
@@ -11,6 +13,12 @@ export const CELL_WALL = 1; // 못 지나가고 시선도 막음
 export const CELL_OUTSIDE = 2; // 건물 밖 (문으로 나가면 여기)
 export const CELL_FURNITURE = 3; // 못 지나가지만 시선은 안 막음
 export const WALL_T = 0.14;
+
+/**
+ * 옥상 엘리베이터 탑 (지역 좌표 u·v, m): 코어 가운데 엘리베이터 홀 + 양쪽 칸 + 뒤 기계 벽(plan.ts HALL 2 + CAR_D 2.35 + 0.25)을 옥상 위로 올린 상자.
+ * 문은 v 방향 한쪽 면 가운데 홀 폭(door = 홀 반폭). 꼭대기 층 엘리베이터에서 위로 → 문 앞 옥상, 옥상에서 문으로 걸어 들어가면 → 꼭대기 층 엘리베이터 칸
+ */
+export const LIFT_HOUSE = { hu: 4.6, hv: 4, h: 3.2, door: 2 } as const;
 
 /**
  * 들어갈 수 있는 건물 하나의 실내 판정 (그리기 없음 — 서버·클라이언트 공용).
@@ -28,6 +36,9 @@ export class IndoorGrid {
   readonly height:number;
 
   readonly spec:IndoorSpec;
+
+  /** 옥상 엘리베이터 탑: 문 쪽(v 방향 +1/-1), 막는 상자 (블렌더 랜드마크는 옥상 설비 상자가 탑을 대신해 null) */
+  readonly house:{ side: number; box: DecorBox | null; };
 
   private grids = new Map<number, Uint8Array>();
 
@@ -51,6 +62,10 @@ export class IndoorGrid {
     this.v0 = -frame.W / 2 - 2;
     this.gw = Math.ceil((frame.L + 4) / CELL);
     this.gh = Math.ceil((frame.W + 4) / CELL);
+    // 문은 옥상이 더 넓게 남는 쪽으로
+    const { hu, hv, h } = LIFT_HOUSE;
+    const side = inRing(0, hv + 3, frame.ring) ? 1 : -1;
+    this.house = { side, box: LANDMARK_ROOFS[this.name] ? null : { cx: frame.ox, cz: frame.oz, dx: frame.ux, dz: frame.uz, hl: hu, hw: hv, h: this.height + h } };
   }
 
   get levels() {
@@ -148,6 +163,31 @@ export class IndoorGrid {
     if (!inRing(p.u, p.v, this.plan.frame.ring)) return false;
     return this.plan.doors.some((d) => Math.abs((p.u - d.u) * d.au + (p.v - d.v) * d.av) < d.hw - 0.3
       && Math.abs(-(p.u - d.u) * d.av + (p.v - d.v) * d.au) < 1.5);
+  }
+
+  /** 꼭대기 층 엘리베이터에서 옥상으로: 탑 문 앞 자리와 바깥을 보는 방향 */
+  roofExit() {
+    const { frame } = this.plan;
+    const s = this.house.side;
+    const p = toWorld(frame, 0, s * (LIFT_HOUSE.hv + 0.9));
+    return { x: p.x, z: p.z, f: Math.atan2(-frame.uz * s, frame.ux * s) };
+  }
+
+  /** 옥상에서 (x, z) — 걸어가는 1.2m 앞 자리 — 가 탑 문 안쪽인지 */
+  atRoofDoor(x:number, z:number) {
+    const p = toLocal(this.plan.frame, x, z);
+    const v = p.v * this.house.side;
+    return Math.abs(p.u) < LIFT_HOUSE.door - 0.3 && v > LIFT_HOUSE.hv - 1.6 && v < LIFT_HOUSE.hv + 0.3;
+  }
+
+  /** 옥상에서 들어오면: 꼭대기 층 엘리베이터 칸 가운데, 홀을 보고 */
+  roofArrive() {
+    const { frame } = this.plan;
+    const r = this.plan.floor(1).cabs[0];
+    const cu = (r.u0 + r.u1) / 2;
+    const p = toWorld(frame, cu, (r.v0 + r.v1) / 2);
+    const s = cu < 0 ? 1 : -1;
+    return { x: p.x, z: p.z, f: Math.atan2(frame.ux * s, frame.uz * s) };
   }
 
   /** 서 있는 엘리베이터 칸 (없으면 -1) */

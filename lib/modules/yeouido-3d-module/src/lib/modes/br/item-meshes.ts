@@ -81,6 +81,9 @@ function itemTag(it:GroundItem) {
 
 /** 멀리서도 보이게 세우는 빛기둥 높이 (m) */
 const BEAM_H = 6;
+/** 실내 빛기둥 높이 (m): 6m면 표식이 천장 위로 올라가 안 보였다 — 가장 낮은 층고(3.6m)의 천장 아래 */
+const INDOOR_BEAM_H = 2;
+const beamH = (it:GroundItem) => (it[6] >= 0 ? INDOOR_BEAM_H : BEAM_H);
 
 /**
  * 땅에 떨어진 아이템 그리기 (배틀로얄 모드): 바닥 위에 떠서 천천히 돈다. 실내 것은 같은 건물·층일 때만, 멀면 숨김.
@@ -121,6 +124,7 @@ export class ItemMeshes {
     mesh.scale.setScalar(1.4);
     const beam = new THREE.Mesh(this.beamGeo, this.beamMats[kind]);
     beam.position.set(it[3], it[4], it[5]);
+    beam.scale.y = beamH(it) / BEAM_H;
     this.scene.add(mesh, beam);
     pixelSnap.add(mesh);
     const { el: tag, name } = itemTag(it);
@@ -158,7 +162,7 @@ export class ItemMeshes {
   /** 카메라를 맞춘 뒤: 표식을 빛기둥 꼭대기 화면 위치로 (w, h = 캔버스 CSS 크기) */
   placeTags(camera:THREE.Camera, w:number, h:number) {
     this.shown.forEach((s) => {
-      const p = this.v.set(s.it[3], s.it[4] + BEAM_H + 0.3, s.it[5]).project(camera);
+      const p = this.v.set(s.it[3], s.it[4] + beamH(s.it) + 0.3, s.it[5]).project(camera);
       const off = !s.on || p.x < -1.1 || p.x > 1.1 || p.y < -1.1 || p.y > 1.1 || p.z > 1 || p.z < -1;
       s.tag.style.display = off ? 'none' : 'flex';
       if (off) return;

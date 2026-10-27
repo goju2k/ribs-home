@@ -75,21 +75,30 @@ function containerParts():Part[] {
 }
 
 /** 나무 상자 (n단): 칠한 몸통 + 짙은 모서리 기둥·위 테·단마다 띠 */
+/**
+ * 엄폐물 화물 (n단): 나무 팔레트 위에 비닐로 감싼 짐 + 노란 결속 띠 두 줄 — 칠 = 비닐 색.
+ * 처음엔 나무 상자였는데 부수는 상자(파밍, 갈색 나무 상자)와 똑같이 생겨 헷갈렸다 (2026-10-27). 판정 크기는 그대로
+ */
 function crateParts(n:number):Part[] {
   const S = COVERS.crate.len;
-  const H = COVERS.crate.h * n;
-  const WOOD = '#6b4a2a';
-  const parts:Part[] = [[ S, H, S, 0, H / 2, 0, null ]];
-  [[ 1, 1 ], [ 1, -1 ], [ -1, 1 ], [ -1, -1 ]].forEach(([ a, b ]) => parts.push([ 0.1, H + LIP, 0.1, a * (S / 2 - 0.04), (H + LIP) / 2, b * (S / 2 - 0.04), WOOD ]));
+  const { h } = COVERS.crate;
+  const PALLET = 0.14;
+  const parts:Part[] = [];
   for (let k = 0; k < n; k++) {
-    const y = k * COVERS.crate.h;
-    parts.push([ S + 0.02, 0.08, S + 0.02, 0, y + 0.5, 0, WOOD ]);
-    if (k > 0) parts.push([ S + 0.03, 0.05, S + 0.03, 0, y, 0, '#4a3220' ]);
+    const y0 = k * h;
+    // 팔레트: 윗판 + 앞뒤로 보이는 짙은 틈 (발 세 개 사이)
+    parts.push([ S, PALLET, S, 0, y0 + PALLET / 2, 0, '#8a6a45' ]);
+    [ -0.3, 0.3 ].forEach((x) => parts.push([ 0.32, 0.07, S + 0.01, x, y0 + 0.045, 0, '#3a2a1a' ]));
+    // 비닐로 감싼 짐: 맨 위 단의 윗면이 상자 높이 (밟고 서는 면 = 판정 윗면)
+    const top = k === n - 1 ? y0 + h : y0 + h - 0.01;
+    const loadH = top - (y0 + PALLET);
+    parts.push([ S - 0.06, loadH, S - 0.06, 0, y0 + PALLET + loadH / 2, 0, null ]);
+    // 결속 띠: 앞뒤 면 세로 + 윗면 가로 (면보다 살짝 바깥 — 깊이 싸움 없게)
+    [ -0.3, 0.3 ].forEach((x) => {
+      parts.push([ 0.07, loadH, S - 0.06 + 2 * LIP, x, y0 + PALLET + loadH / 2, 0, '#e8b62a' ]);
+      parts.push([ 0.07, LIP, S - 0.06 + 2 * LIP, x, top + LIP / 2, 0, '#e8b62a' ]);
+    });
   }
-  // 위 테: 윗면이 몸통 윗면보다 LIP 위
-  const ty = H - 0.03 + LIP;
-  parts.push([ S + 0.02, 0.06, 0.1, 0, ty, S / 2 - 0.04, WOOD ], [ S + 0.02, 0.06, 0.1, 0, ty, -(S / 2 - 0.04), WOOD ]);
-  parts.push([ 0.1, 0.06, S + 0.02, S / 2 - 0.04, ty, 0, WOOD ], [ 0.1, 0.06, S + 0.02, -(S / 2 - 0.04), ty, 0, WOOD ]);
   return parts;
 }
 
@@ -206,8 +215,9 @@ const PAINT:Partial<Record<DecorKind, string[]>> = {
   bike: [ '#4fae5a' ],
   scooter: [ '#d9483b', '#3d6fd8', '#ffd84a', '#4fd0c0', '#f4f4f8', '#ff8a3a' ],
   container: [ '#c8402f', '#2f5fa8', '#3f8a4f', '#d9822b', '#7a7f86', '#b8b2a5', '#8a3a2f', '#2f7f8a' ],
-  crate: [ '#b98a52', '#a87a45', '#c49a62', '#9a6c3c' ],
-  crates: [ '#b98a52', '#a87a45', '#c49a62', '#9a6c3c' ],
+  // 비닐 랩: 청회색·흰색·옅은 파랑 (파밍 상자의 갈색과 다르게)
+  crate: [ '#c9d4dc', '#b4c3cf', '#dfe5ea', '#9fb6c8' ],
+  crates: [ '#c9d4dc', '#b4c3cf', '#dfe5ea', '#9fb6c8' ],
   barrier: [ '#d9483b', '#f2c94c' ],
   sandbag: [ '#b7a57a', '#a8996e', '#c2b38a' ],
 };

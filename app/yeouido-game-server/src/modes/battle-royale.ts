@@ -1,6 +1,6 @@
 import {
   ACT_FARM, ACT_FIRE, isMaxed, MAX_LEVEL, ACT_RELOAD, BALL, BOSS_LIMIT_MS, ESCAPE, BrClientMsg, Difficulty, DIFFICULTY, FARM, RESULT_MS, afterPickup, armorCut, BR_MODE, dayNight, breakPower, PROP_KINDS, PROP_RADIUS, rollDrops, rollZombieDrop, BrServerMsg, Corpse, CorpseItem, emptyGear, Gear, HP_MAX, HURT_MS, hpGauge, insideZone,
-  ITEM_KINDS, insideZone as inZoneCircle, makeMatchPlan, pickRoofOf, LOBBY_COUNTDOWN_MS, MATCH_MS, MatchPlan, meleeReaches, pickSpawn, respawnDelay, rocketMul, shoeMul,
+  ITEM_KINDS, zombieHpMul, ZOMBIE_HP_MUL, insideZone as inZoneCircle, makeMatchPlan, pickRoofOf, LOBBY_COUNTDOWN_MS, MATCH_MS, MatchPlan, meleeReaches, pickSpawn, respawnDelay, rocketMul, shoeMul,
   canFire, falloff, fire, rollDamage, healAmount, isConsumable, PICK_GAP_MS, PICK_RANGE, PICK_RELEASE, FireState, fullMag, heldWeapon, isWeapon, MOVING_SPEED, reload, shotDirs, WEAPON_KINDS, weaponStats,
   SPAWN_SHIELD_MS, ST_DEAD, ST_FROZEN, ST_HIDDEN, ST_HURT, ST_SHIELD, ST_SWING, zoneAt, zoneDps,
 } from 'yeouido-br';
@@ -284,6 +284,7 @@ export class BattleRoyale implements GameMode {
     this.rocketsDropped = 0;
     this.props.clear();
     this.props.scatter(this.host.sim, this.match.circles[0], PROP_START);
+    this.props.scatterIndoor(this.host.sim, this.match.circles[0]);
     this.refillAt = this.matchAt + ITEM_REFILL_MS;
     const last = this.match.circles[this.match.circles.length - 1];
     console.log(`[br] match #${id} lobby (final ${last.cx.toFixed(0)},${last.cz.toFixed(0)} r${last.r})`);
@@ -1071,6 +1072,8 @@ export class BattleRoyale implements GameMode {
     // 보스전·탈출전에는 낮에도 좀비가 생긴다 (끝나면 해가 떠 있으면 불탄다)
     // 보스전·탈출전: 보스가 부른 좀비는 낮이어도 남고, 저절로 생기는 좀비는 없다
     this.cars.tick(() => this.carVictims(now));
+    // 밤마다 세진다 (보스가 부르는 좀비는 마지막 밤만큼)
+    this.horde.hpMul = this.phase === 'play' ? zombieHpMul(this.elapsed + DAY_OFFSET) : ZOMBIE_HP_MUL[ZOMBIE_HP_MUL.length - 1];
     this.horde.tick(now, dayNight(this.elapsed + DAY_OFFSET).night || this.phase === 'boss' || this.phase === 'escape', all, this.phase === 'play');
     const tA = performance.now();
     this.flyArrows(now);

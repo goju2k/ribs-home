@@ -82,8 +82,9 @@ function bakeBase(data:WorldData, highlight:number[]) {
     ringPath(g, b.slice(4), ox, oz);
     g.fill();
   });
-  // 들어갈 수 있는 건물은 노랗게
-  g.strokeStyle = '#ffd84a';
+  // 들어갈 수 있는 건물은 노랗게 채우고 진한 테두리 (테두리만이면 둘레 건물에 묻혀 KB국민은행 말고는 잘 안 보였다)
+  g.fillStyle = '#f2c94c';
+  g.strokeStyle = '#7a5a00';
   g.lineWidth = 2;
   highlight.forEach((bid) => {
     g.beginPath();
@@ -115,7 +116,7 @@ const PLACES:{ text: string; building?: string; at?: [number, number]; }[] = [
 function placeLabels(data:WorldData) {
   const byName = new Map(Object.entries(data.buildingNames).map(([ i, n ]) => [ n, Number(i) ]));
   return PLACES.flatMap(({ text, building, at }) => {
-    if (at) return [{ text, x: at[0], z: at[1] }];
+    if (at) return [{ text, x: at[0], z: at[1], bid: -1 }];
     const i = building ? byName.get(building) : undefined;
     if (i === undefined) return [];
     const ring = data.buildings[i].slice(4);
@@ -125,7 +126,7 @@ function placeLabels(data:WorldData) {
       x += ring[k];
       z += ring[k + 1];
     }
-    return [{ text, x: x / (ring.length / 2), z: z / (ring.length / 2) }];
+    return [{ text, x: x / (ring.length / 2), z: z / (ring.length / 2), bid: i }];
   });
 }
 
@@ -144,13 +145,17 @@ export class Minimap {
 
   private data:WorldData;
 
-  private labels:{ text: string; x: number; z: number; }[];
+  private labels:{ text: string; x: number; z: number; bid: number; }[];
+
+  /** 들어갈 수 있는 건물 (지명도 노랗게 — 지명 상자가 건물 가운데를 덮어 노란 칠이 가려졌다) */
+  private enterable:Set<number>;
 
   constructor(canvas:HTMLCanvasElement, data:WorldData, highlight:number[]) {
     this.canvas = canvas;
     this.data = data;
     this.labels = placeLabels(data);
     this.base = bakeBase(data, highlight);
+    this.enterable = new Set(highlight);
   }
 
   /** 지금 보이는 반경(m) */
@@ -231,9 +236,10 @@ export class Minimap {
       const box:[number, number, number, number] = [ px - w / 2, py - 6 * dpr, px + w / 2, py + 6 * dpr ];
       if (drawn.some((o) => box[0] < o[2] && box[2] > o[0] && box[1] < o[3] && box[3] > o[1])) return;
       drawn.push(box);
-      g.fillStyle = 'rgba(11,14,34,0.6)';
+      const open = this.enterable.has(lb.bid);
+      g.fillStyle = open ? '#f2c94c' : 'rgba(11,14,34,0.6)';
       g.fillRect(px - w / 2, py - 6 * dpr, w, 12 * dpr);
-      g.fillStyle = '#f4f4f8';
+      g.fillStyle = open ? '#2a1f00' : '#f4f4f8';
       g.fillText(lb.text, px, py + 0.5 * dpr);
     });
     // 북쪽 표시: 월드 북쪽 (0,-1)을 yaw만큼 돌리면 캔버스에서 (sin yaw, -cos yaw) 방향

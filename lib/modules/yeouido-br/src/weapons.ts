@@ -54,8 +54,8 @@ const BASE:Record<WeaponKind, Base> = {
   smg: { hitscan: true, damage: 9, spread: 0.02, moveSpread: 0.006, intervalMs: 83, mag: 30, reloadMs: 1800, range: 150, falloffFrom: 40, falloffMin: 0.5, headMul: 1.5, moveMul: 1, noise: 50 },
   // 돌격소총: 만능 — 움직이며 쏘면 퍼짐
   rifle: { hitscan: true, damage: 13, spread: 0.008, moveSpread: 0.03, intervalMs: 111, mag: 30, reloadMs: 2400, range: 250, falloffFrom: 150, falloffMin: 0.7, headMul: 2, moveMul: 0.92, noise: 60 },
-  // 산탄총: 9알 원뿔, 붙으면 한 방 — 일반 좀비는 9m까지 거의 한 방(11m 93%), 멀면 약해진다
-  shotgun: { hitscan: true, damage: 12, pellets: 9, spread: 0.07, moveSpread: 0, intervalMs: 900, mag: 6, reloadMs: 3000, range: 15, falloffFrom: 8, falloffMin: 0.5, headMul: 1.2, moveMul: 0.95, noise: 60 },
+  // 산탄총: 9알 원뿔, 붙으면 한 방 — 사거리 15m에 비해 약해 2026-10-27 알 피해 12 → 24 (+1 근접 216, +5 288). 멀면 약해진다
+  shotgun: { hitscan: true, damage: 24, pellets: 9, spread: 0.07, moveSpread: 0, intervalMs: 900, mag: 6, reloadMs: 3000, range: 15, falloffFrom: 8, falloffMin: 0.5, headMul: 1.2, moveMul: 0.95, noise: 60 },
   // 저격소총: 스코프 ×4, 머리 한 방 — 무겁고, 빗나가면 끝, 멀리까지 소리
   sniper: { hitscan: true, damage: 90, spread: 0.001, moveSpread: 0.05, intervalMs: 1400, mag: 5, reloadMs: 3500, range: 450, headMul: 2, moveMul: 0.85, scope: 4, noise: 120 },
   // 석궁: 무소음(좀비가 안 몰림), 낙차 있는 화살 — 3발을 10도 간격 부채꼴로, 강화마다 2발씩 더 (7단계 15발 = 140도, 10단계 21발 = 200도)
