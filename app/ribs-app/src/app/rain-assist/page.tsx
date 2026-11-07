@@ -3,6 +3,7 @@
 import { MapType, MintMap, Position } from '@mint-ui/map';
 import { useCallback, useEffect, useState } from 'react';
 
+import { AppDownloadButton } from './components/AppDownloadButton';
 import { CctvLayer } from './components/CctvLayer';
 import { GoToMyLocationButton } from './components/GoToMyLocationButton';
 import { HideRainCenterDotStyle } from './components/HideRainCenterDotStyle';
@@ -111,6 +112,9 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
         {/* 강수 예보 배지/화살표: 이제 예보는 앱이 직접 계산해 웹뷰 브릿지로 주입하는 방식으로만
             제공한다(웹 자체 계산 로직은 제거됨) — 일반 브라우저에서는 예보 영역 자체가 없다. */}
         {isWebview && <WebviewForecastLayer bridge={bridge} />}
+
+        {/* Android 앱 받기 — 이미 앱 안인 웹뷰에서는 숨긴다. */}
+        {!isWebview && <AppDownloadButton />}
 
         {/* 웹뷰 모드는 /rain의 MapControlLayer(레이더 기준시각 표시 포함)를 숨기므로 레이더 시각을
             볼 방법이 없다 — 우상단에 배경 없는 작은 텍스트로 간단히 보여준다. */}
