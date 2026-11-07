@@ -13,14 +13,16 @@ interface ItsCctvItem {
 }
 
 interface ItsCctvResponse {
-  response?:{ data?:ItsCctvItem[]; };
+  // 범위 안 카메라가 하나뿐이면 배열이 아니라 객체 하나로 온다.
+  response?:{ data?:ItsCctvItem[] | ItsCctvItem; };
 }
 
 export interface CctvListItem {
   name:string;
   lat:number;
   lng:number;
-  cctvUrl:string;
+  // HLS 실시간 영상(https). 브라우저가 직접 재생한다 — ITS 영상 서버가 CORS *를 주므로 프록시 불필요.
+  streamUrl:string;
 }
 
 // its.go.kr에 apiKey 발급 신청 중(승인 대기) — 키가 배포 환경에 없는 동안은 ITS를 호출하지 않고
@@ -61,9 +63,10 @@ export async function GET(request:Request) {
 
 async function fetchItsCctv(apiKey:string, type:'ex' | 'its', minX:string, maxX:string, minY:string, maxY:string):Promise<CctvListItem[]> {
 
-  // cctvType=3: 정지 영상 — ITS가 스트림이 아니라 정지 이미지 URL을 직접 내려주므로 프레임 추출이
-  // 필요 없다(https://its.go.kr/opendata/opendataList?service=cctv 요청변수 표 확인).
-  const url = `${ITS_CCTV_URL}?apiKey=${apiKey}&type=${type}&cctvType=3&minX=${minX}&maxX=${maxX}&minY=${minY}&maxY=${maxY}&getType=json`;
+  // cctvType=4: 실시간 영상 HLS(https). 2026-11-08 확인: 정지 영상(cctvType=3)의 이미지 URL은 영상 서버가
+  // 모든 요청에 403을 돌려주게 됐다(목록은 정상). 같은 카메라의 HLS는 정상이고 https라 웹뷰/브라우저에서
+  // 그대로 재생된다(https://its.go.kr/opendata/opendataList?service=cctv 요청변수 표 참고).
+  const url = `${ITS_CCTV_URL}?apiKey=${apiKey}&type=${type}&cctvType=4&minX=${minX}&maxX=${maxX}&minY=${minY}&maxY=${maxY}&getType=json`;
   const res = await fetch(url, { cache: 'no-store' });
 
   if (!res.ok) {
@@ -73,15 +76,16 @@ async function fetchItsCctv(apiKey:string, type:'ex' | 'its', minX:string, maxX:
   const json = await res.json() as ItsCctvResponse;
   // 응답 감싸는 구조(response.data가 CCTV 배열)는 공식 문서 예제와 커뮤니티 파싱 예제로 확인한
   // 값이며, 실제 키로 최종 검증 전이다 — 형태가 다르면 아래에서 빈 배열로 조용히 걸러진다.
-  const items = json.response?.data ?? [];
+  const data = json.response?.data ?? [];
+  const items = Array.isArray(data) ? data : [ data ];
 
   return items
-    .filter((item):item is ItsCctvItem & { cctvurl:string; coordx:string; coordy:string; } => !!item.cctvurl && !!item.coordx && !!item.coordy)
+    .filter((item):item is ItsCctvItem & { cctvurl:string; coordx:string; coordy:string; } => !!item.cctvurl?.startsWith('https://') && !!item.coordx && !!item.coordy)
     .map((item) => ({
       name: item.cctvname ?? '이름 없음',
       lat: Number(item.coordy),
       lng: Number(item.coordx),
-      cctvUrl: item.cctvurl,
+      streamUrl: item.cctvurl,
     }));
 
 }

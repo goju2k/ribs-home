@@ -1,7 +1,6 @@
-/* eslint-disable @next/next/no-img-element */
-
 'use client';
 
+import type Hls from 'hls.js';
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import styled from 'styled-components';
 
@@ -11,101 +10,145 @@ import { RequestButton } from '../../components/base/Button';
 import { Modal, ModalControl } from '../../components/layout/Modal';
 
 export interface CctvFrameModalControl {
-  show:(name:string, cctvUrl:string) => void;
+  show:(name:string, streamUrl:string) => void;
 }
 
-type LoadState = 'loading' | 'loaded' | 'error';
+type LoadState = 'loading' | 'playing' | 'error';
 
-const AUTO_REFRESH_MS = 60000;
+// 시작이 이보다 늦으면 "불러올 수 없음"으로 본다(영상 서버가 응답 없이 멈추는 경우).
+const START_TIMEOUT_MS = 15000;
 
-// ffmpeg/스트리밍 없이 ITS가 내려주는 정지 이미지 URL을 프록시(/api/rain-assist/cctv/frame)를
-// 거쳐 그대로 보여준다. 실제 운영 확인 결과 이 정지 이미지 자체가 약 60초 주기로 갱신되므로,
-// 모달이 떠 있는 동안 60초마다 자동으로 다시 불러온다("새로고침" 버튼으로 수동 갱신도 그대로
-// 지원, 누르면 자동 갱신 주기도 그 시점부터 다시 시작). 기존 GlobalToast.tsx와 동일한
-// imperative ref(show/hide) 패턴으로 Modal을 감싼다.
+// ITS 도로 CCTV 실시간 영상(HLS). 안드로이드 웹뷰·사파리는 <video>가 HLS를 바로 재생하고, 그렇지
+// 않은 브라우저(데스크톱 크롬 등)는 hls.js로 재생한다 — hls.js는 그때만 불러온다. 영상 서버가 CORS *를
+// 주므로 우리 서버를 거치지 않는다. 소리는 없고 자동 재생을 위해 음소거한다. 기존 GlobalToast.tsx와
+// 같은 imperative ref(show/hide) 패턴으로 Modal을 감싼다.
 export const CctvFrameModal = forwardRef<CctvFrameModalControl>((_props, ref) => {
 
   const modalRef = useRef<ModalControl>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const hlsRef = useRef<Hls | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const watchRef = useRef<ReturnType<typeof setInterval>>();
   const [ name, setName ] = useState('');
-  const [ cctvUrl, setCctvUrl ] = useState('');
-  const [ cacheBust, setCacheBust ] = useState(0);
+  const [ streamUrl, setStreamUrl ] = useState('');
+  const [ attempt, setAttempt ] = useState(0);
   const [ loadState, setLoadState ] = useState<LoadState>('loading');
-  const autoRefreshTimerRef = useRef<ReturnType<typeof setInterval>>();
 
-  // 언마운트 시에도 인터벌이 남아있지 않도록.
-  useEffect(() => () => clearInterval(autoRefreshTimerRef.current), []);
+  const stop = () => {
+    clearTimeout(timeoutRef.current);
+    clearInterval(watchRef.current);
+    hlsRef.current?.destroy();
+    hlsRef.current = null;
+    const video = videoRef.current;
+    if (video) {
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+    }
+  };
 
-  const refresh = () => {
-    setCacheBust(Date.now());
+  useEffect(() => stop, []);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!streamUrl || !video) {
+      return undefined;
+    }
+    let cancelled = false;
+    stop();
     setLoadState('loading');
-  };
 
-  // Modal.tsx는 배경 클릭(clickClose)으로 닫힐 때 별도 콜백을 주지 않으므로, 매 tick마다
-  // modalRef.current?.isShow()로 실제로 아직 열려 있는지 확인해 닫혔으면 스스로 정리한다.
-  const startAutoRefresh = () => {
-    clearInterval(autoRefreshTimerRef.current);
-    autoRefreshTimerRef.current = setInterval(() => {
-      if (!modalRef.current?.isShow()) {
-        clearInterval(autoRefreshTimerRef.current);
-        return;
+    const fail = () => {
+      if (!cancelled) {
+        setLoadState('error');
+        stop();
       }
-      refresh();
-    }, AUTO_REFRESH_MS);
-  };
+    };
+    timeoutRef.current = setTimeout(fail, START_TIMEOUT_MS);
+    // Modal.tsx는 배경 클릭(clickClose)으로 닫힐 때 콜백을 주지 않으므로, 닫혔는지 주기적으로 보고 영상을 끊는다.
+    watchRef.current = setInterval(() => {
+      if (!modalRef.current?.isShow()) {
+        stop();
+      }
+    }, 1000);
+
+    if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = streamUrl;
+      video.play().catch(() => undefined);
+    } else {
+      import('hls.js').then(({ default: HlsClass }) => {
+        if (cancelled) {
+          return;
+        }
+        if (!HlsClass.isSupported()) {
+          fail();
+          return;
+        }
+        const hls = new HlsClass({ lowLatencyMode: false });
+        hlsRef.current = hls;
+        hls.on(HlsClass.Events.ERROR, (_event, data) => {
+          if (data.fatal) {
+            fail();
+          }
+        });
+        hls.loadSource(streamUrl);
+        hls.attachMedia(video);
+        video.play().catch(() => undefined);
+      }).catch(fail);
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ streamUrl, attempt ]);
 
   useImperativeHandle(ref, () => ({
-    show(nextName, nextCctvUrl) {
+    show(nextName, nextStreamUrl) {
       setName(nextName);
-      setCctvUrl(nextCctvUrl);
-      setCacheBust(Date.now());
-      setLoadState('loading');
+      setStreamUrl(nextStreamUrl);
+      setAttempt((n) => n + 1);
       modalRef.current?.show();
-      startAutoRefresh();
     },
   }));
 
-  const imageSrc = cctvUrl ? `/api/rain-assist/cctv/frame?cctvUrl=${encodeURIComponent(cctvUrl)}&t=${cacheBust}` : '';
+  const close = () => {
+    stop();
+    modalRef.current?.hide();
+  };
 
   return (
     <Modal ref={modalRef} clickClose>
       <Container>
         <Flex flexrow flexalign='center' style={{ justifyContent: 'space-between' }}>
           <NameText>{name}</NameText>
-          <CloseButton
-            type='button'
-            onClick={() => {
-              clearInterval(autoRefreshTimerRef.current);
-              modalRef.current?.hide();
-            }}
-          >
-            닫기
-          </CloseButton>
+          <CloseButton type='button' onClick={close}>닫기</CloseButton>
         </Flex>
 
-        <ImageArea>
+        <VideoArea>
           {loadState === 'loading' && <StatusText>불러오는 중...</StatusText>}
           {loadState === 'error' && <StatusText>영상을 불러올 수 없습니다</StatusText>}
-          {imageSrc && (
-            <img
-              key={imageSrc}
-              src={imageSrc}
-              alt={name}
-              style={{ display: loadState === 'loaded' ? 'block' : 'none', width: '100%', height: '100%', objectFit: 'contain', borderRadius: '8px' }}
-              onLoad={() => setLoadState('loaded')}
-              onError={() => setLoadState('error')}
-            />
-          )}
-        </ImageArea>
+          <video
+            ref={videoRef}
+            muted
+            playsInline
+            autoPlay
+            style={{ display: loadState === 'playing' ? 'block' : 'none', width: '100%', height: '100%', objectFit: 'contain', borderRadius: '8px', background: '#000' }}
+            onPlaying={() => {
+              clearTimeout(timeoutRef.current);
+              setLoadState('playing');
+            }}
+            // stop()이 src를 비울 때 나는 오류는 무시 — 실제로 재생하려던 소스가 있을 때만 실패로 본다.
+            onError={(e) => {
+              if (e.currentTarget.getAttribute('src')) {
+                setLoadState('error');
+              }
+            }}
+          />
+        </VideoArea>
 
         <Flex flexalign='center' style={{ marginTop: '8px' }}>
-          <RequestButton
-            type='button'
-            onClick={() => {
-              refresh();
-              startAutoRefresh();
-            }}
-          >
-            새로고침
+          <RequestButton type='button' onClick={() => setAttempt((n) => n + 1)}>
+            다시 불러오기
           </RequestButton>
         </Flex>
       </Container>
@@ -137,17 +180,18 @@ const CloseButton = styled.button({
   cursor: 'pointer',
 });
 
-// 정사각형 유지 + 화면이 작으면 80vw, 크면 560px에서 멈추도록.
-const ImageArea = styled.div({
+// 영상은 가로 3:2(720x480) — 화면이 작으면 80vw, 크면 560px에서 멈추도록.
+const VideoArea = styled.div({
   marginTop: '8px',
   width: '80vw',
-  height: '80vw',
   maxWidth: '560px',
-  maxHeight: '560px',
+  aspectRatio: '3 / 2',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
   overflow: 'hidden',
+  borderRadius: '8px',
+  background: '#F4F6F8',
 });
 
 const StatusText = styled.div({

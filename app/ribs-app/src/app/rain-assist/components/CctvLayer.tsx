@@ -12,7 +12,7 @@ interface CctvListItem {
   name:string;
   lat:number;
   lng:number;
-  cctvUrl:string;
+  streamUrl:string;
 }
 
 // 전국을 한 번에 조회하면 마커가 수천 개가 될 수 있어, 이 줌 레벨 미만(많이 축소된 상태)에서는
@@ -140,7 +140,7 @@ export function CctvLayer() {
         <MapMarkerWrapper
           key={`${cctv.lat}-${cctv.lng}-${cctv.name}`}
           position={new Position(cctv.lat, cctv.lng)}
-          event={toClickEvent(() => modalRef.current?.show(cctv.name, cctv.cctvUrl))}
+          event={toClickEvent(() => modalRef.current?.show(cctv.name, cctv.streamUrl))}
         >
           <CctvIcon />
         </MapMarkerWrapper>
