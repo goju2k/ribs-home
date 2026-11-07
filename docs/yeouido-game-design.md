@@ -5,6 +5,26 @@
 
 결정된 값은 그대로, **(가정)** 은 아직 사용자 확인 전 임시 값이다. 단계마다 이 문서를 갱신한다.
 
+## 현재 상태 (2026-11-07)
+**임시 PoC라 main에 넣지 않는다.** `feat/yeouido-3d-indoor` 브랜치에만 두고, 운영 빌드(Jenkins `ribs` 잡 → `ribs` 컨테이너)에는 넣지 않는다. 지금 그대로 main에 넣으면 운영(https)에서 페이지는 열리지만 게임 서버에 붙지 못한다.
+
+코드 위치:
+- 서버: `app/yeouido-game-server` (`nx serve yeouido-game-server`, ws `:3200/ws`, WebRTC UDP `:3104`)
+- 클라이언트: `lib/modules/yeouido-3d-module`, 페이지 `app/ribs-app/src/app/yeouido-3d` (`/yeouido-3d`)
+- 공용: `lib/modules/yeouido-sim`·`yeouido-net`·`yeouido-br`
+
+지금 돌리는 방식 (http 전용, 개발용):
+- 게임 서버는 이 PC에서 `nx serve`(개발 모드)로 직접 띄운다 (:3200).
+- 미리보기는 도커 `dev-proxy-3100`(Next)·`dev-proxy-3102`(ws)·`dev-proxy-3104`가 host로 TCP를 넘긴다.
+- 클라이언트 접속 주소(`net/client.ts`): `?ws=…` → 그것, localhost → `:3200`, 그 밖 http → `:3102`, https → `wss://home.ribs.kr/ws`.
+
+운영에 올리려면 남은 일:
+1. **wss 받는 곳이 없다.** `home.ribs.kr`(이 PC)은 443을 받지 않는다. `www.ribs.kr`은 네이버 클라우드 CDN에서 TLS를 끝내고 이 PC에는 http로 온다. https 페이지에서는 `ws://`가 막히므로 둘 중 하나가 필요하다:
+   - A. 이 PC에 TLS 프록시(Caddy/nginx + 인증서)를 두고 `home.ribs.kr:443/ws` → `:3200`, 공유기 80·443 포워딩 (시스템 작업)
+   - B. CDN 뒤에 게임 경로(`game.ribs.kr` 또는 `www.ribs.kr/ws`)를 두고 이 PC 게임 서버로 연결 (CDN의 WebSocket 지원부터 확인)
+2. **운영 이미지에 게임 서버가 없다.** `app/ribs-app/docker/Dockerfile`·`app-start.sh`는 Next와 봇 서버만 빌드·실행한다. 게임 서버 production 빌드와 실행 자리(같은 이미지 또는 별도 컨테이너, `RTC_PUBLIC_IP`·UDP 3104 포워딩)를 정해야 한다.
+3. WebRTC(DTLS)는 https 페이지에서도 쓸 수 있지만, 연결 맺기를 `/ws`로 하므로 1번이 먼저다.
+
 ## 엔진과 게임 모드
 | | 엔진 (장르와 무관, 남는 것) | 배틀로얄 모드 (PoC, 바꿀 수 있는 것) |
 |---|---|---|
