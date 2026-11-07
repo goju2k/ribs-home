@@ -1,6 +1,5 @@
 'use client';
 
-import { MapControlWrapper } from '@mint-ui/map';
 import { useEffect, useState } from 'react';
 import styled from 'styled-components';
 
@@ -15,8 +14,8 @@ interface LatestApp {
   sizeBytes:number;
 }
 
-// 일반 브라우저 전용 "앱 받기" 버튼(웹뷰는 이미 앱 안이라 page.tsx에서 숨긴다). 좌하단에 둔다 —
-// 좌상단은 폰 너비에서 우상단 컨트롤 상자와 겹친다. latest.json을 못 받으면 버튼을 그리지 않는다.
+// 일반 브라우저 전용 "앱 받기" 버튼(웹뷰는 이미 앱 안이라 page.tsx에서 숨긴다). 하단 줄(BottomBar)
+// 왼쪽에 들어간다. latest.json을 못 받으면 버튼을 그리지 않는다.
 export function AppDownloadButton() {
 
   const [ latest, setLatest ] = useState<LatestApp>();
@@ -41,17 +40,15 @@ export function AppDownloadButton() {
   const sizeMb = (latest.sizeBytes / (1024 * 1024)).toFixed(0);
 
   return (
-    <MapControlWrapper positionHorizontal='left' positionVertical='bottom'>
-      <DownloadLink href={`${APP_BASE_URL}${latest.file}`} download={latest.file}>
-        <svg width='16' height='16' viewBox='0 0 24 24' fill='none' aria-hidden>
-          <path d='M12 3v12m0 0l-5-5m5 5l5-5M4 19h16' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round' />
-        </svg>
-        <span>
-          Android 앱 받기
-          <Meta>v{latest.versionName} · {sizeMb}MB</Meta>
-        </span>
-      </DownloadLink>
-    </MapControlWrapper>
+    <DownloadLink href={`${APP_BASE_URL}${latest.file}`} download={latest.file}>
+      <svg width='16' height='16' viewBox='0 0 24 24' fill='none' aria-hidden>
+        <path d='M12 3v12m0 0l-5-5m5 5l5-5M4 19h16' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round' />
+      </svg>
+      <span>
+        Android 앱 받기
+        <Meta>v{latest.versionName} · {sizeMb}MB</Meta>
+      </span>
+    </DownloadLink>
   );
 }
 
@@ -59,12 +56,14 @@ const DownloadLink = styled.a({
   display: 'flex',
   alignItems: 'center',
   gap: '6px',
-  margin: '10px 10px 28px',
-  padding: '7px 12px',
-  borderRadius: '18px',
+  pointerEvents: 'auto',
+  flex: 'none',
+  height: '48px',
+  boxSizing: 'border-box',
+  padding: '0 14px',
+  borderRadius: '16px',
   background: 'white',
-  border: '1px solid #ccc',
-  boxShadow: '0 1px 4px rgba(0, 0, 0, 0.3)',
+  boxShadow: '0 2px 10px rgba(21, 32, 43, 0.16)',
   color: '#1f6feb',
   fontSize: '13px',
   fontWeight: 600,

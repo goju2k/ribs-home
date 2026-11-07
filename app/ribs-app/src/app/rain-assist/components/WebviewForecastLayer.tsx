@@ -1,9 +1,7 @@
 'use client';
 
-import { MapControlWrapper, MapMarkerWrapper, MapPolylineWrapper, Position } from '@mint-ui/map';
+import { MapMarkerWrapper, MapPolylineWrapper, Position } from '@mint-ui/map';
 import styled from 'styled-components';
-
-import { Flex } from 'ui-base-pack';
 
 import { RainDirectionArrowIcon } from './RainDirectionArrowIcon';
 
@@ -53,17 +51,10 @@ const PATH_COLOR_TARGET = '#f59e0b';
 // 앱 프레임과 다른 시각이라 화살표가 비구름 중심에서 벗어나 보였다.)
 export function WebviewForecastLayer({ bridge }:WebviewForecastLayerProps) {
 
-  const { forecast, notification } = bridge;
+  const { forecast } = bridge;
 
   return (
     <>
-      <MapControlWrapper positionHorizontal='left' positionVertical='top'>
-        <BadgeContainer>
-          {/* 문구는 앱의 showNotification.message를 그대로 표시 — 웹이 직접 생성하지 않음.
-              첫 알림이 오기 전까지는 빈 배지(문구를 만들어내지 않기 위함). */}
-          {notification && <Flex flexfit>{notification.message}</Flex>}
-        </BadgeContainer>
-      </MapControlWrapper>
 
       {forecast?.blobs.map((blob) => {
 
@@ -132,23 +123,6 @@ export function WebviewForecastLayer({ bridge }:WebviewForecastLayerProps) {
     </>
   );
 }
-
-const BadgeContainer = styled.div({
-  background: 'white',
-  border: '1px solid gray',
-  borderRadius: '8px',
-  padding: '5px 8px',
-  marginTop: '10px',
-  marginLeft: '10px',
-  fontSize: '14px',
-  // 알림이 오기 전(빈 배지)에도 실제 문구가 들어왔을 때와 같은 기본 크기를 유지한다 —
-  // 내용이 없다고 박스 자체가 쪼그라들면(패딩만 남음) 화면이 부자연스럽게 깜빡여 보인다.
-  // 33px = 이 배지 스타일(padding 5px 8px, font-size 14px)이 실제로 렌더링되는 높이
-  // (line-height 21px + padding 10px + border 2px)를 실측한 값.
-  boxSizing: 'border-box',
-  minWidth: '140px',
-  minHeight: '33px',
-});
 
 const NowDot = styled.div<{ $color:string; }>(({ $color }) => ({
   width: '8px',

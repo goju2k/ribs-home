@@ -4,6 +4,7 @@ import { MapControlWrapper, MapMarkerWrapper, Position, useMintMapController } f
 import { useEffect, useRef, useState } from 'react';
 import { useRecoilValue } from 'recoil';
 import styled from 'styled-components';
+
 import { Flex } from 'ui-base-pack';
 
 import { MapControlState, useUpdateMapControl } from '../../state/map-controls';
@@ -54,9 +55,11 @@ interface RainRadarLayerProps {
    * 그려진 비구름과 예보 화살표가 같은 시각을 가리키게 한다. 그 이미지를 못 받으면 자체 탐색으로 돌아간다.
    */
   forcedTm?:string;
+  // false면 우하단 세로 범례를 그리지 않는다(/rain-assist는 자체 하단 범례 바를 쓴다). 기본 true.
+  showLegend?:boolean;
 }
 
-export function RainRadarLayer({ forcedTm }:RainRadarLayerProps = {}) {
+export function RainRadarLayer({ forcedTm, showLegend = true }:RainRadarLayerProps = {}) {
 
   const controller = useMintMapController();
 
@@ -123,7 +126,7 @@ export function RainRadarLayer({ forcedTm }:RainRadarLayerProps = {}) {
       {!temperatureFlag && imgLoaded && (
         <>
           <MapControlWrapper positionHorizontal='left' positionVertical='bottom'>
-            {(!!LegendsMap.get(color) && (
+            {(showLegend && !!LegendsMap.get(color) && (
               <MapLegendContainer style={{ margin: '0 0 20px 10px' }}>
                 <Flex flexfit>
                   <Flex flexfit>
@@ -143,7 +146,7 @@ export function RainRadarLayer({ forcedTm }:RainRadarLayerProps = {}) {
         </>
       )}
 
-      {!temperatureFlag && (
+      {!temperatureFlag && showLegend && (
         <MapControlWrapper positionHorizontal='right' positionVertical='bottom'>
           <MapLegendContainer>
             <Flex flexrow flexgap='4px'>
