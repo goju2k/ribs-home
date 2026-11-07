@@ -20,6 +20,26 @@ function kstToEpochMs(year:number, month:number, day:number, hour:number, minute
   return Date.UTC(year, month - 1, day, hour, minute) - 9 * 60 * 60 * 1000;
 }
 
+// 레이더 프레임 시각과 경과 분 — 웹뷰 상태 카드 아래 칩이 쓴다. tmText가 아직 없으면 null.
+export function useRadarTimeText():{ clock:string; elapsedMinutes:number; } | null {
+
+  const { tmText } = useRecoilValue(MapControlState);
+  const [ nowMs, setNowMs ] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setNowMs(Date.now()), 15000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const match = tmText.match(TM_TEXT_PATTERN);
+  if (!match) {
+    return null;
+  }
+  const [ , month, day, hour, minute ] = match;
+  const tmEpochMs = kstToEpochMs(new Date().getFullYear(), Number(month), Number(day), Number(hour), Number(minute));
+  return { clock: `${hour}:${minute}`, elapsedMinutes: Math.max(0, Math.floor((nowMs - tmEpochMs) / 60000)) };
+}
+
 export function RadarTimeLabel() {
 
   const { tmText } = useRecoilValue(MapControlState);

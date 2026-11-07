@@ -1,17 +1,19 @@
 'use client';
 
 import { MapType, MintMap, Position } from '@mint-ui/map';
-import { useCallback, useEffect, useState } from 'react';
+import { ReactNode, useCallback, useEffect, useState } from 'react';
 
 import { AppDownloadButton } from './components/AppDownloadButton';
+import { BottomBar, EventLogButton } from './components/BottomBar';
 import { CctvLayer } from './components/CctvLayer';
+import { ForecastPanel } from './components/ForecastPanel';
 import { GoToMyLocationButton } from './components/GoToMyLocationButton';
 import { HideRainCenterDotStyle } from './components/HideRainCenterDotStyle';
 import { MapLoadingOverlay } from './components/MapLoadingOverlay';
-import { RadarTimeLabel } from './components/RadarTimeLabel';
 import { WebviewForecastLayer } from './components/WebviewForecastLayer';
 import { useAutoGeoLocationHook } from './hook/use-auto-geo-location-hook';
 import { useInitialMapViewHook } from './hook/use-initial-map-view-hook';
+import { useNativeEventLogHook } from './hook/use-native-ui-hook';
 import { useRainAssistBridgeHook } from './hook/use-rain-assist-bridge-hook';
 import { useWebviewModeHook } from './hook/use-webview-mode-hook';
 
@@ -64,6 +66,8 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
   // 있으면 조용히 무시) 가능한 한 이르게 정의해야 한다 — 아래 로딩 게이트(!ready) 이전, 이
   // 컴포넌트 최초 마운트 시점에 바로 등록. 상세 계약은 webview-interface.md 참고.
   const bridge = useRainAssistBridgeHook(isWebview, handleRefreshPosition);
+  // 앱 0.6~: "기록" 버튼을 페이지가 그린다(앱은 자체 버튼을 숨김). 구버전 앱이면 그 자리를 비워 둔다.
+  const nativeEventLog = useNativeEventLogHook(isWebview);
 
   // 웹뷰에서는 앱 예보가 근거한 바로 그 레이더 프레임을 그린다 — 웹이 따로 고른 최신 이미지와
   // 앱의 프레임이 5~15분 어긋나면, 화살표가 지도 속 비구름 위치와 그만큼 엇나가 보였다.
@@ -80,6 +84,11 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
       updateControl('currPosition', new Position(userPosition.lat, userPosition.lng));
     }
   }, [ userPosition ]);
+
+  let bottomLeft:ReactNode | 'native-space' = <AppDownloadButton />;
+  if (isWebview) {
+    bottomLeft = nativeEventLog ? <EventLogButton onClick={() => window.RainAssistNative?.openEventLog()} /> : 'native-space';
+  }
 
   if (!ready) {
     return <MapLoadingOverlay />;
@@ -107,18 +116,18 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
 
         {/* 레이어: 강수 레이더. key=radarRefreshKey: 웹뷰 모드가 아니면 절대 바뀌지 않으므로
             (refreshPosition은 웹뷰에서만 활성화) 일반 모드에는 영향 없음. */}
-        <RainRadarLayer key={radarRefreshKey} forcedTm={forcedRadarTm} />
+        <RainRadarLayer key={radarRefreshKey} forcedTm={forcedRadarTm} showLegend={false} />
 
         {/* 강수 예보 배지/화살표: 이제 예보는 앱이 직접 계산해 웹뷰 브릿지로 주입하는 방식으로만
             제공한다(웹 자체 계산 로직은 제거됨) — 일반 브라우저에서는 예보 영역 자체가 없다. */}
         {isWebview && <WebviewForecastLayer bridge={bridge} />}
 
-        {/* Android 앱 받기 — 이미 앱 안인 웹뷰에서는 숨긴다. */}
-        {!isWebview && <AppDownloadButton />}
+        {/* 하단 줄: 왼쪽 버튼 + 강수 범례 바(RainRadarLayer의 세로 범례 대신). 왼쪽은 웹뷰면 "기록"
+            (구버전 앱이면 앱 버튼 자리 비움), 일반 브라우저면 Android 앱 받기. */}
+        <BottomBar left={bottomLeft} />
 
-        {/* 웹뷰 모드는 /rain의 MapControlLayer(레이더 기준시각 표시 포함)를 숨기므로 레이더 시각을
-            볼 방법이 없다 — 우상단에 배경 없는 작은 텍스트로 간단히 보여준다. */}
-        {isWebview && <RadarTimeLabel />}
+        {/* 웹뷰: 위쪽 상태 카드(알림 문구 + 레이더 시각) — 누르면 하단 시트(분별 비 세기 등)가 올라온다. */}
+        {isWebview && <ForecastPanel bridge={bridge} />}
 
         {/* 웹뷰 모드는 /rain의 MapControlLayer("현재위치 바로가기" 버튼 포함)를 숨기므로 원래는
             웹뷰 전용으로 뒀으나, CCTV 토글과 세로로 짝을 이루는 UI라 일반 브라우저에서도

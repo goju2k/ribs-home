@@ -31,6 +31,10 @@ export interface BridgeForecastPayload {
     etaMinutes:number | null;
     state:'NONE' | 'INCOMING' | 'ACTIVE';
     intensityMmh:number | null;
+    // ACTIVE일 때만: 몇 분 뒤 그칠지(null = 예보 범위 안에 안 그침).
+    rainEndMinutes?:number | null;
+    // 앱 0.6~: 내 위치의 분별 예상 강수(mm/h, 0 = 비 없음), 인덱스 = 지금부터 분(0~30). 구버전 앱은 없음.
+    intensityByMinute?:number[];
   };
   blobs:BridgeForecastBlob[];
 }

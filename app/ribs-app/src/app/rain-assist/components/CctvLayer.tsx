@@ -6,6 +6,7 @@ import styled from 'styled-components';
 
 import { CctvFrameModal, CctvFrameModalControl } from './CctvFrameModal';
 import { CctvIcon } from './CctvIcon';
+import { MAP_BUTTON_BOTTOM_PX, MAP_BUTTON_GAP_PX, MAP_BUTTON_SIDE_PX, MAP_BUTTON_SIZE_PX, mapButtonStyle } from './map-button-style';
 
 interface CctvListItem {
   name:string;
@@ -18,16 +19,6 @@ interface CctvListItem {
 // 조회 자체를 건너뛴다. 14부터 조회
 const MIN_ZOOM_LEVEL_TO_SHOW_CCTV = 14;
 const BOUNDS_FETCH_DEBOUNCE_MS = 100;
-
-// GoToMyLocationButton.tsx가 RainRadarLayer 범례(우하단) 위에 자신을 띄우기 위해 계산해둔 값
-// (LEGEND_RESERVED_HEIGHT_PX + BUTTON_GAP_PX)과 그 버튼 자신의 지름(36px)을 그대로 가져와, 이
-// 버튼이 "내 위치로" 버튼 한 단 위에 오도록 한다 — 두 컴포넌트는 서로의 실제 렌더 크기를 모른 채
-// 독립적으로 우하단에 고정되는 기존 컨벤션 그대로다. GoToMyLocationButton.tsx의 상수가 바뀌면
-// 이 값도 같이 조정 필요.
-const GO_TO_MY_LOCATION_MARGIN_BOTTOM_PX = 396;
-const GO_TO_MY_LOCATION_BUTTON_HEIGHT_PX = 36;
-const BUTTON_GAP_PX = 10;
-const CCTV_BUTTON_MARGIN_BOTTOM_PX = GO_TO_MY_LOCATION_MARGIN_BOTTOM_PX + GO_TO_MY_LOCATION_BUTTON_HEIGHT_PX + BUTTON_GAP_PX;
 
 // MapMarkerWrapper의 event prop 타입(Map<keyof DocumentEventMap, (e:Event) => boolean | void>)을
 // JSX 어트리뷰트 안에서 제네릭과 함께 인라인으로 쓰면 ESLint(non-TS-aware 규칙)가 파싱을
@@ -128,7 +119,7 @@ export function CctvLayer() {
             크기 계산이 어긋나면 그 영역 아래 지도(CCTV 마커 포함) 클릭이 최상단에서부터 막힐 수 있다
             — disablePointerEvent로 그 레이어 전체를 뚫어놓고, 아래 스페이서(마진 전용)도 한 번 더
             none 처리한 뒤, 실제 눌리는 버튼에서만 auto로 되돌려 지도 클릭/터치가 가려지지 않게 한다. */}
-        <div style={{ marginBottom: `${CCTV_BUTTON_MARGIN_BOTTOM_PX}px`, marginRight: '10px', pointerEvents: 'none' }}>
+        <div style={{ marginBottom: `${MAP_BUTTON_BOTTOM_PX + MAP_BUTTON_SIZE_PX + MAP_BUTTON_GAP_PX}px`, marginRight: `${MAP_BUTTON_SIDE_PX}px`, pointerEvents: 'none' }}>
           <CctvToggleButton
             type='button'
             aria-label='주변 CCTV 보기'
@@ -137,7 +128,7 @@ export function CctvLayer() {
             $active={enabled}
             onClick={() => setEnabled((prev) => !prev)}
           >
-            <svg width='20' height='20' viewBox='0 0 24 24' fill='none'>
+            <svg width='22' height='22' viewBox='0 0 24 24' fill='none'>
               <path d='M4 8a2 2 0 0 1 2-2h1.6l1-1.3A2 2 0 0 1 10.2 4h3.6a2 2 0 0 1 1.6.8l1 1.2H18a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8Z' stroke='currentColor' strokeWidth='2' strokeLinejoin='round' />
               <circle cx='12' cy='13' r='3.5' stroke='currentColor' strokeWidth='2' />
             </svg>
@@ -161,21 +152,10 @@ export function CctvLayer() {
 
 }
 
-// GoToMyLocationButton.tsx의 LocationButton과 동일한 "전형적인" 원형 지도 버튼 모양(36px, 흰
-// 배경, 옅은 그림자) — 상태만 disabled(줌 이탈)/normal(off)/active(on) 3가지로 늘렸다.
+// "내 위치" 버튼과 같은 지도 버튼 모양 — 상태만 disabled(줌 이탈)/normal(off)/active(on) 3가지.
 const CctvToggleButton = styled.button<{ $active:boolean; }>(({ $active, disabled }) => ({
-  pointerEvents: 'auto',
-  width: '36px',
-  height: '36px',
-  borderRadius: '50%',
-  background: 'white',
-  border: '1px solid #ccc',
-  boxShadow: '0 1px 4px rgba(0, 0, 0, 0.3)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  padding: 0,
+  ...mapButtonStyle,
   cursor: disabled ? 'not-allowed' : 'pointer',
   opacity: disabled ? 0.4 : 1,
-  color: $active ? '#1f6feb' : '#666',
+  color: $active ? '#1f6feb' : '#2B3640',
 }));
