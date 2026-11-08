@@ -8,6 +8,7 @@ import { Flex } from 'ui-base-pack';
 
 import { RequestButton } from '../../components/base/Button';
 import { Modal, ModalControl } from '../../components/layout/Modal';
+import { useBackToCloseHook } from '../hook/use-back-to-close-hook';
 
 export interface CctvFrameModalControl {
   show:(name:string, streamUrl:string) => void;
@@ -33,6 +34,7 @@ export const CctvFrameModal = forwardRef<CctvFrameModalControl>((_props, ref) =>
   const [ streamUrl, setStreamUrl ] = useState('');
   const [ attempt, setAttempt ] = useState(0);
   const [ loadState, setLoadState ] = useState<LoadState>('loading');
+  const [ open, setOpen ] = useState(false);
 
   const stop = () => {
     clearTimeout(timeoutRef.current);
@@ -107,6 +109,7 @@ export const CctvFrameModal = forwardRef<CctvFrameModalControl>((_props, ref) =>
       setName(nextName);
       setStreamUrl(nextStreamUrl);
       setAttempt((n) => n + 1);
+      setOpen(true);
       modalRef.current?.show();
     },
   }));
@@ -114,7 +117,24 @@ export const CctvFrameModal = forwardRef<CctvFrameModalControl>((_props, ref) =>
   const close = () => {
     stop();
     modalRef.current?.hide();
+    setOpen(false);
   };
+
+  // 배경 클릭으로 닫히면 Modal이 알려 주지 않으므로, 열려 있는 동안 실제로 닫혔는지 지켜본다(뒤로 가기 기록 정리용).
+  useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+    const timer = setInterval(() => {
+      if (!modalRef.current?.isShow()) {
+        setOpen(false);
+      }
+    }, 300);
+    return () => clearInterval(timer);
+  }, [ open ]);
+
+  // 뒤로 가기 = 영상 창 닫기(앱이 꺼지지 않게).
+  useBackToCloseHook(open, close, 'cctv-modal');
 
   return (
     <Modal ref={modalRef} clickClose>
