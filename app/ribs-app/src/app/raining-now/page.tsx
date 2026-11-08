@@ -31,7 +31,7 @@ function trackDownload(latest:LatestApp) {
   };
   gtag('event', 'app_download', {
     send_to: GA_MEASUREMENT_ID,
-    app_name: 'biolkka',
+    app_name: 'raining-now',
     app_version: latest.versionName,
     app_version_code: latest.versionCode,
     transport_type: 'beacon',
@@ -43,7 +43,7 @@ function formatDate(iso:string):string {
   return `${d.getUTCFullYear()}.${d.getUTCMonth() + 1}.${d.getUTCDate()}`;
 }
 
-export default function BiolkkaDownloadPage() {
+export default function RainingNowDownloadPage() {
 
   const [ latest, setLatest ] = useState<LatestApp>();
   const [ failed, setFailed ] = useState(false);
