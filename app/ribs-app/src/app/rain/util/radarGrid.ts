@@ -1,7 +1,7 @@
 import { MintMapController, Position } from '@mint-ui/map';
 
 import { LatLng, projectLcc, unprojectLcc } from './lcc';
-import { getOffset } from './map-util';
+import { getOffset, getScreenOffset } from './map-util';
 
 export interface Box {
   xMin: number;
@@ -180,6 +180,13 @@ export function buildMesh(controller: MintMapController, box: Box, size: number,
   }
 
   const anchor = gridOffset[0][0];
+  // gridOffset은 지도 레이어 기준 좌표(naverPositionToOffset)라 지도를 끌어도 값이 그대로다 — 화면 안인지
+  // 가리는 visible(화면 좌표)과 비교하려면 지금 화면으로 옮겨야 한다. 이게 빠져 있어서 끌고 나면 처음
+  // 화면 둘레만 계속 그려지고, 한 화면 넘게 옮기면 레이더가 직선으로 잘려 보였다.
+  const nwLatLng = forwardUV(box, 0, 0);
+  const anchorOnScreen = getScreenOffset(controller, new Position(nwLatLng.lat, nwLatLng.lng));
+  const toScreenX = anchorOnScreen.x - anchor.x;
+  const toScreenY = anchorOnScreen.y - anchor.y;
   // Anchor-relative from here on, so matrix translation terms are directly usable as CSS
   // transform e/f (the whole mesh group is itself positioned at the anchor via MapMarkerWrapper).
   const rel = (p: { x: number; y: number; }) => ({ x: p.x - anchor.x, y: p.y - anchor.y });
@@ -188,8 +195,8 @@ export function buildMesh(controller: MintMapController, box: Box, size: number,
   for (let j = 0; j < meshN; j++) {
     for (let i = 0; i < meshN; i++) {
       const corners = [ gridOffset[j][i], gridOffset[j][i + 1], gridOffset[j + 1][i], gridOffset[j + 1][i + 1] ];
-      const xs = corners.map((c) => c.x);
-      const ys = corners.map((c) => c.y);
+      const xs = corners.map((c) => c.x + toScreenX);
+      const ys = corners.map((c) => c.y + toScreenY);
       const offscreen = !!visible && (Math.max(...xs) < visible.left || Math.min(...xs) > visible.right
         || Math.max(...ys) < visible.top || Math.min(...ys) > visible.bottom);
       if (!offscreen) {
