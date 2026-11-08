@@ -8,7 +8,7 @@ import { useRadarTimeText } from './RadarTimeLabel';
 
 import { useBackToCloseHook } from '../hook/use-back-to-close-hook';
 import { BridgeForecastPayload, BridgeNotificationState, RainAssistBridgeState } from '../hook/use-rain-assist-bridge-hook';
-import { clockAfter, comingFromText, formatMmh, intensityColor } from '../util/rain-format';
+import { clockAfter, comingFromText, formatMmh, intensityColor, isStationary } from '../util/rain-format';
 
 interface Tone {
   kicker:string;
@@ -31,6 +31,16 @@ const FORECAST_TO_NOTIFICATION:Record<BridgeForecastPayload['forecast']['state']
   NONE: 'IDLE',
 };
 
+function moveText(target:{ headingDeg:number; speedKmh:number; } | undefined):string {
+  if (!target) {
+    return '—';
+  }
+  if (isStationary(target.speedKmh)) {
+    return '거의 멈춤';
+  }
+  return `${comingFromText(target.headingDeg, false)} ${Math.round(target.speedKmh)}km/h`;
+}
+
 function targetBlob(forecast:BridgeForecastPayload | null) {
   return forecast?.blobs.find((blob) => blob.isForecastTarget);
 }
@@ -44,6 +54,9 @@ function cardDetail(forecast:BridgeForecastPayload | null):string | null {
   const target = targetBlob(forecast);
   if (state === 'INCOMING' && target) {
     const mmh = intensityMmh ? ` · ${formatMmh(intensityMmh)}mm/h 안팎` : '';
+    if (isStationary(target.speedKmh)) {
+      return `가까운 비구름이 거의 움직이지 않아요${mmh}`;
+    }
     return `${comingFromText(target.headingDeg)} 시속 ${Math.round(target.speedKmh)}km로 다가오는 중${mmh}`;
   }
   if (state === 'ACTIVE' && intensityMmh) {
@@ -183,7 +196,7 @@ function SheetBody({ forecast, inkColor }:{ forecast:BridgeForecastPayload; inkC
         </Tile>
         <Tile>
           <TileLabel>비구름 이동</TileLabel>
-          <TileValue>{target ? `${comingFromText(target.headingDeg, false)} ${Math.round(target.speedKmh)}km/h` : '—'}</TileValue>
+          <TileValue>{moveText(target)}</TileValue>
         </Tile>
       </Tiles>
     </>

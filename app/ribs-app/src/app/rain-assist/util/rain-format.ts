@@ -20,6 +20,14 @@ export const LEGEND_STEPS:{ color:string; label:string; }[] = [ ...INTENSITY_STE
   label: min === 0 ? '0.1' : String(min),
 }));
 
+// 이보다 느리면 "거의 멈춤" — 화살표를 그리지 않고, 방향·속도도 말하지 않는다. 앱은 이동을 못 잡으면
+// 속도 0, 방향 0°(북쪽)를 보내는데, 그대로 그리면 시작점과 화살촉이 겹친 북쪽 화살표가 된다.
+export const STATIONARY_SPEED_KMH = 3;
+
+export function isStationary(speedKmh:number):boolean {
+  return !(speedKmh >= STATIONARY_SPEED_KMH);
+}
+
 export function formatMmh(mmh:number):string {
   return mmh >= 10 ? String(Math.round(mmh)) : String(Math.round(mmh * 10) / 10);
 }
