@@ -84,7 +84,7 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
     }
   }, [ userPosition ]);
 
-  // 웹뷰만 왼쪽 버튼이 있다("기록"). 일반 브라우저는 범례 바만 — 앱 받기는 지도에 두지 않고 /biolkka 페이지로 뺐다.
+  // 웹뷰만 왼쪽 버튼이 있다("기록"). 일반 브라우저는 범례 바만 — 앱 받기는 지도에 두지 않고 /raining-now 페이지로 뺐다.
   let bottomLeft:ReactNode | 'native-space' | undefined;
   if (isWebview) {
     bottomLeft = nativeEventLog ? <EventLogButton onClick={() => window.RainAssistNative?.openEventLog()} /> : 'native-space';
