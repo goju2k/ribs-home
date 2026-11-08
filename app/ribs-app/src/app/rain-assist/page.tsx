@@ -3,7 +3,6 @@
 import { MapType, MintMap, Position } from '@mint-ui/map';
 import { ReactNode, useCallback, useEffect, useState } from 'react';
 
-import { AppDownloadButton } from './components/AppDownloadButton';
 import { BottomBar, EventLogButton } from './components/BottomBar';
 import { CctvLayer } from './components/CctvLayer';
 import { ForecastPanel } from './components/ForecastPanel';
@@ -85,7 +84,8 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
     }
   }, [ userPosition ]);
 
-  let bottomLeft:ReactNode | 'native-space' = <AppDownloadButton />;
+  // 웹뷰만 왼쪽 버튼이 있다("기록"). 일반 브라우저는 범례 바만 — 앱 받기는 지도에 두지 않고 /biolkka 페이지로 뺐다.
+  let bottomLeft:ReactNode | 'native-space' | undefined;
   if (isWebview) {
     bottomLeft = nativeEventLog ? <EventLogButton onClick={() => window.RainAssistNative?.openEventLog()} /> : 'native-space';
   }
@@ -123,7 +123,7 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
         {isWebview && <WebviewForecastLayer bridge={bridge} />}
 
         {/* 하단 줄: 왼쪽 버튼 + 강수 범례 바(RainRadarLayer의 세로 범례 대신). 왼쪽은 웹뷰면 "기록"
-            (구버전 앱이면 앱 버튼 자리 비움), 일반 브라우저면 Android 앱 받기. */}
+            (구버전 앱이면 앱 버튼 자리 비움). 일반 브라우저는 범례 바만. */}
         <BottomBar left={bottomLeft} />
 
         {/* 웹뷰: 위쪽 상태 카드(알림 문구 + 레이더 시각) — 누르면 하단 시트(분별 비 세기 등)가 올라온다. */}
