@@ -12,7 +12,8 @@ export function middleware(request:NextRequest) {
   if (request.nextUrl.pathname === '/biolkka') {
     return NextResponse.redirect(new URL('/raining-now', request.url), 308);
   }
-  return NextResponse.redirect(new URL('/rain-assist', request.url), 307);
+  // 308(영구): 307(임시)이면 구글이 원래 주소(/)를 대표로 골라 /rain-assist를 "중복, 다른 표준 선택"으로 뺐다.
+  return NextResponse.redirect(new URL('/rain-assist', request.url), 308);
 }
 
 export const config = { matcher: [ '/', '/rain', '/biolkka' ] };
