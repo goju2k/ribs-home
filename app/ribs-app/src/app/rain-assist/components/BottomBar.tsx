@@ -14,7 +14,7 @@ export const BOTTOM_BAR_MARGIN_PX = 16;
 const NATIVE_BUTTON_SPACE_PX = 96;
 
 interface BottomBarProps {
-  // 왼쪽에 둘 것: 웹뷰는 "기록" 버튼, 일반 브라우저는 앱 받기 버튼. 'native-space'면 앱 버튼 자리만 비운다.
+  // 왼쪽에 둘 것: 웹뷰의 "기록" 버튼. 'native-space'면 구버전 앱의 버튼 자리만 비운다. 없으면 범례 바만.
   left?:ReactNode | 'native-space';
 }
 
