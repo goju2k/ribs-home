@@ -2,6 +2,7 @@
 
 import { MapType, MintMap, Position } from '@mint-ui/map';
 import { ReactNode, useCallback, useEffect, useState } from 'react';
+import styled from 'styled-components';
 
 import { BottomBar, EventLogButton } from './components/BottomBar';
 import { CctvLayer } from './components/CctvLayer';
@@ -28,13 +29,31 @@ function toKstTm(epochMs:number):string {
   return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}`;
 }
 
+// 지도 화면의 글자(범례 숫자, 컨트롤 이름, 레이더 시각 등)는 검색 결과 미리보기 문구로 쓰이지 않게
+// data-nosnippet으로 감싼다 — 구글이 이걸 페이지 내용으로 잡아 "투명도. 현재위치. 110. 90. 80…"처럼
+// 보여 줬다. display: contents라 레이아웃은 그대로. 페이지 제목(h1)은 화면엔 안 보이고 화면 낭독기·검색엔진용.
 export default function RainAssistPage() {
   return (
     <>
-      <WeatherMap />
+      <VisuallyHiddenTitle>Ribs Weather 실시간 강수 레이더</VisuallyHiddenTitle>
+      <div data-nosnippet style={{ display: 'contents' }}>
+        <WeatherMap />
+      </div>
     </>
   );
 }
+
+const VisuallyHiddenTitle = styled.h1({
+  position: 'absolute',
+  width: '1px',
+  height: '1px',
+  margin: '-1px',
+  padding: 0,
+  overflow: 'hidden',
+  clip: 'rect(0 0 0 0)',
+  whiteSpace: 'nowrap',
+  border: 0,
+});
 
 const MapKeys = {
   naver: '868psyu6ui', // new maps key for gl
