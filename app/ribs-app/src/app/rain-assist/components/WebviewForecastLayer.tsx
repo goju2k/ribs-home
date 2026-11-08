@@ -7,6 +7,7 @@ import { RainDirectionArrowIcon } from './RainDirectionArrowIcon';
 
 import { RainAssistBridgeState } from '../hook/use-rain-assist-bridge-hook';
 import { bearingDeg } from '../util/grid-projection';
+import { isStationary } from '../util/rain-format';
 
 interface WebviewForecastLayerProps {
   bridge:RainAssistBridgeState;
@@ -57,6 +58,11 @@ export function WebviewForecastLayer({ bridge }:WebviewForecastLayerProps) {
     <>
 
       {forecast?.blobs.map((blob) => {
+
+        // 거의 안 움직이는(또는 이동을 못 잡은) 비구름은 화살표를 그리지 않는다 — 비구름 자체는 레이더에 보인다.
+        if (isStationary(blob.speedKmh)) {
+          return null;
+        }
 
         const sortedPath = blob.path.slice().sort((a, b) => a.minutesFromNow - b.minutesFromNow);
         if (sortedPath.length === 0) {
