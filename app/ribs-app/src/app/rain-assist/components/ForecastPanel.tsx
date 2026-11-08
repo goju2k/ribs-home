@@ -6,6 +6,7 @@ import styled from 'styled-components';
 
 import { useRadarTimeText } from './RadarTimeLabel';
 
+import { useBackToCloseHook } from '../hook/use-back-to-close-hook';
 import { BridgeForecastPayload, BridgeNotificationState, RainAssistBridgeState } from '../hook/use-rain-assist-bridge-hook';
 import { clockAfter, comingFromText, formatMmh, intensityColor } from '../util/rain-format';
 
@@ -92,6 +93,8 @@ export function ForecastPanel({ bridge }:{ bridge:RainAssistBridgeState; }) {
   const { forecast, notification } = bridge;
   const [ open, setOpen ] = useState(false);
   const radarTime = useRadarTimeText();
+  // 뒤로 가기 = 시트 닫기(앱이 꺼지지 않게).
+  useBackToCloseHook(open, () => setOpen(false), 'forecast-sheet');
 
   const toneKey = notification?.state ?? (forecast ? FORECAST_TO_NOTIFICATION[forecast.forecast.state] : 'IDLE');
   const tone = TONES[toneKey] ?? TONES.IDLE;
