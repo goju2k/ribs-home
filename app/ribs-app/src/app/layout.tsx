@@ -19,6 +19,15 @@ export const metadata:Metadata = {
   // robots: { index: true, follow: true }로 명시적으로 덮어쓴다. 그 외(budget/card/map3d/places 등
   // 내부 실험용 라우트)는 이 기본값을 그대로 물려받아 자동으로 비노출 상태를 유지한다.
   robots: { index: false, follow: false },
+  // 비올까 앱 아이콘과 같은 그림(구름+빗방울). 검색 결과·탭·홈 화면 아이콘.
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: '48x48' },
+      { url: '/icon.svg', type: 'image/svg+xml' },
+      { url: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+    ],
+    apple: '/apple-touch-icon.png',
+  },
   openGraph: {
     type: 'website',
     title: 'Ribs Home',
@@ -33,7 +42,6 @@ export default function RootLayout({ children }: {
     <html lang='ko'>
       <head>
         <link rel='stylesheet' as='style' crossOrigin='' href='https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css' />
-        <link rel='shortcut icon' href='./favicon.ico' type='image/x-icon' />
       </head>
       <body>
         <StyledComponentsRegistry>{children}</StyledComponentsRegistry>
