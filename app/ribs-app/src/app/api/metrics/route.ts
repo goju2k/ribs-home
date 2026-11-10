@@ -1,4 +1,3 @@
-import axios from 'axios';
 import { NextResponse } from 'next/server';
 import { Registry, collectDefaultMetrics, Histogram } from 'prom-client';
 
@@ -16,58 +15,26 @@ const httpRequestDuration = new Histogram({
 
 register.registerMetric(httpRequestDuration);
 
+// kbland 측정은 중단했다. 실제 요청은 보내지 않고 고정값을 기록한다.
+// count·sum이 계속 늘어나야 Grafana 알람식 rate(sum)/rate(count)가 NoData가 아닌
+// 정상값(FIXED_DURATION_SECONDS)으로 계산된다.
+const FIXED_DURATION_SECONDS = 0.2;
+
 const labelList = [
-  // complex: main
-  {
-    method: 'get',
-    route: 'https://api.kbland.kr/land-complex/complex/main',
-    test: 'https://api.kbland.kr/land-complex/complex/main?%EB%8B%A8%EC%A7%80%EA%B8%B0%EB%B3%B8%EC%9D%BC%EB%A0%A8%EB%B2%88%ED%98%B8=13859',
-  },
-  // extra: menuList
-  {
-    method: 'get',
-    route: 'https://api.kbland.kr/land-extra/menu/menuList',
-    test: 'https://api.kbland.kr/land-extra/menu/menuList',
-  },
-  // auth: profile
-  {
-    method: 'get',
-    route: 'https://api.kbland.kr/land-auth/intgra/profile',
-    test: 'https://api.kbland.kr/land-auth/intgra/profile',
-  },
-  // next.js: link
-  {
-    method: 'get',
-    route: 'https://kbland.kr/se/l/c/14992',
-    test: 'https://kbland.kr/se/l/c/14992',
-  },
+  { method: 'get', route: 'https://api.kbland.kr/land-complex/complex/main' },
+  { method: 'get', route: 'https://api.kbland.kr/land-extra/menu/menuList' },
+  { method: 'get', route: 'https://api.kbland.kr/land-auth/intgra/profile' },
+  { method: 'get', route: 'https://kbland.kr/se/l/c/14992' },
 ];
 
 export async function GET(_request: Request) {
 
-  try {
-    
-    for (let i = 0; i < labelList.length; i++) {
-
-      const label = labelList[i];
-      await (async () => {
-  
-        const end = httpRequestDuration.startTimer({ method: label.method, route: label.route });
-    
-        await axios.get(label.test);
-    
-        end();
-    
-      })();
-
-    }
-    
-  } catch (e) {
-    console.log('e', e);
+  for (const label of labelList) {
+    httpRequestDuration.observe({ method: label.method, route: label.route }, FIXED_DURATION_SECONDS);
   }
 
   const res = new NextResponse(await register.metrics());
   res.headers.set('Content-Type', register.contentType);
-  
+
   return res;
 }
