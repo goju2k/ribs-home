@@ -2,9 +2,11 @@
 
 import { MapControlWrapper } from '@mint-ui/map';
 import { ReactNode } from 'react';
+import { useRecoilValue } from 'recoil';
 import styled from 'styled-components';
 
-import { LEGEND_STEPS } from '../util/rain-format';
+import { MapControlState } from '../../rain/state/map-controls';
+import { legendSteps } from '../util/rain-format';
 
 // 화면 맨 아래 줄 높이/여백 — 오른쪽 지도 버튼들(내 위치, CCTV)이 이 위로 쌓인다(MAP_BUTTON_* 참고).
 export const BOTTOM_BAR_HEIGHT_PX = 48;
@@ -20,16 +22,18 @@ interface BottomBarProps {
 
 // 하단 줄: [왼쪽 버튼] [강수 범례 바]. RainRadarLayer의 세로로 긴 기본 범례를 대신한다.
 export function BottomBar({ left }:BottomBarProps) {
+  const { opacity } = useRecoilValue(MapControlState);
+  const steps = legendSteps(opacity);
   return (
     <MapControlWrapper positionHorizontal='left' positionVertical='bottom' width='100%' disablePointerEvent>
       <Row>
         {left === 'native-space' ? <div style={{ width: `${NATIVE_BUTTON_SPACE_PX - BOTTOM_BAR_MARGIN_PX - 10}px`, flex: 'none' }} /> : left}
         <Legend aria-label='강수 범례(mm/h)'>
           <Swatches>
-            {LEGEND_STEPS.map(({ color }) => <div key={color} style={{ flex: 1, background: color }} />)}
+            {steps.map(({ color, label }) => <div key={label} style={{ flex: 1, background: color }} />)}
           </Swatches>
           <Labels>
-            {LEGEND_STEPS.map(({ label }, idx) => <span key={label}>{idx === LEGEND_STEPS.length - 1 ? `${label}+ mm/h` : label}</span>)}
+            {steps.map(({ label }, idx) => <span key={label}>{idx === steps.length - 1 ? `${label}+ mm/h` : label}</span>)}
           </Labels>
         </Legend>
       </Row>
