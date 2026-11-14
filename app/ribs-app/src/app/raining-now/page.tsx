@@ -50,7 +50,8 @@ export default function RainingNowDownloadPage() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch(`${APP_BASE_URL}latest.json`, { signal: controller.signal, cache: 'no-store' })
+    // CloudFront 직접 호출은 CORS가 간헐적으로 빠지므로 같은 출처 API로 받는다(app-latest/route.ts 참고).
+    fetch('/api/rain-assist/app-latest', { signal: controller.signal, cache: 'no-store' })
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
       .then((json:LatestApp) => (json?.file ? setLatest(json) : setFailed(true)))
       .catch((e) => {
@@ -149,8 +150,13 @@ export default function RainingNowDownloadPage() {
   );
 }
 
+// 사이트 공통 스타일(GlobalStyled)이 지도 화면용으로 body를 overflow: hidden으로 막아 두었으므로,
+// 이 페이지는 화면 전체를 덮는 자체 스크롤 영역이 된다.
 const Page = styled.div({
-  minHeight: '100vh',
+  position: 'fixed',
+  inset: 0,
+  overflowY: 'auto',
+  overscrollBehavior: 'contain',
   background: '#F4F6F8',
   color: '#15202B',
   fontFamily: '\'Pretendard Variable\', Pretendard, system-ui, sans-serif',
