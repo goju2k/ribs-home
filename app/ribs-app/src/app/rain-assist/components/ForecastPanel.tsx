@@ -2,10 +2,13 @@
 
 import { MapControlWrapper } from '@mint-ui/map';
 import { useState } from 'react';
+import { useRecoilValue } from 'recoil';
 import styled from 'styled-components';
 
 import { useRadarTimeText } from './RadarTimeLabel';
 
+import { MapControlState } from '../../rain/state/map-controls';
+import { PrecipKind, precipKind, temperatureAt, useKmaTemperature } from '../../rain/util/kma-temperature';
 import { useBackToCloseHook } from '../hook/use-back-to-close-hook';
 import { BridgeForecastPayload, BridgeNotificationState, RainAssistBridgeState } from '../hook/use-rain-assist-bridge-hook';
 import { clockAfter, comingFromText, formatMmh, intensityColor, isStationary } from '../util/rain-format';
@@ -24,6 +27,19 @@ const TONES:Record<BridgeNotificationState, Tone> = {
   MISSED: { kicker: '지나간 비', ink: '#4A5560', soft: '#EEF1F4' },
   IDLE: { kicker: '주변 살피는 중', ink: '#2F7A47', soft: '#E3F4E8' },
 };
+
+// 내 위치 예보 기온이 눈 올 기온이면 웹이 직접 쓰는 글(머리말·시트 제목)을 눈으로 바꾼다.
+// 카드 제목(앱 알림 문구)은 webview-interface.md 약속대로 앱 글을 그대로 둔다.
+const SNOW_KICKERS:Partial<Record<BridgeNotificationState, string>> = {
+  INCOMING: '눈 소식',
+  ACTIVE: '지금 눈',
+  STOPPED: '눈 그침',
+  MISSED: '지나간 눈',
+};
+
+function cloudWord(kind:PrecipKind):string {
+  return kind === 'snow' ? '눈구름' : '비구름';
+}
 
 const FORECAST_TO_NOTIFICATION:Record<BridgeForecastPayload['forecast']['state'], BridgeNotificationState> = {
   INCOMING: 'INCOMING',
@@ -46,7 +62,7 @@ function targetBlob(forecast:BridgeForecastPayload | null) {
 }
 
 // 카드 둘째 줄: 앱이 보낸 수치를 짧게 풀어 쓴다(본문 문구는 앱 것을 그대로 쓴다).
-function cardDetail(forecast:BridgeForecastPayload | null):string | null {
+function cardDetail(forecast:BridgeForecastPayload | null, kind:PrecipKind):string | null {
   if (!forecast) {
     return null;
   }
@@ -55,7 +71,7 @@ function cardDetail(forecast:BridgeForecastPayload | null):string | null {
   if (state === 'INCOMING' && target) {
     const mmh = intensityMmh ? ` · ${formatMmh(intensityMmh)}mm/h 안팎` : '';
     if (isStationary(target.speedKmh)) {
-      return `가까운 비구름이 거의 움직이지 않아요${mmh}`;
+      return `가까운 ${cloudWord(kind)}이 거의 움직이지 않아요${mmh}`;
     }
     return `${comingFromText(target.headingDeg)} 시속 ${Math.round(target.speedKmh)}km로 다가오는 중${mmh}`;
   }
@@ -63,7 +79,7 @@ function cardDetail(forecast:BridgeForecastPayload | null):string | null {
     return `지금 ${formatMmh(intensityMmh)}mm/h 안팎`;
   }
   if (state === 'NONE') {
-    return '반경 150km 안의 비구름을 지켜보고 있어요';
+    return `반경 150km 안의 ${cloudWord(kind)}을 지켜보고 있어요`;
   }
   return null;
 }
@@ -74,18 +90,20 @@ interface SheetHeader {
   side:string;
 }
 
-function sheetHeader(forecast:BridgeForecastPayload):SheetHeader {
+function sheetHeader(forecast:BridgeForecastPayload, kind:PrecipKind):SheetHeader {
   const { state, etaMinutes, rainEndMinutes } = forecast.forecast;
   const now = forecast.generatedAtEpochMs;
+  const snow = kind === 'snow';
   if (state === 'INCOMING' && etaMinutes != null) {
-    return { kicker: '비가 다가와요', big: `${etaMinutes}분 뒤`, side: `${clockAfter(now, etaMinutes)}쯤 시작` };
+    return { kicker: snow ? '눈이 다가와요' : '비가 다가와요', big: `${etaMinutes}분 뒤`, side: `${clockAfter(now, etaMinutes)}쯤 시작` };
   }
   if (state === 'ACTIVE') {
+    const kicker = snow ? '지금 눈이 와요' : '지금 비가 와요';
     return rainEndMinutes != null
-      ? { kicker: '지금 비가 와요', big: `${rainEndMinutes}분 뒤 그침`, side: `${clockAfter(now, rainEndMinutes)}쯤 그쳐요` }
-      : { kicker: '지금 비가 와요', big: '30분 넘게', side: '예보 범위 안에 안 그쳐요' };
+      ? { kicker, big: `${rainEndMinutes}분 뒤 그침`, side: `${clockAfter(now, rainEndMinutes)}쯤 그쳐요` }
+      : { kicker, big: '30분 넘게', side: '예보 범위 안에 안 그쳐요' };
   }
-  return { kicker: '주변이 맑아요', big: '비 없음', side: '앞으로 30분' };
+  return { kicker: '주변이 맑아요', big: snow ? '눈·비 없음' : '비 없음', side: '앞으로 30분' };
 }
 
 // 다른 지도 컨트롤(기본 101: 상태 카드, 범례 바, 지도 버튼)보다 위 — 시트와 어두운 배경이 모두를 덮는다.
@@ -109,9 +127,18 @@ export function ForecastPanel({ bridge }:{ bridge:RainAssistBridgeState; }) {
   // 뒤로 가기 = 시트 닫기(앱이 꺼지지 않게).
   useBackToCloseHook(open, () => setOpen(false), 'forecast-sheet');
 
+  // 내 위치 예보 기온(기상청 5km 격자, 1℃ 단위). 앱이 보낸 위치를 먼저, 없으면 웹이 잡은 위치.
+  const kmaTemperature = useKmaTemperature();
+  const { currPosition } = useRecoilValue(MapControlState);
+  const here = forecast?.userLocation ?? (currPosition ? { lat: currPosition.lat, lon: currPosition.lng } : null);
+  const celsius = kmaTemperature && here ? temperatureAt(kmaTemperature, here.lat, here.lon) : null;
+  const kind = precipKind(celsius);
+
   const toneKey = notification?.state ?? (forecast ? FORECAST_TO_NOTIFICATION[forecast.forecast.state] : 'IDLE');
-  const tone = TONES[toneKey] ?? TONES.IDLE;
-  const detail = cardDetail(forecast);
+  const baseTone = TONES[toneKey] ?? TONES.IDLE;
+  const snowKicker = kind === 'snow' ? SNOW_KICKERS[toneKey] : undefined;
+  const tone = snowKicker ? { ...baseTone, kicker: snowKicker } : baseTone;
+  const detail = cardDetail(forecast, kind);
   const canOpen = !!forecast;
 
   return (
@@ -122,7 +149,9 @@ export function ForecastPanel({ bridge }:{ bridge:RainAssistBridgeState; }) {
             <CardIcon style={{ background: tone.soft, color: tone.ink }}>
               <svg aria-hidden width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'>
                 <path d='M7 15a4 4 0 0 1-.5-7.97A5.5 5.5 0 0 1 17 8a3.5 3.5 0 0 1 .5 7' />
-                <path d='M9 18l-1 2M13 18l-1 2M17 18l-1 2' />
+                {kind === 'snow'
+                  ? <path d='M9 18.5h.01M13 20.5h.01M17 18.5h.01' strokeWidth='3' />
+                  : <path d='M9 18l-1 2M13 18l-1 2M17 18l-1 2' />}
               </svg>
             </CardIcon>
             <CardText>
@@ -136,7 +165,12 @@ export function ForecastPanel({ bridge }:{ bridge:RainAssistBridgeState; }) {
               </svg>
             )}
           </Card>
-          {radarTime && <TimeChip>{`레이더 ${radarTime.clock} · ${radarTime.elapsedMinutes}분 전`}</TimeChip>}
+          {(radarTime || celsius != null) && (
+            <ChipRow>
+              {radarTime && <TimeChip>{`레이더 ${radarTime.clock} · ${radarTime.elapsedMinutes}분 전`}</TimeChip>}
+              {celsius != null && <TimeChip>{temperatureChipText(celsius)}</TimeChip>}
+            </ChipRow>
+          )}
         </TopArea>
       </MapControlWrapper>
 
@@ -147,7 +181,7 @@ export function ForecastPanel({ bridge }:{ bridge:RainAssistBridgeState; }) {
             <Handle type='button' aria-label='시트 내리기' tabIndex={open ? 0 : -1} onClick={() => setOpen(false)}>
               <span />
             </Handle>
-            <SheetBody forecast={forecast} inkColor={tone.ink} />
+            <SheetBody forecast={forecast} inkColor={tone.ink} kind={kind} celsius={celsius} />
           </Sheet>
         </MapControlWrapper>
       )}
@@ -155,9 +189,9 @@ export function ForecastPanel({ bridge }:{ bridge:RainAssistBridgeState; }) {
   );
 }
 
-function SheetBody({ forecast, inkColor }:{ forecast:BridgeForecastPayload; inkColor:string; }) {
+function SheetBody({ forecast, inkColor, kind, celsius }:{ forecast:BridgeForecastPayload; inkColor:string; kind:PrecipKind; celsius:number | null; }) {
 
-  const header = sheetHeader(forecast);
+  const header = sheetHeader(forecast, kind);
   const series = forecast.forecast.intensityByMinute;
   const target = targetBlob(forecast);
   const peak = series && series.length > 0 ? Math.max(...series) : forecast.forecast.intensityMmh ?? 0;
@@ -173,7 +207,7 @@ function SheetBody({ forecast, inkColor }:{ forecast:BridgeForecastPayload; inkC
       </HeaderRow>
 
       <div>
-        <SectionLabel>내 위치 · 앞으로 30분</SectionLabel>
+        <SectionLabel>{celsius != null ? `내 위치 · 앞으로 30분 · 기온 ${formatCelsius(celsius)}` : '내 위치 · 앞으로 30분'}</SectionLabel>
         {series && series.length > 0 ? (
           <>
             <Bars role='img' aria-label={`앞으로 30분 동안 최대 ${formatMmh(peak)}mm/h`}>
@@ -195,13 +229,40 @@ function SheetBody({ forecast, inkColor }:{ forecast:BridgeForecastPayload; inkC
           <TileValue>{peak > 0 ? `${formatMmh(peak)}mm/h 안팎` : '—'}</TileValue>
         </Tile>
         <Tile>
-          <TileLabel>비구름 이동</TileLabel>
+          <TileLabel>{`${cloudWord(kind)} 이동`}</TileLabel>
           <TileValue>{moveText(target)}</TileValue>
         </Tile>
       </Tiles>
     </>
   );
 }
+
+function formatCelsius(celsius:number):string {
+  return `${Math.round(celsius)}℃`;
+}
+
+// 기온별 옷차림(사용자 기준). 위에서부터 처음 맞는 구간.
+const OUTFITS:[number, string][] = [
+  [ -5, '두꺼운 패딩' ],
+  [ 5, '패딩' ],
+  [ 10, '얇은 패딩' ],
+  [ 20, '자켓' ],
+  [ 23, '긴팔옷' ],
+  [ 30, '반팔' ],
+];
+
+function outfitText(celsius:number):string {
+  const rounded = Math.round(celsius);
+  const outfit = OUTFITS.find(([ max ]) => rounded <= max)?.[1];
+  // 30℃ 넘으면 더 벗을 옷이 없어 옷차림 대신 주의 문구.
+  return outfit ? `${outfit} 추천` : '폭염 주의';
+}
+
+function temperatureChipText(celsius:number):string {
+  return `기온 ${formatCelsius(celsius)} · ${outfitText(celsius)}`;
+}
+
+const ChipRow = styled.div({ display: 'flex', flexWrap: 'wrap', gap: '6px' });
 
 const TopArea = styled.div({
   padding: '12px 12px 0',

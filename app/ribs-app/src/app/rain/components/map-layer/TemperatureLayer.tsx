@@ -1,73 +1,56 @@
 /* eslint-disable @next/next/no-img-element */
 import { MapControlWrapper, MapMarkerWrapper, Position, useMintMapController } from '@mint-ui/map';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRecoilValue } from 'recoil';
 import styled from 'styled-components';
 import { Flex } from 'ui-base-pack';
 
 import { MapControlState } from '../../state/map-controls';
+import { buildMercatorOverlay, useKmaTemperature } from '../../util/kma-temperature';
 import { getOffset } from '../../util/map-util';
 
 export function TemperatureLayer() {
 
   const controller = useMintMapController();
+  const { temperatureFlag } = useRecoilValue(MapControlState);
+  const temperature = useKmaTemperature();
 
-  const width = useRef(776);
-  const height = useRef(1333);
-  // const off1 = getOffset(controller, new Position(43.2573752, 123.578397));
-  // const off2 = new Offset(off1.x + width.current, off1.y + height.current);
-  // const pos2 = controller.offsetToPosition(off2);
-  const [ startPosition ] = useState([ 
-    new Position(43.2573752, 123.578397), 
-    // pos2,
-    new Position(31.754418719732577, 132.1037876401973),
-  ]);
+  // 기상청 격자(LCC)를 지도 투영(메르카토르)으로 다시 그린 이미지. 켤 때만 만든다(약 0.1초).
+  const overlay = useMemo(() => (temperatureFlag && temperature ? buildMercatorOverlay(temperature) : null), [ temperatureFlag, temperature ]);
+  const corners = useMemo(() => (overlay ? [ new Position(overlay.north, overlay.west), new Position(overlay.south, overlay.east) ] : null), [ overlay ]);
 
-  const { result: imageSrc, date: timeText, legend } = useTemperatureImageSrc();
+  const [ size, setSize ] = useState<{ width:number; height:number; } | null>(null);
   const [ imageShow, setImageShow ] = useState(true);
-  
-  // const scale = useRef(1);
+
   useEffect(() => {
-    
-    const handleZoomStart = () => {
-      setImageShow(false);
-    };
-
-    const handleZoomChanged = () => {
-
-      // x축
-      const offset1 = getOffset(controller, startPosition[0]);
-      const offset2 = getOffset(controller, startPosition[1]);
-      const size = Math.floor(offset2.x - offset1.x);
-      const size_y = Math.floor(offset2.y - offset1.y);
-    
-      width.current = size;
-      height.current = size_y;
-
+    if (!corners) {
+      return undefined;
+    }
+    const measure = () => {
+      const offset1 = getOffset(controller, corners[0]);
+      const offset2 = getOffset(controller, corners[1]);
+      setSize({ width: Math.round(offset2.x - offset1.x), height: Math.round(offset2.y - offset1.y) });
       setImageShow(true);
     };
-
-    // const mousedown:Parameters<MintMapController['addEventListener']>[1] = ({ param }) => {
-      
-    //   console.log('param', param);
-      
-    //   if (param.pointerEvent?.button === 2) {
-    //     setStartPosition(param.position);
-    //   }
-      
-    // };
-
+    const handleZoomStart = () => setImageShow(false);
+    measure();
     controller.addEventListener('ZOOMSTART', handleZoomStart);
-    controller.addEventListener('ZOOM_CHANGED', handleZoomChanged);
-    // controller.addEventListener('MOUSEDOWN', mousedown);
+    controller.addEventListener('ZOOM_CHANGED', measure);
     return () => {
-      // controller.removeEventListener('MOUSEDOWN', mousedown);
       controller.removeEventListener('ZOOMSTART', handleZoomStart);
-      controller.removeEventListener('ZOOM_CHANGED', handleZoomChanged);
+      controller.removeEventListener('ZOOM_CHANGED', measure);
     };
-  }, []);
-  
-  const { temperatureFlag } = useRecoilValue(MapControlState);
+  }, [ corners ]);
+
+  // 범례는 위가 높은 기온이 되게 뒤집어 보여 준다(원본은 공유 데이터라 복사해서 뒤집는다).
+  const legend = useMemo(() => {
+    if (!temperature) {
+      return null;
+    }
+    const { color, label, key } = temperature.legend;
+    return { color: [ ...color ].reverse(), label: [ ...label ].reverse(), key: [ ...key ].reverse() };
+  }, [ temperature ]);
+  const timeText = temperature ? getTimeText(temperature.efcDate) : '';
 
   return (
     <>
@@ -88,18 +71,11 @@ export function TemperatureLayer() {
         </MapControlWrapper>
       )}
 
-      {imageSrc && (
-        <MapMarkerWrapper position={startPosition[0]} disablePointerEvent>
-          <div
-            style={{
-              width: `${width.current}px`, 
-              height: `${height.current}px`,
-              border: '0px solid coral',
-              visibility: temperatureFlag && imageShow ? 'visible' : 'hidden', 
-            }}
-          >  
-            <img 
-              src={imageSrc}
+      {temperatureFlag && overlay && corners && size && (
+        <MapMarkerWrapper position={corners[0]} disablePointerEvent>
+          <div style={{ width: `${size.width}px`, height: `${size.height}px`, visibility: imageShow ? 'visible' : 'hidden' }}>
+            <img
+              src={overlay.dataUrl}
               alt='Korean Temperature'
               style={{ width: '100%', height: '100%', opacity: 0.4 }}
             />
@@ -110,40 +86,6 @@ export function TemperatureLayer() {
   );
 }
 
-interface LegendData {
-  color: string[];
-  label: string[];
-  key: string[];
-}
-function useTemperatureImageSrc() {
-
-  const [ result, setResult ] = useState<string>();
-  const [ date, setDate ] = useState<string>();
-  const [ legend, setLegend ] = useState<LegendData>();
-  useEffect(() => {
-
-    (async () => {
-
-      const data = await (await fetch('/api/kma/temperature-key', { next: { revalidate: 60 } })).json();
-      if (data) {
-        setResult(data.src);
-        setDate(getTimeText(data.time));
-
-        const leData = data.legend as LegendData;
-        leData.color.reverse();
-        leData.label.reverse();
-        leData.key.reverse();
-        setLegend(leData);
-      }
-
-    })();
-
-  }, []);
-
-  return { result, date, legend };
-
-}
-
 function getTimeText(utcTimeString:string) {
   const date = new Date(`${utcTimeString.replace('T', ' ')} GMT`);
   return `${date.toLocaleString()}`;
@@ -152,8 +94,8 @@ function getTimeText(utcTimeString:string) {
 const MapLegendContainer = styled.div({
   background: 'white',
   border: '1px solid gray',
-  borderRadius: '8px', 
-  padding: '5px', 
+  borderRadius: '8px',
+  padding: '5px',
   marginBottom: '20px',
   marginRight: '10px',
   fontSize: '14px',

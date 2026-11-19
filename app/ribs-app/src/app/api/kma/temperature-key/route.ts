@@ -16,19 +16,20 @@ export async function GET(_request: Request) {
   // dfs legend get
   // const dfsLegend = await getDfsLegend(baseKey);
 
-  // temp legend
-  keyResult.legend = getTemperatureLegend();
-
   // temperature data get
   const temperatureData = await getDfsTemperature();
   Object.assign(keyResult, temperatureData);
 
+  // temp legend — 기상청 지도(legend.js getPaletteId)처럼 예보 시각의 한국 시간 달로 고른다.
+  keyResult.legend = getTemperatureLegend(temperatureData.time);
+
   return NextResponse.json(keyResult);
 }
 
-function getTemperatureLegend() {
-  const date = new Date();
-  const month = new Date(date).getMonth() + 1;
+// efcDate는 UTC('2026-11-19T01:00:00'). 없으면 지금 시각.
+function getTemperatureLegend(efcDateUtc:string) {
+  const utcMs = efcDateUtc ? Date.parse(`${efcDateUtc}Z`) : Date.now();
+  const month = new Date((Number.isNaN(utcMs) ? Date.now() : utcMs) + (9 * 60 * 60 * 1000)).getUTCMonth() + 1;
   let paletteId = '';
   if (month >= 3 && month < 5) { // 3 4
     paletteId = 'E_IDFE_T_3';
