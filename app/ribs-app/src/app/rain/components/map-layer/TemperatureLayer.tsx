@@ -1,18 +1,18 @@
 /* eslint-disable @next/next/no-img-element */
-import { MapControlWrapper, MapMarkerWrapper, Position, useMintMapController } from '@mint-ui/map';
+import { MapMarkerWrapper, Position, useMintMapController } from '@mint-ui/map';
 import { useEffect, useMemo, useState } from 'react';
 import { useRecoilValue } from 'recoil';
-import styled from 'styled-components';
-import { Flex } from 'ui-base-pack';
 
 import { MapControlState } from '../../state/map-controls';
 import { buildMercatorOverlay, useKmaTemperature } from '../../util/kma-temperature';
 import { getOffset } from '../../util/map-util';
 
+// 기온 겹쳐 그리기. 범례는 하단 바(rain-assist BottomBar)가 같은 투명도로 그린다 — 예전 세로 범례는
+// 오른쪽 지도 버튼·하단 바와 겹쳤고, 원본 색이라 옅게 그려진 지도 색과도 달랐다.
 export function TemperatureLayer() {
 
   const controller = useMintMapController();
-  const { temperatureFlag } = useRecoilValue(MapControlState);
+  const { temperatureFlag, opacity } = useRecoilValue(MapControlState);
   const temperature = useKmaTemperature();
 
   // 기상청 격자(LCC)를 지도 투영(메르카토르)으로 다시 그린 이미지. 켤 때만 만든다(약 0.1초).
@@ -42,63 +42,16 @@ export function TemperatureLayer() {
     };
   }, [ corners ]);
 
-  // 범례는 위가 높은 기온이 되게 뒤집어 보여 준다(원본은 공유 데이터라 복사해서 뒤집는다).
-  const legend = useMemo(() => {
-    if (!temperature) {
-      return null;
-    }
-    const { color, label, key } = temperature.legend;
-    return { color: [ ...color ].reverse(), label: [ ...label ].reverse(), key: [ ...key ].reverse() };
-  }, [ temperature ]);
-  const timeText = temperature ? getTimeText(temperature.efcDate) : '';
+  if (!temperatureFlag || !overlay || !corners || !size) {
+    return null;
+  }
 
   return (
-    <>
-      {temperatureFlag && legend && (
-        <MapControlWrapper positionHorizontal='right' positionVertical='bottom'>
-          <MapLegendContainer>
-            <Flex flexrow flexgap='4px'>
-              <Flex flexfit>
-                {legend.color.map((c) => <LegendItem key={c} style={{ background: c }} />)}
-              </Flex>
-              <Flex flexfit>
-                {legend.label.map((c, idx) => <LegendItemLabel key={idx}>{c ? Number(legend.key[idx]).toFixed(0) : ''}</LegendItemLabel>)}
-              </Flex>
-            </Flex>
-            <Flex flexfit flexalign='right-center' style={{ fontSize: '12px' }}>℃</Flex>
-            <div style={{ position: 'absolute', whiteSpace: 'nowrap', transform: 'translate(-105px, 3px)' }}>{timeText}</div>
-          </MapLegendContainer>
-        </MapControlWrapper>
-      )}
-
-      {temperatureFlag && overlay && corners && size && (
-        <MapMarkerWrapper position={corners[0]} disablePointerEvent>
-          <div style={{ width: `${size.width}px`, height: `${size.height}px`, visibility: imageShow ? 'visible' : 'hidden' }}>
-            <img
-              src={overlay.dataUrl}
-              alt='Korean Temperature'
-              style={{ width: '100%', height: '100%', opacity: 0.4 }}
-            />
-          </div>
-        </MapMarkerWrapper>
-      )}
-    </>
+    <MapMarkerWrapper position={corners[0]} disablePointerEvent>
+      <div style={{ width: `${size.width}px`, height: `${size.height}px`, visibility: imageShow ? 'visible' : 'hidden' }}>
+        {/* 투명도는 강수 레이더와 같은 슬라이더 값 — 하단 범례도 같은 값으로 섞는다. */}
+        <img src={overlay.dataUrl} alt='Korean Temperature' style={{ width: '100%', height: '100%', opacity }} />
+      </div>
+    </MapMarkerWrapper>
   );
 }
-
-function getTimeText(utcTimeString:string) {
-  const date = new Date(`${utcTimeString.replace('T', ' ')} GMT`);
-  return `${date.toLocaleString()}`;
-}
-
-const MapLegendContainer = styled.div({
-  background: 'white',
-  border: '1px solid gray',
-  borderRadius: '8px',
-  padding: '5px',
-  marginBottom: '20px',
-  marginRight: '10px',
-  fontSize: '14px',
-});
-const LegendItem = styled.div({ width: '10px', height: '5px', fontSize: '12px' });
-const LegendItemLabel = styled.div({ width: '20px', height: '5px', fontSize: '12px' });
