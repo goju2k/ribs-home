@@ -245,7 +245,7 @@ function formatCelsius(celsius:number):string {
 const OUTFITS:[number, string][] = [
   [ -5, '두꺼운 패딩' ],
   [ 5, '패딩' ],
-  [ 10, '얇은 패딩이나 코트' ],
+  [ 10, '얇은 패딩' ],
   [ 20, '자켓' ],
   [ 23, '긴팔옷' ],
   [ 30, '반팔' ],
@@ -253,7 +253,9 @@ const OUTFITS:[number, string][] = [
 
 function outfitText(celsius:number):string {
   const rounded = Math.round(celsius);
-  return OUTFITS.find(([ max ]) => rounded <= max)?.[1] ?? '폭염 주의';
+  const outfit = OUTFITS.find(([ max ]) => rounded <= max)?.[1];
+  // 30℃ 넘으면 더 벗을 옷이 없어 옷차림 대신 주의 문구.
+  return outfit ? `${outfit} 추천` : '폭염 주의';
 }
 
 function temperatureChipText(celsius:number):string {
