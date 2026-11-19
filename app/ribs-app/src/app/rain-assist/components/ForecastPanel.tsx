@@ -168,7 +168,7 @@ export function ForecastPanel({ bridge }:{ bridge:RainAssistBridgeState; }) {
           {(radarTime || celsius != null) && (
             <ChipRow>
               {radarTime && <TimeChip>{`레이더 ${radarTime.clock} · ${radarTime.elapsedMinutes}분 전`}</TimeChip>}
-              {celsius != null && <TimeChip>{temperatureChipText(celsius, kind)}</TimeChip>}
+              {celsius != null && <TimeChip>{temperatureChipText(celsius)}</TimeChip>}
             </ChipRow>
           )}
         </TopArea>
@@ -241,8 +241,23 @@ function formatCelsius(celsius:number):string {
   return `${Math.round(celsius)}℃`;
 }
 
-function temperatureChipText(celsius:number, kind:PrecipKind):string {
-  return kind === 'snow' ? `기온 ${formatCelsius(celsius)} · 내리면 눈` : `기온 ${formatCelsius(celsius)}`;
+// 기온별 옷차림(사용자 기준). 위에서부터 처음 맞는 구간.
+const OUTFITS:[number, string][] = [
+  [ -5, '두꺼운 패딩' ],
+  [ 5, '패딩' ],
+  [ 10, '얇은 패딩이나 코트' ],
+  [ 20, '자켓' ],
+  [ 23, '긴팔옷' ],
+  [ 30, '반팔' ],
+];
+
+function outfitText(celsius:number):string {
+  const rounded = Math.round(celsius);
+  return OUTFITS.find(([ max ]) => rounded <= max)?.[1] ?? '폭염 주의';
+}
+
+function temperatureChipText(celsius:number):string {
+  return `기온 ${formatCelsius(celsius)} · ${outfitText(celsius)}`;
 }
 
 const ChipRow = styled.div({ display: 'flex', flexWrap: 'wrap', gap: '6px' });
