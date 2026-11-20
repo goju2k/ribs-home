@@ -11,7 +11,8 @@ import { MapControlState } from '../../rain/state/map-controls';
 import { PrecipKind, precipKind, temperatureAt, useKmaTemperature } from '../../rain/util/kma-temperature';
 import { useBackToCloseHook } from '../hook/use-back-to-close-hook';
 import { BridgeForecastPayload, BridgeNotificationState, RainAssistBridgeState } from '../hook/use-rain-assist-bridge-hook';
-import { clockAfter, comingFromText, formatMmh, intensityColor, isStationary } from '../util/rain-format';
+import { bearingDeg, haversineDistanceKm } from '../util/grid-projection';
+import { clockAfter, comingFromText, compassText, formatMmh, intensityColor, isStationary } from '../util/rain-format';
 
 interface Tone {
   kicker:string;
@@ -25,7 +26,7 @@ const TONES:Record<BridgeNotificationState, Tone> = {
   ACTIVE: { kicker: '지금 비', ink: '#1556C0', soft: '#E3EDFD' },
   STOPPED: { kicker: '비 그침', ink: '#2F7A47', soft: '#E3F4E8' },
   MISSED: { kicker: '지나간 비', ink: '#4A5560', soft: '#EEF1F4' },
-  IDLE: { kicker: '주변 살피는 중', ink: '#2F7A47', soft: '#E3F4E8' },
+  IDLE: { kicker: '비 소식 없음', ink: '#2F7A47', soft: '#E3F4E8' },
 };
 
 // 내 위치 예보 기온이 눈 올 기온이면 웹이 직접 쓰는 글(머리말·시트 제목)을 눈으로 바꾼다.
@@ -35,6 +36,7 @@ const SNOW_KICKERS:Partial<Record<BridgeNotificationState, string>> = {
   ACTIVE: '지금 눈',
   STOPPED: '눈 그침',
   MISSED: '지나간 눈',
+  IDLE: '눈 소식 없음',
 };
 
 function cloudWord(kind:PrecipKind):string {
@@ -61,6 +63,26 @@ function targetBlob(forecast:BridgeForecastPayload | null) {
   return forecast?.blobs.find((blob) => blob.isForecastTarget);
 }
 
+// 비 없음일 때 둘째 줄: 제목(앱 문구 "주변 비구름을 감지하고 있어요")을 되풀이하지 않고, 가장 가까운
+// 구름이 어느 쪽 몇 km에 있는지 알려 준다. 지도 이미지 속 위치(observedCentroid)를 쓴다. 앱은 지켜보는
+// 범위(반경 150km)에 걸친 구름만 blobs로 보내므로 거리를 다시 자르지 않는다 — 중심이 150km 조금 밖이어도
+// "없어요"라고 하면 제목("감지하고 있어요")과 어긋난다.
+
+function nearestCloudText(forecast:BridgeForecastPayload, kind:PrecipKind):string {
+  const me = { lat: forecast.userLocation.lat, lng: forecast.userLocation.lon };
+  const nearest = forecast.blobs
+    .map((blob) => {
+      const c = blob.observedCentroid ?? blob.centroid;
+      const at = { lat: c.lat, lng: c.lon };
+      return { km: haversineDistanceKm(me, at), deg: bearingDeg(me, at) };
+    })
+    .sort((a, b) => a.km - b.km)[0];
+  if (!nearest) {
+    return `가까운 ${cloudWord(kind)}이 없어요`;
+  }
+  return `가장 가까운 ${cloudWord(kind)}은 ${compassText(nearest.deg)} ${Math.max(1, Math.round(nearest.km))}km`;
+}
+
 // 카드 둘째 줄: 앱이 보낸 수치를 짧게 풀어 쓴다(본문 문구는 앱 것을 그대로 쓴다).
 function cardDetail(forecast:BridgeForecastPayload | null, kind:PrecipKind):string | null {
   if (!forecast) {
@@ -79,7 +101,7 @@ function cardDetail(forecast:BridgeForecastPayload | null, kind:PrecipKind):stri
     return `지금 ${formatMmh(intensityMmh)}mm/h 안팎`;
   }
   if (state === 'NONE') {
-    return `반경 150km 안의 ${cloudWord(kind)}을 지켜보고 있어요`;
+    return nearestCloudText(forecast, kind);
   }
   return null;
 }

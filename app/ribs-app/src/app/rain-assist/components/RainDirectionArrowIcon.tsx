@@ -7,14 +7,17 @@ interface RainDirectionArrowIconProps {
   stroke?:string;
   // blob별로 경로 색이 달라질 수 있어(예: isForecastTarget 강조) 채움색도 바꿀 수 있게 함.
   fill?:string;
+  // 그릴 크기(px). 멀리서 보면 선(몸통)이 몇 px뿐이라 22px 머리가 선을 덮어 방향이 안 읽힌다 —
+  // WebviewForecastLayer가 화면 위 선 길이에 맞춰 줄인다.
+  size?:number;
 }
 
-export function RainDirectionArrowIcon({ stroke = 'white', fill = '#1f6feb' }:RainDirectionArrowIconProps = {}) {
+export function RainDirectionArrowIcon({ stroke = 'white', fill = '#1f6feb', size = 22 }:RainDirectionArrowIconProps = {}) {
   return (
     <svg
       xmlns='http://www.w3.org/2000/svg'
-      width='22'
-      height='22'
+      width={size}
+      height={size}
       viewBox='0 0 22 22'
       fill='none'
     >

@@ -56,6 +56,11 @@ export function comingFromText(headingDeg:number, withParticle = true):string {
   return `${COMPASS_16[Math.round(from / 22.5) % 16]}쪽${withParticle ? '에서' : ''}`;
 }
 
+// 방위각(0°=북)을 "남서쪽"처럼.
+export function compassText(deg:number):string {
+  return `${COMPASS_16[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16]}쪽`;
+}
+
 // 지금부터 minutes분 뒤의 벽시계 시각(KST, "18:32"). 기기 타임존과 무관하게 KST로 표기한다.
 export function clockAfter(nowMs:number, minutes:number):string {
   const d = new Date(nowMs + (minutes * 60_000) + (9 * 60 * 60 * 1000));

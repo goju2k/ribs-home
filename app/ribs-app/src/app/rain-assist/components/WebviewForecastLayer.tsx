@@ -1,12 +1,13 @@
 'use client';
 
-import { MapMarkerWrapper, MapPolylineWrapper, Position } from '@mint-ui/map';
+import { MapMarkerWrapper, MapPolylineWrapper, Position, useMintMapController } from '@mint-ui/map';
+import { useEffect, useState } from 'react';
 import styled from 'styled-components';
 
 import { RainDirectionArrowIcon } from './RainDirectionArrowIcon';
 
 import { RainAssistBridgeState } from '../hook/use-rain-assist-bridge-hook';
-import { bearingDeg } from '../util/grid-projection';
+import { bearingDeg, haversineDistanceKm } from '../util/grid-projection';
 import { isStationary } from '../util/rain-format';
 
 interface WebviewForecastLayerProps {
@@ -28,6 +29,21 @@ function computeHeadingDeg(path:PathPoint[], fallbackHeadingDeg:number):number {
   const from = path[path.length - 2];
   const to = path[path.length - 1];
   return bearingDeg({ lat: from.lat, lng: from.lon }, { lat: to.lat, lng: to.lon });
+}
+
+// 화살표머리 크기: 화면 위 선 길이의 절반, 9~22px. 줌을 많이 뺀 화면(전국 보기)에서는 30분 경로가
+// 몇 px뿐이라 22px 머리가 선과 비구름을 덮어 방향이 안 읽혔다.
+const ARROW_MAX_PX = 22;
+const ARROW_MIN_PX = 9;
+
+// 웹 메르카토르에서 줌 z일 때 1px이 몇 km인지(위도 보정).
+function kmPerPixel(zoom:number, lat:number):number {
+  return (40075.016686 * Math.cos((lat * Math.PI) / 180)) / (256 * (2 ** zoom));
+}
+
+function arrowSizePx(lengthKm:number, zoom:number, lat:number):number {
+  const lengthPx = lengthKm / kmPerPixel(zoom, lat);
+  return Math.round(Math.min(ARROW_MAX_PX, Math.max(ARROW_MIN_PX, lengthPx * 0.5)));
 }
 
 function toPositions(points:PathPoint[]):Position[] {
@@ -53,6 +69,15 @@ const PATH_COLOR_TARGET = '#f59e0b';
 export function WebviewForecastLayer({ bridge }:WebviewForecastLayerProps) {
 
   const { forecast } = bridge;
+
+  const controller = useMintMapController();
+  const [ zoom, setZoom ] = useState(() => controller.getZoomLevel());
+  useEffect(() => {
+    const onZoom = () => setZoom(controller.getZoomLevel());
+    onZoom();
+    controller.addEventListener('ZOOM_CHANGED', onZoom);
+    return () => controller.removeEventListener('ZOOM_CHANGED', onZoom);
+  }, []);
 
   return (
     <>
@@ -91,6 +116,12 @@ export function WebviewForecastLayer({ bridge }:WebviewForecastLayerProps) {
         // 화살표 방향은 마지막 구간의 실제 진행방향, 점이 모자라면 앱이 준 headingDeg.
         const headingDeg = computeHeadingDeg([ startPoint, ...futurePoints ], blob.headingDeg);
 
+        const lengthKm = haversineDistanceKm({ lat: startPoint.lat, lng: startPoint.lon }, { lat: endPoint.lat, lng: endPoint.lon });
+        const arrowPx = arrowSizePx(lengthKm, zoom, endPoint.lat);
+        // 아이콘 22x22 기준 뾰족한 끝 (11,1)을 크기에 맞춰 옮긴다.
+        const tipX = arrowPx / 2;
+        const tipY = arrowPx / 22;
+
         const pathColor = blob.isForecastTarget ? PATH_COLOR_TARGET : PATH_COLOR;
 
         return (
@@ -115,10 +146,10 @@ export function WebviewForecastLayer({ bridge }:WebviewForecastLayerProps) {
                 선과 화살표머리 사이에 틈이 생긴다. */}
             {endPoint !== startPoint && (
               <MapMarkerWrapper position={endPosition} disablePointerEvent>
-                <ArrowRotate style={{ transform: `translate(-11px, -1px) rotate(${headingDeg}deg)` }}>
+                <ArrowRotate style={{ transformOrigin: `${tipX}px ${tipY}px`, transform: `translate(${-tipX}px, ${-tipY}px) rotate(${headingDeg}deg)` }}>
                   {/* 기본 흰 테두리는 지도 배경 위 단독 화살표용 — 여기선 선 끝에 딱 붙여야 해서
                       테두리가 곧 시각적 틈처럼 보인다. 채움과 같은 색으로 넘겨 테두리를 없앤다. */}
-                  <RainDirectionArrowIcon fill={pathColor} stroke={pathColor} />
+                  <RainDirectionArrowIcon fill={pathColor} stroke={pathColor} size={arrowPx} />
                 </ArrowRotate>
               </MapMarkerWrapper>
             )}
@@ -139,6 +170,6 @@ const NowDot = styled.div<{ $color:string; }>(({ $color }) => ({
   transform: 'translate(-50%, -50%)',
 }));
 
-// transform-origin을 아이콘의 뾰족한 끝(11px, 1px) 좌표로 둬서, translate로 그 끝을 지점에
-// 맞춘 뒤 회전해도(회전은 이 축을 중심으로 돎) 끝이 그 자리에 고정된 채로 방향만 바뀐다.
-const ArrowRotate = styled.div({ transformOrigin: '11px 1px' });
+// transform-origin을 아이콘의 뾰족한 끝 좌표로 둬서(크기마다 달라 style로 넘김), translate로 그 끝을
+// 지점에 맞춘 뒤 회전해도(회전은 이 축을 중심으로 돎) 끝이 그 자리에 고정된 채로 방향만 바뀐다.
+const ArrowRotate = styled.div({ lineHeight: 0 });
