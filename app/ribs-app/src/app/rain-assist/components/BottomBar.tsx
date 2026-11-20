@@ -92,15 +92,17 @@ function TemperatureLegendBar({ legend, efcDate, opacity }:{ legend:TemperatureL
   );
 }
 
-// 웹뷰의 "기록" 버튼 — 앱의 알림 기록 화면을 연다.
+// 웹뷰의 "기록" 버튼 — 앱의 기록 화면(0.10.0~ 최근 30일 비·눈 기록)을 연다. 앱 색(브랜드 파랑)에 맞춘다.
 export function EventLogButton({ onClick }:{ onClick:() => void; }) {
   return (
-    <DarkButton type='button' onClick={onClick}>
-      <svg aria-hidden width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'>
-        <path d='M4 6h16M4 12h16M4 18h10' />
+    <HistoryButton type='button' onClick={onClick}>
+      <svg aria-hidden width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'>
+        <path d='M3 12a9 9 0 1 0 3-6.7' />
+        <path d='M3 4v4h4' />
+        <path d='M12 7.5V12l3 2' />
       </svg>
       기록
-    </DarkButton>
+    </HistoryButton>
   );
 }
 
@@ -157,15 +159,16 @@ const TemperatureUnit = styled.div({
   whiteSpace: 'nowrap',
 });
 
-const DarkButton = styled.button({
+const HistoryButton = styled.button({
   pointerEvents: 'auto',
   flex: 'none',
   height: `${BOTTOM_BAR_HEIGHT_PX}px`,
   padding: '0 18px',
   border: 'none',
   borderRadius: '16px',
-  background: '#15202B',
+  background: '#1F6FEB',
   color: '#FFFFFF',
+  boxShadow: '0 2px 10px rgba(31, 111, 235, 0.35)',
   font: 'inherit',
   fontSize: '15px',
   fontWeight: 700,
