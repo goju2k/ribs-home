@@ -63,7 +63,7 @@ function targetBlob(forecast:BridgeForecastPayload | null) {
   return forecast?.blobs.find((blob) => blob.isForecastTarget);
 }
 
-// 비 없음일 때 둘째 줄: 제목(앱 문구 "주변 비구름을 감지하고 있어요")을 되풀이하지 않고, 가장 가까운
+// 비 없음일 때 둘째 줄: 제목(앱 문구 "주변 구름을 감지하고 있어요")을 되풀이하지 않고, 가장 가까운
 // 구름이 어느 쪽 몇 km에 있는지 알려 준다. 지도 이미지 속 위치(observedCentroid)를 쓴다. 앱은 지켜보는
 // 범위(반경 150km)에 걸친 구름만 blobs로 보내므로 거리를 다시 자르지 않는다 — 중심이 150km 조금 밖이어도
 // "없어요"라고 하면 제목("감지하고 있어요")과 어긋난다.

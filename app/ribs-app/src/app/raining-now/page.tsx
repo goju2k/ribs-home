@@ -100,7 +100,7 @@ export default function RainingNowDownloadPage() {
             <li><PermName>위치 (정확한 위치, 항상 허용)</PermName><PermWhy>앱을 꺼 두어도 내 주변의 비를 계속 지켜보려고</PermWhy></li>
             <li><PermName>배터리 최적화 제외</PermName><PermWhy>백그라운드 감시가 중간에 끊기지 않게</PermWhy></li>
           </PermissionList>
-          <Small>감시하는 동안 상단 알림창에 &ldquo;주변 비구름을 감지하고 있어요&rdquo; 알림이 계속 떠 있고, 그만큼 배터리를 조금 더 씁니다.</Small>
+          <Small>감시하는 동안 상단 알림창에 &ldquo;주변 구름을 감지하고 있어요&rdquo; 알림이 계속 떠 있고, 그만큼 배터리를 조금 더 씁니다.</Small>
         </Section>
 
         <Section>
