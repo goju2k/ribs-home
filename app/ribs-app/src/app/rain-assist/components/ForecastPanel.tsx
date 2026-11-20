@@ -333,10 +333,12 @@ const Title = styled.div<{ $placeholder:boolean; }>(({ $placeholder }) => ({
   fontWeight: 800,
   letterSpacing: '-0.3px',
   lineHeight: 1.3,
+  // 좁은 화면(폴드 커버 등)에서 "있어/요"처럼 낱말 가운데서 끊기지 않게 낱말 단위로 줄바꿈.
+  wordBreak: 'keep-all',
   color: $placeholder ? '#8A949E' : '#15202B',
 }));
 
-const Detail = styled.div({ fontSize: '13px', color: '#4A5560', lineHeight: 1.45 });
+const Detail = styled.div({ fontSize: '13px', color: '#4A5560', lineHeight: 1.45, wordBreak: 'keep-all' });
 
 const TimeChip = styled.div({
   background: 'rgba(255, 255, 255, 0.92)',
