@@ -6,6 +6,8 @@ declare global {
     RainAssistNative?:{
       openEventLog:() => void;
       setWebOwnsEventLogButton:(owns:boolean) => void;
+      // 앱 다음 버전~: 설정 화면(매일 날씨 알림)을 연다. 그 전 앱에는 없다.
+      openSettings?:() => void;
     };
   }
 }
@@ -26,5 +28,13 @@ export function useNativeEventLogHook(enabled:boolean):boolean {
     return () => native.setWebOwnsEventLogButton(false);
   }, [ enabled ]);
 
+  return available;
+}
+// 앱이 설정 화면을 열 수 있으면(openSettings가 있으면) true — 톱니 버튼을 보여 준다.
+export function useNativeSettingsAvailable(enabled:boolean):boolean {
+  const [ available, setAvailable ] = useState(false);
+  useEffect(() => {
+    setAvailable(enabled && typeof window.RainAssistNative?.openSettings === 'function');
+  }, [ enabled ]);
   return available;
 }

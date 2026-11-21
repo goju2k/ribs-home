@@ -4,7 +4,7 @@ import { MapType, MintMap, Position } from '@mint-ui/map';
 import { ReactNode, useCallback, useEffect, useState } from 'react';
 import styled from 'styled-components';
 
-import { BottomBar, EventLogButton } from './components/BottomBar';
+import { BottomBar, EventLogButton, SettingsButton } from './components/BottomBar';
 import { CctvLayer } from './components/CctvLayer';
 import { ForecastPanel } from './components/ForecastPanel';
 import { GoToMyLocationButton } from './components/GoToMyLocationButton';
@@ -13,7 +13,7 @@ import { MapLoadingOverlay } from './components/MapLoadingOverlay';
 import { WebviewForecastLayer } from './components/WebviewForecastLayer';
 import { useAutoGeoLocationHook } from './hook/use-auto-geo-location-hook';
 import { useInitialMapViewHook } from './hook/use-initial-map-view-hook';
-import { useNativeEventLogHook } from './hook/use-native-ui-hook';
+import { useNativeEventLogHook, useNativeSettingsAvailable } from './hook/use-native-ui-hook';
 import { useRainAssistBridgeHook } from './hook/use-rain-assist-bridge-hook';
 import { useWebviewModeHook } from './hook/use-webview-mode-hook';
 
@@ -86,6 +86,7 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
   const bridge = useRainAssistBridgeHook(isWebview, handleRefreshPosition);
   // 앱 0.6~: "기록" 버튼을 페이지가 그린다(앱은 자체 버튼을 숨김). 구버전 앱이면 그 자리를 비워 둔다.
   const nativeEventLog = useNativeEventLogHook(isWebview);
+  const nativeSettings = useNativeSettingsAvailable(isWebview);
 
   // 웹뷰에서는 앱 예보가 근거한 바로 그 레이더 프레임을 그린다 — 웹이 따로 고른 최신 이미지와
   // 앱의 프레임이 5~15분 어긋나면, 화살표가 지도 속 비구름 위치와 그만큼 엇나가 보였다.
@@ -106,7 +107,12 @@ function WeatherMap({ mapType = 'naver' }:{mapType?:MapType;}) {
   // 웹뷰만 왼쪽 버튼이 있다("기록"). 일반 브라우저는 범례 바만 — 앱 받기는 지도에 두지 않고 /raining-now 페이지로 뺐다.
   let bottomLeft:ReactNode | 'native-space' | undefined;
   if (isWebview) {
-    bottomLeft = nativeEventLog ? <EventLogButton onClick={() => window.RainAssistNative?.openEventLog()} /> : 'native-space';
+    bottomLeft = nativeEventLog ? (
+      <>
+        <EventLogButton onClick={() => window.RainAssistNative?.openEventLog()} />
+        {nativeSettings && <SettingsButton onClick={() => window.RainAssistNative?.openSettings?.()} />}
+      </>
+    ) : 'native-space';
   }
 
   if (!ready) {
