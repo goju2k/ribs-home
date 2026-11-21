@@ -8,7 +8,7 @@ import styled from 'styled-components';
 import { useRadarTimeText } from './RadarTimeLabel';
 
 import { MapControlState } from '../../rain/state/map-controls';
-import { PrecipKind, precipKind, temperatureAt, useKmaTemperature } from '../../rain/util/kma-temperature';
+import { PrecipKind, precipKind, precipSubject, precipWord, temperatureAt, useKmaTemperature } from '../../rain/util/kma-temperature';
 import { useBackToCloseHook } from '../hook/use-back-to-close-hook';
 import { BridgeForecastPayload, BridgeNotificationState, RainAssistBridgeState } from '../hook/use-rain-assist-bridge-hook';
 import { bearingDeg, haversineDistanceKm } from '../util/grid-projection';
@@ -29,18 +29,28 @@ const TONES:Record<BridgeNotificationState, Tone> = {
   IDLE: { kicker: '비 소식 없음', ink: '#2F7A47', soft: '#E3F4E8' },
 };
 
-// 내 위치 예보 기온이 눈 올 기온이면 웹이 직접 쓰는 글(머리말·시트 제목)을 눈으로 바꾼다.
+// 내 위치 예보 기온이 눈(3℃ 이하)·눈/비(4℃) 기온이면 웹이 직접 쓰는 글(머리말·시트 제목)을 그 말로 바꾼다.
 // 카드 제목(앱 알림 문구)은 webview-interface.md 약속대로 앱 글을 그대로 둔다.
-const SNOW_KICKERS:Partial<Record<BridgeNotificationState, string>> = {
-  INCOMING: '눈 소식',
-  ACTIVE: '지금 눈',
-  STOPPED: '눈 그침',
-  MISSED: '지나간 눈',
-  IDLE: '눈 소식 없음',
-};
+function kickerFor(state:BridgeNotificationState, kind:PrecipKind):string | undefined {
+  if (kind === 'rain') {
+    return undefined;
+  }
+  const word = precipWord(kind);
+  const map:Record<BridgeNotificationState, string> = {
+    INCOMING: `${word} 소식`,
+    ACTIVE: `지금 ${word}`,
+    STOPPED: `${word} 그침`,
+    MISSED: `지나간 ${word}`,
+    IDLE: `${word} 소식 없음`,
+  };
+  return map[state];
+}
 
 function cloudWord(kind:PrecipKind):string {
-  return kind === 'snow' ? '눈구름' : '비구름';
+  if (kind === 'snow') {
+    return '눈구름';
+  }
+  return kind === 'mixed' ? '구름' : '비구름';
 }
 
 const FORECAST_TO_NOTIFICATION:Record<BridgeForecastPayload['forecast']['state'], BridgeNotificationState> = {
@@ -115,17 +125,16 @@ interface SheetHeader {
 function sheetHeader(forecast:BridgeForecastPayload, kind:PrecipKind):SheetHeader {
   const { state, etaMinutes, rainEndMinutes } = forecast.forecast;
   const now = forecast.generatedAtEpochMs;
-  const snow = kind === 'snow';
   if (state === 'INCOMING' && etaMinutes != null) {
-    return { kicker: snow ? '눈이 다가와요' : '비가 다가와요', big: `${etaMinutes}분 뒤`, side: `${clockAfter(now, etaMinutes)}쯤 시작` };
+    return { kicker: `${precipSubject(kind)} 다가와요`, big: `${etaMinutes}분 뒤`, side: `${clockAfter(now, etaMinutes)}쯤 시작` };
   }
   if (state === 'ACTIVE') {
-    const kicker = snow ? '지금 눈이 와요' : '지금 비가 와요';
+    const kicker = `지금 ${precipSubject(kind)} 와요`;
     return rainEndMinutes != null
       ? { kicker, big: `${rainEndMinutes}분 뒤 그침`, side: `${clockAfter(now, rainEndMinutes)}쯤 그쳐요` }
       : { kicker, big: '30분 넘게', side: '예보 범위 안에 안 그쳐요' };
   }
-  return { kicker: '주변이 맑아요', big: snow ? '눈·비 없음' : '비 없음', side: '앞으로 30분' };
+  return { kicker: '주변이 맑아요', big: kind === 'rain' ? '비 없음' : '눈·비 없음', side: '앞으로 30분' };
 }
 
 // 다른 지도 컨트롤(기본 101: 상태 카드, 범례 바, 지도 버튼)보다 위 — 시트와 어두운 배경이 모두를 덮는다.
@@ -158,8 +167,8 @@ export function ForecastPanel({ bridge }:{ bridge:RainAssistBridgeState; }) {
 
   const toneKey = notification?.state ?? (forecast ? FORECAST_TO_NOTIFICATION[forecast.forecast.state] : 'IDLE');
   const baseTone = TONES[toneKey] ?? TONES.IDLE;
-  const snowKicker = kind === 'snow' ? SNOW_KICKERS[toneKey] : undefined;
-  const tone = snowKicker ? { ...baseTone, kicker: snowKicker } : baseTone;
+  const kindKicker = kickerFor(toneKey, kind);
+  const tone = kindKicker ? { ...baseTone, kicker: kindKicker } : baseTone;
   const detail = cardDetail(forecast, kind);
   const canOpen = !!forecast;
 
@@ -171,9 +180,14 @@ export function ForecastPanel({ bridge }:{ bridge:RainAssistBridgeState; }) {
             <CardIcon style={{ background: tone.soft, color: tone.ink }}>
               <svg aria-hidden width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'>
                 <path d='M7 15a4 4 0 0 1-.5-7.97A5.5 5.5 0 0 1 17 8a3.5 3.5 0 0 1 .5 7' />
-                {kind === 'snow'
-                  ? <path d='M9 18.5h.01M13 20.5h.01M17 18.5h.01' strokeWidth='3' />
-                  : <path d='M9 18l-1 2M13 18l-1 2M17 18l-1 2' />}
+                {kind === 'snow' && <path d='M9 18.5h.01M13 20.5h.01M17 18.5h.01' strokeWidth='3' />}
+                {kind === 'mixed' && (
+                  <>
+                    <path d='M9 18l-1 2M17 18l-1 2' />
+                    <path d='M13 19.5h.01' strokeWidth='3' />
+                  </>
+                )}
+                {kind === 'rain' && <path d='M9 18l-1 2M13 18l-1 2M17 18l-1 2' />}
               </svg>
             </CardIcon>
             <CardText>

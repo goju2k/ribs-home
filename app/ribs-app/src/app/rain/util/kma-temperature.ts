@@ -23,13 +23,34 @@ export interface KmaTemperature {
   values:Float32Array;
 }
 
-// 이 기온 이하에서 내리면 눈으로 본다(사용자 기준: 영상 2도면 눈이 올 기온).
-export const SNOW_MAX_CELSIUS = 2;
+// 내리면 무엇으로 볼지(사용자 기준, 앱 PrecipKind와 같은 값): 3℃ 이하 눈, 4℃ 눈/비, 그 위는 비.
+// 기온 그림이 1℃ 단위라 값은 정수다. 2026-11-21 대천 3℃·군산 4℃에서 실제로 눈이 왔다.
+export const SNOW_MAX_CELSIUS = 3;
+export const MIXED_MAX_CELSIUS = 4;
 
-export type PrecipKind = 'rain' | 'snow';
+export type PrecipKind = 'rain' | 'snow' | 'mixed';
 
 export function precipKind(celsius:number | null | undefined):PrecipKind {
-  return celsius != null && celsius <= SNOW_MAX_CELSIUS ? 'snow' : 'rain';
+  if (celsius == null) {
+    return 'rain';
+  }
+  if (celsius <= SNOW_MAX_CELSIUS) {
+    return 'snow';
+  }
+  return celsius <= MIXED_MAX_CELSIUS ? 'mixed' : 'rain';
+}
+
+// 문장에 넣을 말: '비' / '눈' / '눈/비'.
+export function precipWord(kind:PrecipKind):string {
+  if (kind === 'snow') {
+    return '눈';
+  }
+  return kind === 'mixed' ? '눈/비' : '비';
+}
+
+// 주격 조사까지: '비가' / '눈이' / '눈/비가'.
+export function precipSubject(kind:PrecipKind):string {
+  return kind === 'snow' ? '눈이' : `${precipWord(kind)}가`;
 }
 
 const REFRESH_MS = 20 * 60 * 1000;
